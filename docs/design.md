@@ -166,3 +166,15 @@ templates/  tools/          영역 틀과 점검·생성 도구
 - 영역 폴더 하나가 이미지 하나다(platform 은 기성품 이미지마다 설정 폴더 하나).
 - platform 의 설정은 지금 `deploy/` 아래(envoy, keycloak, caddy, monitoring, pki.py 등)에 있다. platform 영역 작업에서 `platform/` 으로 옮기고 `./deploy` 는 그 경로를 읽는다.
 - 영역 폴더는 `tools/new-area {service|web|job|lib} <이름>` 으로 만든다.
+
+## 6. 배치(어디서 도는가)
+
+| 서버 | 도는 것 | 이유 |
+|---|---|---|
+| 서비스 서버(1대 이상) | survey-service 와 그 DB, platform, 화면 둘 | 상시 서비스. 서버 수와 배치는 배치 설정(DeploymentLayout, UD-15) |
+| 서빙 GPU 서버 | model-runtime, 추론 엔진(vLLM) | 추론에 GPU 가 필요하다. 서비스 서버에 GPU 가 있으면 같은 서버에 둘 수 있다 |
+| 학습 GPU 서버 | model-lab 잡(실행할 때만 뜨고 끝나면 사라진다) | 학습은 GPU 를 오래 독차지해 서빙과 함께 두면 문진 응답이 느려진다 |
+
+- 관리 노드에서 `./deploy job model-lab <단계>` 를 실행하면 docker context(SSH)로 학습 서버의 도커 엔진에서 컨테이너가 뜬다(ADR 0013).
+- 학습 서버는 모델 패키지를 레지스트리에 올리고(push) model-runtime 은 받는다(pull). 학습 서버와 서빙 서버는 직접 통신하지 않는다. 학습 서버는 레지스트리에 닿고 사설 루트를 신뢰해야 한다.
+- 레지스트리는 platform 이 서비스 서버에 둔다.
