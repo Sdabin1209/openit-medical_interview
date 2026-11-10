@@ -22,7 +22,7 @@ paths:
       responses:
         "200":
           description: 살아 있다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /readyz:
     get:
@@ -35,7 +35,7 @@ paths:
       responses:
         "200":
           description: 준비되었다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /metrics:
     get:

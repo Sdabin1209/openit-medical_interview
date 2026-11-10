@@ -36,7 +36,7 @@ paths:
       operationId: listFailureCases
       tags: [cases]
       summary: 실패 사례 목록
-      description: 실패 사례를 쪽으로 나누어 준다. 검토자는 화면에서 검토할 사례를 고르고, model-lab 은 review_status=CONFIRMED 로 회귀 평가 집합을, synthetic-data 는 검토된 사례를 시드로 읽는다(F19, F20, F46, D52(2), D43, L17).
+      description: 실패 사례를 쪽으로 나누어 준다. 검토자가 화면에서 검토할 사례를 고른다. 환자 발화 원문은 검토용이라 검토자 역할에만 나간다. 학습·데이터 영역은 listFailureCaseExports 로 읽는다(F46, D15, L12).
       x-owner: ops-feedback
       security: [ { oidc: [reviewer] }, { area_mtls: [], machine_token: [case-reader] } ]
       parameters:
@@ -50,6 +50,25 @@ paths:
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/case-exports:
+    get:
+      operationId: listFailureCaseExports
+      tags: [cases]
+      summary: 비식별 실패 사례 목록(기계 독자용)
+      description: model-lab 은 review_status=CONFIRMED 로 회귀 평가 집합을, synthetic-data 는 검토된 사례를 시드로 읽는다. 환자 발화 원문과 모델 출력은 담지 않고 검토자가 개인정보를 빼고 고쳐 쓴 문장과 기대 출력만 담는다(F19, F20, D15, D52(2), L17).
+      x-owner: ops-feedback
+      security: [ { area_mtls: [], machine_token: [case-reader] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+        - { name: review_status, in: query, required: false, description: 이 검토 상태의 사례만, schema: { $ref: "../components.yaml#/components/schemas/ReviewStatus" } }
+        - { name: questionnaire_id, in: query, required: false, description: 이 문진표의 사례만, schema: { $ref: "../components.yaml#/components/schemas/QuestionnaireId" } }
+      responses:
+        "200": { description: 사례 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCaseExportPage" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /v1/cases/{case_id}:
     parameters:
       - { name: case_id, in: path, required: true, description: 읽을 사례, schema: { $ref: "../components.yaml#/components/schemas/CaseId" } }
@@ -57,7 +76,7 @@ paths:
       operationId: getFailureCase
       tags: [cases]
       summary: 실패 사례 읽기
-      description: 사례 하나의 최신 검토 버전을 준다(F46, D71).
+      description: 사례 하나의 최신 검토 버전을 검토자에게 준다. 환자 발화 원문이 들어 있다(F46, D71, L12).
       x-owner: ops-feedback
       security: [ { oidc: [reviewer] }, { area_mtls: [], machine_token: [case-reader] } ]
       responses:
@@ -73,7 +92,7 @@ paths:
       operationId: reviewFailureCase
       tags: [cases]
       summary: 실패 사례 검토 결과 게시
-      description: 검토자가 사례의 검토 상태와 기대 출력과 고쳐 쓴 발화를 확정해 게시한다. 최신 버전과 내용이 모두 같으면 200 으로 변화 없음을, 하나라도 다르면 새 버전을 만들어 201 로 답한다(멱등). 검토자는 개인 계정으로 기록되며 승인자와 역할이 다르다(F45, D52(1), D71).
+      description: 검토자가 사례의 검토 상태와 기대 출력과 고쳐 쓴 발화를 확정해 게시한다. 최신 버전과 내용이 모두 같으면 200 으로 변화 없음을, 하나라도 다르면 새 버전을 만들어 201 로 답한다(멱등). 검토자는 개인 계정으로 기록되며 승인자와 역할이 다르다(F45, D52(1), D71). 본문의 base_case_version 이 최신이 아니면 409 CASE_VERSION_MISMATCH 다.
       x-owner: ops-feedback
       security: [ { oidc: [reviewer] } ]
       requestBody:
@@ -132,7 +151,7 @@ paths:
       responses:
         "200":
           description: 살아 있다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /readyz:
     get:
@@ -145,7 +164,7 @@ paths:
       responses:
         "200":
           description: 준비되었다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /metrics:
     get:

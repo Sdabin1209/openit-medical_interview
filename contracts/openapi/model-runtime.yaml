@@ -18,7 +18,7 @@ paths:
       operationId: extractAction
       tags: [inference]
       summary: LoRA-A 로 값과 행동 추출
-      description: 환자 발화와 문항 순서표와 칸 규격을 받아 LoRA-A 로 행동과 칸 값을 뽑는다. 출력은 규칙 보증(값 범위, targets 가 values 의 부분집합, 다음 문항이 순서표와 맞음)을 마친 값이며 받는 쪽은 다시 검증하지 않는다. 끝내 형식을 못 지키면 값을 지어내지 않고 503 OUTPUT_INVALID 로 낸다(F33, F34, D74, D75(1), D104(3), D115, D108).
+      description: 환자 발화와 문항 순서표와 칸 규격을 받아 LoRA-A 로 행동과 칸 값을 뽑는다. 출력은 규칙 보증(값 범위, targets 가 values 의 부분집합, 다음 문항이 순서표와 맞음)을 마친 값이며 받는 쪽은 다시 검증하지 않는다. 끝내 형식을 못 지키면 값을 지어내지 않고 503 OUTPUT_INVALID 로 낸다(F33, F34, D74, D75(1), D104(3), D115, D108). 요청의 release_id 가 적재한 릴리스와 다르면 409 RELEASE_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다.
       x-owner: model-runtime
       security: [ { area_mtls: [], machine_token: [inference-caller] } ]
       requestBody:
@@ -29,13 +29,14 @@ paths:
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../components.yaml#/components/responses/Conflict" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /v1/responses:
     post:
       operationId: generateResponse
       tags: [inference]
       summary: LoRA-B 로 응답 문장 만들기
-      description: 행동과 사유와 모은 값과 다음 자리를 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(F33, F34, D74, D77).
+      description: 행동과 사유와 모은 값과 다음 자리를 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(F33, F34, D74, D77). 요청의 release_id 가 적재한 릴리스와 다르면 409 RELEASE_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다.
       x-owner: model-runtime
       security: [ { area_mtls: [], machine_token: [inference-caller] } ]
       requestBody:
@@ -46,6 +47,7 @@ paths:
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../components.yaml#/components/responses/Conflict" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /v1/model-status:
     get:
@@ -71,7 +73,7 @@ paths:
       responses:
         "200":
           description: 살아 있다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /readyz:
     get:
@@ -84,7 +86,7 @@ paths:
       responses:
         "200":
           description: 준비되었다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /metrics:
     get:

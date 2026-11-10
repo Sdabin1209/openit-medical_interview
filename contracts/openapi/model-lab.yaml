@@ -88,9 +88,11 @@ paths:
       operationId: uploadTrainingArtifact
       tags: [training]
       summary: 학습 결과 파일 올리기
-      description: 게시한 학습 결과가 가리키는 어댑터 파일이나 실행 기록 파일을 올린다. 서버는 내용의 해시가 게시한 값과 같은지 확인하고 다르면 400 으로 거절한다. 같은 파일을 다시 올려도 결과는 같다(F67, C16, RFC 9110 9.3.4).
+      description: 게시한 학습 결과가 가리키는 어댑터 파일이나 실행 기록 파일을 올린다. 서버는 Repr-Digest 헤더(RFC 9530)와 받은 내용으로 다시 계산한 해시가 게시한 값과 같은지 확인하고 다르면 400 ARTIFACT_DIGEST_MISMATCH 로 거절한다. 크기 상한은 Content-Length 로 강제하고 넘으면 413 이다. 같은 파일을 다시 올려도 결과는 같다(F67, C16, RFC 9110 9.3.4).
       x-owner: model-lab
       security: [ { machine_token: [model-publisher] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/ReprDigest" }
       requestBody:
         required: true
         content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } }
@@ -100,6 +102,7 @@ paths:
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "413": { $ref: "../components.yaml#/components/responses/PayloadTooLarge" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /healthz:
     get:
@@ -112,7 +115,7 @@ paths:
       responses:
         "200":
           description: 살아 있다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /readyz:
     get:
@@ -125,7 +128,7 @@ paths:
       responses:
         "200":
           description: 준비되었다
-          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+          content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /metrics:
     get:
