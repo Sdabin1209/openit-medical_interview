@@ -40,7 +40,7 @@ COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER 10001:10001
 EXPOSE 8080
-# 왜: slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"]
-CMD ["uvicorn", "--factory", "survey_service.main:create_app", "--host", "0.0.0.0", "--port", "8080"]
+# 왜: slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다. 포트는 환경 입력 OPENIT_LISTEN_PORT 다(기본 8080)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+  CMD ["python", "-c", "import os,urllib.request,sys; port=os.environ.get('OPENIT_LISTEN_PORT','8080'); sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/healthz' % port, timeout=2).status == 200 else 1)"]
+CMD ["python", "-m", "survey_service"]

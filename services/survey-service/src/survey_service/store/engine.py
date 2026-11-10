@@ -29,7 +29,9 @@ def make_engine(url: str | URL) -> AsyncEngine:
 
 
 def _alembic_config(connection: Connection) -> Config:
-    config = Config(str(Path(__file__).resolve().parents[3] / "alembic.ini"))
+    # 왜 ini 파일 없이: 설치된 패키지(이미지)에는 alembic.ini 가 없다. 마이그레이션 폴더는 패키지 안에 있다
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).resolve().parent / "migrations"))
     config.attributes["connection"] = connection
     return config
 
