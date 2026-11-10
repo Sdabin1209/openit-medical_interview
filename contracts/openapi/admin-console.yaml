@@ -18,12 +18,12 @@ paths:
       summary: 살아 있음 확인
       description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
       x-owner: admin-console
-      security: []
+      security: [  ]
       responses:
         "200":
           description: 살아 있다
           content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
-        "503": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /readyz:
     get:
       operationId: adminConsoleReadyz
@@ -31,12 +31,12 @@ paths:
       summary: 요청을 받을 준비 확인
       description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
       x-owner: admin-console
-      security: []
+      security: [  ]
       responses:
         "200":
           description: 준비되었다
           content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
-        "503": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /metrics:
     get:
       operationId: adminConsoleMetrics
@@ -44,19 +44,9 @@ paths:
       summary: 지표 읽기
       description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
       x-owner: admin-console
-      security: []
+      security: [  ]
       responses:
         "200":
           description: 지표
           content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
-        "503": { $ref: "#/components/responses/Unavailable" }
-components:
-  headers:
-    RetryAfter:
-      description: 같은 요청을 다시 보내기 전에 기다릴 초
-      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
-  responses:
-    Unavailable:
-      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
-      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
-      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }

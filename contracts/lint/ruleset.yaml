@@ -98,3 +98,8 @@ overrides:
     rules:
       oas3-unused-component: off
       oas3-api-servers: off
+  - files: ["../openapi/*.yaml"]
+    rules:
+      # 왜: 이 표준 규칙은 보안 요구 배열의 값을 oauth2 의 scope 로만 읽는다(OpenAPI 3.0 해석).
+      #     OpenAPI 3.1.0 4.8.30 은 oauth2 가 아닌 체계에서 그 배열을 필요한 역할 이름 목록으로 쓰도록 허용하고 이 계약은 그렇게 쓴다.
+      oas3-operation-security-defined: "off"
