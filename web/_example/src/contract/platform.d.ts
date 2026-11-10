@@ -156,7 +156,7 @@ export interface components {
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
-         * @example /input/user_utterance
+         * @example /user_utterance
          */
         JsonPointer: string;
         /** @description 요청의 칸 하나가 계약을 어긴 내용. 위치와 까닭 */
