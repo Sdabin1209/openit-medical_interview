@@ -1,0 +1,24 @@
+# 개발용 PostgreSQL 16 하나만 띄운다(앱은 컨테이너 밖에서 개발한다, D22). 컨테이너 이름·프로젝트 이름에 openit-ss 를 넣는다.
+# 비밀번호는 git 제외 폴더 .dev/ 의 파일로 준다: `mkdir -p .dev && openssl rand -hex 16 > .dev/pg_password`
+name: openit-ss-dev
+services:
+  postgres:
+    # 왜 이 digest: deploy/compose.yaml 이 쓰는 이미지와 같다(점검 image-pins 가 같은 이미지에 같은 digest 를 요구한다)
+    image: postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74
+    container_name: openit-ss-dev-postgres
+    environment:
+      POSTGRES_USER: survey
+      POSTGRES_DB: survey
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    ports:
+      - "127.0.0.1::5432" # 호스트 포트는 Docker 가 배정한다(고정 포트 없음)
+    tmpfs: [/var/lib/postgresql/data] # 개발 데이터는 컨테이너와 함께 사라진다
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username survey --dbname survey"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+secrets:
+  pg_password:
+    file: ./.dev/pg_password

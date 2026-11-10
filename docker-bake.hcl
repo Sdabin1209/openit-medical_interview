@@ -4,7 +4,7 @@
 
 // BEGIN SERVICES
 variable "SERVICES" {
-  default = ["_example"]
+  default = ["_example", "survey-service"]
 }
 // END SERVICES
 

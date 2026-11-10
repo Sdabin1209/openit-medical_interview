@@ -1,5 +1,7 @@
 # survey-service-001: 계약 타입 생성기가 securitySchemes 참조를 해석하지 못한다
 
+처리됨(ca81f63)
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: tools/checks 의 소유자(헤드).
 
