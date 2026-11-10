@@ -47,6 +47,9 @@ CA_DIR = PKI_DIR / "ca"
 PENDING_DIR = PKI_DIR / "pending"
 ARCHIVE_DIR = PKI_DIR / "archive"
 TRIVY_CACHE = ROOT / ".trivy-cache"  # git 제외 폴더. 취약점 DB 캐시
+# 왜: 개발자가 시험을 돌리면 영역 폴더에 생기는 로컬 환경(.venv, node_modules)은 이미지에 들어가지 않는데(.dockerignore),
+# 그 안의 제3자 시험용 Dockerfile 까지 설정 검사가 잡아 빌드가 실패한다. 커밋 대상인 파일만 검사한다
+TRIVY_SKIP_LOCAL = ["--skip-dirs", "**/.venv", "--skip-dirs", "**/node_modules"]
 # 왜 CRITICAL,HIGH 와 --ignore-unfixed: Trivy 공식 문서가 CI 실패 기준으로 보이는 일반 예시다. 고칠 수 없는 항목(수정판 없음)으로 막지 않는다(ADR 0016)
 TRIVY_SEVERITY = "CRITICAL,HIGH"
 STEP_IMAGE_SERVICE = "step-ca"  # 인증서 만들기에 쓰는 step CLI 는 step-ca 이미지(같은 digest)에 들어 있다
@@ -266,7 +269,7 @@ def trivy_config_scan(names: list[str], targets: dict[str, str]) -> None:
     """빌드 전: Dockerfile 과 배포 구성(compose)의 보안 설정을 본다."""
     for name in names:
         folder = area_folder(name, targets[name])
-        trivy_or_fail(f"trivy config {folder}", trivy(["config", "--severity", TRIVY_SEVERITY, "--exit-code", "1", f"/src/{folder}"]))
+        trivy_or_fail(f"trivy config {folder}", trivy(["config", "--severity", TRIVY_SEVERITY, "--exit-code", "1", *TRIVY_SKIP_LOCAL, f"/src/{folder}"]))
     trivy_or_fail("trivy config deploy", trivy(["config", "--severity", TRIVY_SEVERITY, "--exit-code", "1", "/src/deploy/compose.yaml"]))
 
 
