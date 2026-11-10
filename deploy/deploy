@@ -1354,7 +1354,9 @@ def identity_sync() -> None:
     values = {"OAUTH2_PROXY_CLIENT_SECRET": read_password("oauth2_proxy_client_secret").decode(), "OPENIT_REALM_ADMIN_PASSWORD": read_password("keycloak_admin_password").decode()}
     if MACHINE_SECRETS_DIR.is_dir():
         values |= {pf_identity.machine_env_name(p.name): p.read_text(encoding="utf-8").strip() for p in MACHINE_SECRETS_DIR.iterdir() if p.is_file()}
-    body = json.dumps({"ifResourceExists": "OVERWRITE", "clients": realm["clients"], "roles": realm["roles"]})
+    body = json.dumps({"ifResourceExists": "OVERWRITE", "clients": realm["clients"]})
+    # 왜 역할은 SKIP: 역할을 덮어쓰면 지워졌다 다시 만들어져 사람 계정에 준 역할 부여가 사라진다(시험에서 확인). 역할 이름은 계약이 정하므로 없는 것만 만든다
+    roles_body = json.dumps({"ifResourceExists": "SKIP", "roles": realm["roles"]})
     for name, value in values.items():
         body = body.replace("${" + name + "}", value)
     unresolved = re.findall(r"\$\{[A-Z0-9_]+\}", body)
@@ -1383,7 +1385,8 @@ account() {
 }
 kc config credentials --server http://localhost:8080 --realm master --user admin --password "$(cat /run/secrets/keycloak_admin_password)" >/dev/null
 kc create partialImport -r openit -f - >/dev/null
-""" + "\n".join(calls) + "\n"
+kc create partialImport -r openit -f - >/dev/null <<'ROLES'
+""" + roles_body + "\nROLES\n" + "\n".join(calls) + "\n"
     result = compose(["exec", "-T", "keycloak", "bash", "-c", script], input=body, capture_output=True)
     if result.returncode != 0:
         fail(f"identity sync 실패(rc={result.returncode}): {(result.stderr or result.stdout).strip()[-400:]}")

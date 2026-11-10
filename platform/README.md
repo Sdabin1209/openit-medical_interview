@@ -52,7 +52,7 @@ uv run pytest -m sandbox tests/scenario   # 샌드박스 종단 시험(docker, 1
 
 시험 개수·결과를 이 문서에 복사하지 않는다(문서마다 시점이 어긋난다). 이 영역의 마지막 검증 결과는 아래 한 곳에 둔다.
 
-__STATUS__
+2026-11-10, 이 작업 트리(브랜치 candidate-v7-platform)에서 확인했다. 단위 시험·ruff·pyright 와 샌드박스 종단 시험(기기 인증서, XFCC, 사람 OIDC 와 계약 역할만 담은 토큰, 기계 토큰 역할별 허용·거부, 나가는 터널, 영역 지표·Watchdog, 폐기 반영, 인증서 갱신과 Envoy 재적재, 루트 교체, `identity sync`)이 통과했다. 확인하지 못한 것: `acme-public` 과 `organization` 입구 인증서의 종단 간 시험, 경보 수신처로의 실제 전송, 루트 교체 2단계가 이전 루트 서명 인증서를 보고 거절하는 경우의 자동 시험(수명 5분 설치에서는 경주가 된다). 변경 요청 platform-001~003 은 헤드의 답을 기다린다.
 
 ## 6. ADR
 

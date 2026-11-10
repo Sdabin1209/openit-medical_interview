@@ -12,7 +12,7 @@
 - **RFC 9068:** 클라이언트 속성 `access.token.header.type.rfc9068=true`(Keycloak 이 JOSE 헤더 `typ` 를 `at+jwt` 로 낸다), 접근 토큰 수명 300초(Keycloak 기본값, 측정하지 않았다), 클라이언트마다 고정 값 매퍼로 `client_id`(세션 노트 매퍼는 서비스 계정에만 값이 있다), 서비스별 audience 매퍼로 `aud`. 사람 토큰의 `aud` 는 사람 인증 경로가 있는 서비스들, 기계 토큰의 `aud` 는 그 역할을 요구하는 작업이 있는 서비스(계약 OpenAPI 에서)다. 시험이 로그인으로 받은 토큰의 헤더와 클레임을 계약 스키마(`AccessTokenHeader`, `UserIdentityClaims`, `TokenAudienceClaim`)로 검증한다.
 - **기계 클라이언트:** `MachineTokenTable` 의 호출자마다 `machine-<이름>` 기밀 클라이언트(client credentials만, 서비스 계정이 표의 역할을 realm 역할로)를 만든다. 비밀은 `deploy/secrets/machine-clients/<이름>`(`./deploy secrets init`)이다(변경 요청 platform-002).
 - **oauth2-proxy:** 입구의 ext_authz 가 세션을 묻는다(ADR 0003). `--code-challenge-method=S256`(PKCE), 쿠키 `secure`·`lax`, 발급자 인증서는 신뢰 목록으로 검증, `--oidc-email-claim=sub`(계정에 이메일이 없을 수 있다), 접근 토큰은 `X-Auth-Request-Access-Token` 으로 입구에 준다. 접근 토큰 수명의 4/5(240초)마다 갱신 토큰으로 새 토큰을 받고 세션 쿠키는 10시간(Keycloak SSO Session Max 기본값)이다(측정하지 않았다).
-- **realm 변경의 반영:** Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다. 기계 호출자나 노출 선언이 바뀌어 realm 파일이 달라지면 `./deploy up` 이 알리고(`identity/openit-realm.json` 이 바뀌었다는 메시지) `./deploy identity sync` 가 반영한다.
+- **realm 변경의 반영:** Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다. 기계 호출자나 노출 선언이 바뀌어 realm 파일이 달라지면 `./deploy up` 이 알리고(`identity/openit-realm.json` 이 바뀌었다는 메시지) `./deploy identity sync` 가 반영한다(클라이언트는 덮어쓰고 역할은 없는 것만 만든다. 역할을 덮어쓰면 사람 계정의 역할 부여가 사라지는 것을 시험에서 확인했다).
 
 ## 왜
 - RFC 9068 은 JWT 접근 토큰의 프로파일이고 Keycloak 이 지원한다(속성). 계약이 같은 프로파일을 요구하므로 별도 변환 계층이 필요 없다.
