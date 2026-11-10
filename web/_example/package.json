@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "smoke": "node tests/smoke/smoke.mjs",
-    "generate:contract": "openapi-typescript"
+    "generate:contract": "openapi-typescript",
+    "check:contract": "openapi-typescript --check"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",

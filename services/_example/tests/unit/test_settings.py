@@ -6,8 +6,16 @@ from example.main import Settings, create_app
 
 
 def test_settings_read_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENIT_SERVICE_NAME", "abc")
-    assert Settings().service_name == "abc"
+    monkeypatch.setenv("OPENIT_SERVICE_NAME", "model-runtime")
+    assert Settings().service_name.value == "model-runtime"
+
+
+def test_unknown_service_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("OPENIT_SERVICE_NAME", "abc")  # 계약 ServiceName 에 없는 이름
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_database_enabled_requires_secret_file(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,4 +37,4 @@ def test_database_enabled_adds_failing_readiness(
     client = TestClient(create_app(Settings(database_enabled=True)))
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert response.json()["failed"] == ["database"]
+    assert response.json()["detail"] == "준비되지 않은 점검: database"

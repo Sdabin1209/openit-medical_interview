@@ -5,7 +5,7 @@
 
 ## 2. 받는 계약·내는 계약
 (`contracts/`의 어느 OpenAPI 계약을 받는지 링크한다. 이웃 영역의 사실은 복사하지 않는다.)
-타입은 `npm run generate:contract -- <openapi 파일> -o src/contract/<이름>.d.ts`로만 만든다. 손으로 고치지 않는다.
+이 화면이 부르는 계약은 `redocly.yaml` 의 `apis` 에 적고(이웃 서비스의 계약 포함), 타입은 `npm run generate:contract` 로만 만든다(`src/contract/`, 손으로 고치지 않는다). 생성물이 계약과 같은지는 `npm run check:contract` 와 `openit-check contract-drift` 가 본다(ADR 0020).
 
 ## 3. 컴포넌트
 | 컴포넌트 | 폴더 | 입력(props) | 하는 일 |
@@ -22,6 +22,8 @@
 npm install
 npm run dev            # 개발 서버
 npm run build          # 타입 검사 후 정적 파일 빌드
+npm run generate:contract   # 계약에서 타입 다시 만들기
+npm run check:contract      # 생성물이 계약과 같은지
 npm run lint           # eslint(경계 점검 포함)
 npx tsc --noEmit       # 타입 검사
 npm test               # Vitest(단위·계약·경계)

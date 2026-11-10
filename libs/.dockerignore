@@ -1,0 +1,7 @@
+**/.venv
+**/tests
+**/docs
+**/__pycache__
+**/.import_linter_cache
+**/.pytest_cache
+**/.ruff_cache

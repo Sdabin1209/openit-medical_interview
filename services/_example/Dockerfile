@@ -5,11 +5,17 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.9.0@sha256:8f926a80debadba6f18442030df316c0e
 
 FROM ${UV_IMAGE} AS uv
 
+# 왜: libs/ 의 공유 라이브러리를 경로 의존으로 쓰면 빌드에 들어가야 한다(ADR 0020). bake 가 `contexts = { libs = "libs" }` 로 이 단계를 libs/ 폴더로 바꾼다.
+# 빌드 컨텍스트는 영역 폴더 그대로다(ADR 0006). 덮어쓰지 않고 직접 빌드하면 비어 있어 경로 의존을 설치하지 못하고 실패한다.
+FROM scratch AS libs
+
 FROM ${PYTHON_IMAGE} AS build
 COPY --from=uv /uv /usr/local/bin/uv
 # 왜: 잠금 파일대로만 설치(--frozen)하고 시스템 파이썬을 쓴다(UV_PYTHON_DOWNLOADS=never)
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv
-WORKDIR /src
+# 왜 /work/services/<영역>: pyproject 의 경로 의존(../../libs/<이름>)이 개발 환경과 같은 상대 위치로 풀린다
+COPY --from=libs / /work/libs
+WORKDIR /work/services/_example
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 COPY src ./src

@@ -23,12 +23,12 @@ afterEach(() => {
 
 describe("App", () => {
   it("준비 상태를 서버에서 읽어 보인다", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({ status: "ready", failed: [] }))));
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({ status: "pass", service: "platform" }))));
     renderApp();
     expect(await screen.findByText("준비됨")).toBeInTheDocument();
   });
   it("이름을 입력하고 확인하면 표에 행이 생긴다", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({ status: "ready", failed: [] }))));
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({ status: "pass", service: "platform" }))));
     renderApp();
     await userEvent.type(screen.getByLabelText("이름"), "다빈");
     await userEvent.click(screen.getByRole("button", { name: "추가" }));

@@ -5,10 +5,10 @@
 ```
 openit-v7/
 ├── contracts/   영역 사이 계약(OpenAPI 3.1, JSON Schema 2020-12)과 린트 규칙. 헤드 소유
-├── libs/        여러 영역이 쓰는 라이브러리(link, model-runtime)
+├── libs/        여러 영역이 쓰는 라이브러리(model-io). 경로 의존(ADR 0020)
 ├── services/    서비스 영역. 폴더 하나 = 서비스 하나 = Docker 이미지 하나
 ├── web/         화면(키오스크, 관리 화면)
-├── jobs/        서버가 아닌 잡 영역(합성 데이터, 모델 개발)
+├── jobs/        서버가 아닌 잡 영역(모델 개발 등). 잡 단계마다 한 번 실행하는 명령
 ├── deploy/      배포 구성과 배포 명령(compose, images.lock, ./deploy)
 └── docs/adr/    전체에 걸친 결정 기록(ADR)
 ```
@@ -20,9 +20,10 @@ openit-v7/
 
 | 하는 일 | 명령 |
 |---|---|
-| 새 영역 만들기(템플릿에서) | `tools/new-area {service\|web} <이름>` |
+| 새 영역 만들기(템플릿에서) | `tools/new-area {service\|job\|lib\|web} <이름> [--lib <라이브러리>] [--openapi <계약>]` |
+| 계약 타입 다시 만들기(파이썬) | `uv run --project tools/checks openit-gen-contract <영역 폴더>` (화면은 `npm run generate:contract`) |
 | 이미지 빌드 | `deploy/deploy build [대상]` |
-| 이미지 스모크 | `tools/smoke {service\|web} <영역>` |
+| 이미지 스모크 | `tools/smoke {service\|job\|web} <영역>` |
 | 화면 브라우저 시험(컨테이너) | `tools/web-e2e <영역>` |
 | 제3자 고지 생성(의존을 바꾼 뒤) | `uv run --project tools/checks openit-notices generate <영역 폴더>` |
 | 공통 점검 | `cd tools/checks && uv run openit-check all` |
@@ -31,7 +32,7 @@ openit-v7/
 | 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
 | 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
-템플릿은 `templates/service`, `templates/web`이고 `services/_example`, `web/_example`은 템플릿 시험용으로 남겨 둔다(실제 영역이 아니다).
+템플릿은 `templates/service`, `templates/job`, `templates/lib`, `templates/web`이고 `services/_example`, `jobs/_example-job`, `web/_example`은 템플릿 시험용으로 남겨 둔다(실제 영역이 아니다. `services/_example` 은 `libs/model-io` 를 경로 의존으로 쓰는 예다).
 
 ## ADR 목록
 
@@ -54,3 +55,4 @@ openit-v7/
 - [0017 라이선스 원칙 의무가 생기는 사용 금지](docs/adr/0017-라이선스-원칙-의무가-생기는-사용-금지.md)
 - [0018 제3자 고지 THIRD_PARTY_NOTICES 자동 생성과 이미지 점검](docs/adr/0018-제3자-고지-THIRD_PARTY_NOTICES-자동-생성.md)
 - [0019 영역 구성 7개](docs/adr/0019-영역-구성-7개.md)
+- [0020 계약 타입 생성, 공유 라이브러리, 계약 적합성 시험, 잡 영역 틀](docs/adr/0020-계약-타입-생성-공유-라이브러리-계약-적합성-시험.md)

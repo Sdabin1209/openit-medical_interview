@@ -5,6 +5,8 @@
 
 ## 2. 받는 계약·내는 계약
 (`contracts/`의 어느 계약을 받고 내는지 링크한다. 이웃 영역의 사실은 복사하지 않는다.)
+- 받는·내는 HTTP 계약은 `contracts/openapi/<이름>.yaml` 이고 이름은 `pyproject.toml` 의 `[tool.openit.contract] openapi` 가 정본이다. 타입은 `src/__PKG__/contract/models.py` 로 생성한다(손으로 고치지 않는다).
+- 응답이 계약과 맞는지는 `tests/contract/` 의 Schemathesis 시험이 본다(앱을 ASGI 로 직접 부른다).
 
 ## 3. 컴포넌트
 | 컴포넌트 | 파일 | 입력 | 출력 | 하는 일 |
@@ -14,9 +16,10 @@
 ## 4. 실행·시험 명령
 ```
 uv sync
-uv run pytest            # 단위·계약·마이그레이션 시험
+uv run pytest            # 단위·계약 적합성(Schemathesis)·마이그레이션 시험
 DATABASE_URL_FILE=<연결 문자열 파일> uv run alembic upgrade head   # DB 마이그레이션(리비전: src/__PKG__/store/migrations/versions/)
 uv run lint-imports      # 경계 점검
+uv run --project tools/checks openit-gen-contract services/__AREA__   # 계약 타입 다시 만들기(리포 루트에서, ADR 0020)
 uv run pyright           # 타입 검사(strict)
 uv run ruff check        # 린트
 deploy/deploy build __AREA__   # 이미지 빌드

@@ -120,16 +120,29 @@ def git(*args: str) -> str:
 
 
 def area_targets() -> dict[str, str]:
-    """bake 대상 이름 -> 종류. services/·web/ 폴더가 정본이다."""
+    """bake 대상 이름 -> 종류. services/·jobs/·web/ 폴더가 정본이다."""
     targets: dict[str, str] = {}
-    for kind, folder, prefix in (("service", "services", ""), ("web", "web", "web-")):
+    for kind, folder, prefix in (("service", "services", ""), ("job", "jobs", ""), ("web", "web", "web-")):
         base = ROOT / folder
         if base.is_dir():
             for child in sorted(base.iterdir()):
                 if child.is_dir() and (child / "Dockerfile").is_file():
-                    name = child.name if kind == "service" else prefix + child.name.lstrip("_")
+                    name = child.name if kind in ("service", "job") else prefix + child.name.lstrip("_")
                     targets[name] = kind
     return targets
+
+
+def job_declarations() -> str:
+    """잡 영역 이름 -> JobsDeclaration 의 한 줄 JSON. 원본은 jobs/<영역>/jobs.json 이다(이미지 라벨 io.openit.jobs 가 된다)."""
+    found: dict[str, object] = {}
+    base = ROOT / "jobs"
+    for child in sorted(base.iterdir()) if base.is_dir() else []:
+        declaration = child / "jobs.json"
+        if (child / "Dockerfile").is_file():
+            if not declaration.is_file():
+                fail(f"{child.relative_to(ROOT)}: jobs.json 이 없다(JobsDeclaration)")
+            found[child.name] = json.loads(declaration.read_text(encoding="utf-8"))
+    return json.dumps(found, ensure_ascii=False, separators=(",", ":"))
 
 
 def read_lock() -> dict[str, str]:
@@ -242,9 +255,9 @@ def trivy_or_fail(what: str, result: subprocess.CompletedProcess[str]) -> None:
 
 def area_folder(name: str, kind: str) -> str:
     """대상 이름('_example', 'web-example')에 해당하는 폴더(리포 기준 상대 경로)."""
-    base, prefix = ("web", "web-") if kind == "web" else ("services", "")
+    base, prefix = {"web": ("web", "web-"), "job": ("jobs", ""), "service": ("services", "")}[kind]
     for child in sorted((ROOT / base).iterdir()):
-        if child.is_dir() and (child / "Dockerfile").is_file() and (child.name if kind == "service" else prefix + child.name.lstrip("_")) == name:
+        if child.is_dir() and (child / "Dockerfile").is_file() and (child.name if kind != "web" else prefix + child.name.lstrip("_")) == name:
             return f"{base}/{child.name}"
     fail(f"대상 '{name}' 의 폴더를 찾지 못했다")
 
@@ -291,7 +304,7 @@ def build(
     """이미지를 빌드하고 images.lock 을 갱신한다."""
     targets = area_targets()
     if not targets:
-        no_target("services/·web/ 에 Dockerfile 이 있는 영역이 없다")
+        no_target("services/·jobs/·web/ 에 Dockerfile 이 있는 영역이 없다")
     if service is not None and service not in targets:
         fail(f"알 수 없는 대상 '{service}'. 가능: {', '.join(targets)}", 2)
     names = [service] if service else list(targets)
@@ -306,6 +319,7 @@ def build(
     env = dockerenv.docker_env()
     # 왜 git describe: 이미지 버전을 사람이 정한 숫자가 아니라 커밋(태그가 있으면 태그)에서 얻는다
     env.update(VERSION=git("describe", "--tags", "--always"), REVISION=revision, CONTRACTS_VERSION=contracts, SOURCE_URL=git("remote", "get-url", "origin"))
+    env["JOB_DECLARATIONS"] = job_declarations()
     mode = ["--check"] if check else ["--load", "--metadata-file", str(meta)]
     result = subprocess.run(  # noqa: S603, S607
         ["docker", "buildx", "bake", "-f", str(ROOT / "docker-bake.hcl"), *mode, *names],
@@ -737,7 +751,7 @@ def local_image(name: str) -> str:
 def push_images(reg: pki.RegistrySettings) -> None:
     targets = area_targets()
     if not targets:
-        typer.echo("올릴 이미지 없음(services/·web/ 에 Dockerfile 이 있는 영역이 없다)")
+        typer.echo("올릴 이미지 없음(services/·jobs/·web/ 에 Dockerfile 이 있는 영역이 없다)")
         return
     target = registry_target(reg)
     lock = read_lock()

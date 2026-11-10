@@ -1,0 +1,86 @@
+# 잡 영역 표준 pyproject (ADR 0003, 0020). HTTP 서버가 없고 잡 단계마다 한 번 실행하는 명령이 진입점이다.
+[project]
+name = "openit-__PKG__"  # 왜: PyPA 이름 규칙상 밑줄로 시작할 수 없어 접두어를 붙인다
+version = "0.1.0"
+description = "__AREA__ 잡 영역"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"  # 왜: 기반 이미지(python:3.12)와 같은 minor 로 고정해 개발·이미지 차이를 없앤다(ADR 0006)
+classifiers = ["Private :: Do Not Upload"]  # 왜: 내부 영역 패키지가 PyPI 에 올라가는 사고를 막는 PyPA 표준 분류
+dependencies = [
+  "pydantic",
+  "pydantic-settings",  # 설정은 환경 변수에서(ADR 0005)
+  "typer",  # 잡 명령의 표준 CLI(ADR 0004 의 deploy 명령과 같다, MIT)
+  "httpx",  # 영역 밖 통신은 link/ 에서만
+]
+
+[project.scripts]
+__PKG__ = "__PKG__.main:app"  # 왜 이 이름: deploy 가 `<이미지> <잡 이름>` 으로 실행한다(진입점이 이 명령이다)
+
+# 버전은 쓰지 않는다. uv 가 uv.lock 에 고정한다(`uv add <패키지>`, 개발 의존은 `uv add --dev <패키지>`).
+[dependency-groups]
+dev = [
+  "pytest",
+  "pyright",
+  "ruff",
+  "import-linter",
+  "jsonschema",
+]
+
+# 계약에서 타입을 만드는 설정(ADR 0020). 다시 만들기: 리포 루트에서 `uv run --project tools/checks openit-gen-contract jobs/__AREA__`
+[tool.openit.contract]
+schemas = ["JobRunResult", "JobsDeclaration"]  # 잡 영역이 공통으로 쓰는 계약. 영역이 쓰는 스키마 이름을 더한다
+
+[build-system]
+requires = ["hatchling"]  # 왜: PyPA 표준 백엔드(PEP 517), MIT
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/__PKG__"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+extend-exclude = ["src/__PKG__/contract"]  # 생성 코드는 생성기가 책임진다(ADR 0020)
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # 왜: pytest 는 assert 문이 표준 사용법이다
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+exclude = ["src/__PKG__/contract"]  # 생성 코드는 생성기가 책임진다
+
+# 경계 점검(ADR 0003). 계약 이름이 곧 어떤 규칙인지 말해 준다.
+[tool.importlinter]
+root_package = "__PKG__"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "컴포넌트는 서로 모른다"
+type = "independence"
+modules = ["__PKG__.components.*"]
+
+[[tool.importlinter.contracts]]
+name = "컴포넌트는 types 와 contract 밖을 모른다"
+type = "forbidden"
+source_modules = ["__PKG__.components", "__PKG__.types", "__PKG__.contract"]
+forbidden_modules = ["__PKG__.link", "__PKG__.main"]
+
+[[tool.importlinter.contracts]]
+name = "영역 밖 통신은 link 에서만"
+type = "forbidden"
+source_modules = ["__PKG__.components", "__PKG__.types", "__PKG__.contract"]
+forbidden_modules = ["httpx"]
+
+[[tool.importlinter.contracts]]
+name = "층 순서"
+type = "layers"
+layers = ["__PKG__.main", "__PKG__.link", "__PKG__.components", "__PKG__.types | __PKG__.contract"]

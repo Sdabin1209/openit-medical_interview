@@ -72,11 +72,15 @@ def _get(cid: str, path: str) -> tuple[int, object]:
 
 
 def test_healthz(container: str) -> None:
-    assert _get(container, "/healthz") == (200, {"status": "ok"})
+    status, body = _get(container, "/healthz")
+    assert status == 200
+    assert isinstance(body, dict) and body["status"] == "pass"
 
 
 def test_readyz(container: str) -> None:
-    assert _get(container, "/readyz") == (200, {"status": "ready", "failed": []})
+    status, body = _get(container, "/readyz")
+    assert status == 200
+    assert isinstance(body, dict) and body["status"] == "pass"
 
 
 def test_runs_as_non_root(container: str) -> None:

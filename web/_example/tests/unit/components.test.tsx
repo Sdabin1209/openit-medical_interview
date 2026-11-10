@@ -13,11 +13,11 @@ describe("HealthBadge", () => {
     expect(screen.getByRole("status")).toHaveTextContent("상태 확인 중");
   });
   it("준비됨", () => {
-    render(<HealthBadge readyz={{ status: "ready", failed: [] }} isLoading={false} isError={false} />);
+    render(<HealthBadge readyz={{ status: "pass", service: "platform" }} isLoading={false} isError={false} />);
     expect(screen.getByRole("status")).toHaveTextContent("준비됨");
   });
   it("준비 안 됨은 점검 이름을 보인다", () => {
-    render(<HealthBadge readyz={{ status: "not_ready", failed: ["database"] }} isLoading={false} isError={false} />);
+    render(<HealthBadge readyz={{ type: "about:blank", title: "의존이 준비되지 않았다", status: 503, detail: "준비되지 않은 점검: database" }} isLoading={false} isError={false} />);
     expect(screen.getByRole("alert")).toHaveTextContent("database");
   });
   it("읽기 실패", () => {

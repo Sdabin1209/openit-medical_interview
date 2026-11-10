@@ -15,6 +15,8 @@ dependencies = [
   "sqlalchemy[asyncio]",
   "asyncpg",
   "alembic",  # DB 마이그레이션(ADR 0001)
+  "prometheus-client",  # /metrics 의 Prometheus 텍스트 노출 형식(Apache-2.0, D111, ADR 0020)
+  "openit-model-io",
 ]
 
 # 버전은 쓰지 않는다. uv 가 uv.lock 에 고정한다(`uv add <패키지>`, 개발 의존은 `uv add --dev <패키지>`).
@@ -26,8 +28,13 @@ dev = [
   "import-linter",
   "jsonschema",
   "aiosqlite",  # 왜: 마이그레이션 시험이 임시 SQLite 파일을 쓴다(실제 PostgreSQL 은 컨테이너가 필요하다). MIT
+  "schemathesis",  # 계약 적합성 시험: 앱을 영역의 OpenAPI 로 시험한다(MIT, ADR 0020)
   "httpx2",  # 왜: starlette TestClient 가 요구한다(httpx 지원은 폐기 예정 경고, BSD-3-Clause)
 ]
+
+# 계약에서 타입을 만드는 설정(ADR 0020). 다시 만들기: 리포 루트에서 `uv run --project tools/checks openit-gen-contract services/_example`
+[tool.openit.contract]
+openapi = ["platform"]  # contracts/openapi/<이름>.yaml. 영역의 계약 파일이 있으면 그 이름으로 바꾼다
 
 [build-system]
 requires = ["hatchling"]  # 왜: PyPA 표준 백엔드(PEP 517), MIT
@@ -45,6 +52,7 @@ markers = ["smoke: 이미지를 띄워 보는 시험(ADR 0004)"]
 [tool.ruff]
 line-length = 120
 src = ["src", "tests"]
+extend-exclude = ["src/example/contract"]  # 생성 코드는 생성기가 책임진다(ADR 0020)
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ANN"]
@@ -91,3 +99,6 @@ forbidden_modules = ["sqlalchemy", "asyncpg"]
 name = "층 순서"
 type = "layers"
 layers = ["example.main", "example.link | example.store", "example.components", "example.types | example.contract"]
+
+[tool.uv.sources]
+openit-model-io = { path = "../../libs/model-io" }

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from __PKG__.contract.models import ServiceName
 from __PKG__.link.health import ReadinessCheck, health_router
 from __PKG__.store.engine import check_database, make_engine
 
@@ -39,7 +40,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="OPENIT_", extra="ignore")
 
-    service_name: str = Field(default="__AREA__", description="서비스 이름. 로그·문서에 쓴다.")
+    service_name: ServiceName = Field(
+        default=ServiceName("__SERVICE_NAME__"), description="이 서비스의 이름. 건강 응답(HealthReport.service)에 실린다."
+    )
     database_enabled: bool = Field(
         default=False,
         description="true 면 DATABASE_URL_FILE 의 연결 문자열로 DB 준비 점검을 /readyz 에 넣는다.",
@@ -57,6 +60,6 @@ def create_app(settings: Settings | None = None, checks: Mapping[str, ReadinessC
             return await check_database(engine)
 
         readiness["database"] = database
-    app = FastAPI(title=resolved.service_name)
-    app.include_router(health_router(readiness))
+    app = FastAPI(title=resolved.service_name.value)
+    app.include_router(health_router(resolved.service_name, readiness))
     return app

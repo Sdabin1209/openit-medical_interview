@@ -50,9 +50,9 @@ function check(label, ok) {
 
 try {
   const healthz = await get("/healthz");
-  check("/healthz 200", healthz.status === 200 && JSON.parse(healthz.body).status === "ok");
+  check("/healthz 200", healthz.status === 200 && JSON.parse(healthz.body).status === "pass");
   const readyz = await get("/readyz");
-  check("/readyz 200 ready", readyz.status === 200 && JSON.parse(readyz.body).status === "ready");
+  check("/readyz 200 pass", readyz.status === 200 && JSON.parse(readyz.body).status === "pass");
   const index = await get("/");
   check("/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
   const spa = await get("/about");
