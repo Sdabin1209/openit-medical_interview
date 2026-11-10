@@ -16,7 +16,7 @@ variable "JOB_AREAS" {
 
 // BEGIN WEBS
 variable "WEBS" {
-  default = ["_example", "admin-console"]
+  default = ["_example", "admin-console", "kiosk-frontend"]
 }
 // END WEBS
 

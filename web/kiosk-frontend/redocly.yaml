@@ -1,0 +1,12 @@
+# 계약 타입 생성 설정(ADR 0020). openapi-typescript 가 읽는다(npm run generate:contract, 점검은 npm run check:contract).
+# 이 화면이 부르는 계약마다 apis 에 한 줄씩 더한다(이웃 서비스의 계약 포함). 출력은 src/contract/ 에만 둔다.
+apis:
+  kiosk-frontend:
+    root: ../../contracts/openapi/kiosk-frontend.yaml
+    x-openapi-ts:
+      output: ./src/contract/kiosk-frontend.d.ts
+  # 키오스크가 부르는 survey-service 작업(startSession, submitTurn, endSession, getSessionState, requestStaffCall, listActiveQuestionnaires)
+  survey-service:
+    root: ../../contracts/openapi/survey-service.yaml
+    x-openapi-ts:
+      output: ./src/contract/survey-service.d.ts
