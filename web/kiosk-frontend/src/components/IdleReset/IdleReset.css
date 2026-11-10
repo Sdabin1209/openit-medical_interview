@@ -1,0 +1,4 @@
+.idle-overlay { position: fixed; inset: 0; background: rgb(17 24 39 / 70%); }
+.idle-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(40rem, 90vw); display: flex; flex-direction: column; gap: 1.25rem; padding: 2rem; background: var(--surface); border: 3px solid var(--border); border-radius: 1rem; }
+.idle-dialog h2 { margin: 0; font-size: 2rem; }
+.idle-dialog p { margin: 0; }
