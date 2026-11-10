@@ -110,24 +110,33 @@ def test_compose_pinned_image_is_ok(tmp_path: Path) -> None:
 # ---- bake 대상 ----
 BAKE = (
     '// BEGIN SERVICES\nvariable "SERVICES" {\n  default = [%s]\n}\n// END SERVICES\n'
+    '// BEGIN JOB_AREAS\nvariable "JOB_AREAS" {\n  default = [%s]\n}\n// END JOB_AREAS\n'
     '// BEGIN WEBS\nvariable "WEBS" {\n  default = [%s]\n}\n// END WEBS\n'
 )
 
 
 def test_bake_matches_folders(tmp_path: Path) -> None:
-    write(tmp_path, "docker-bake.hcl", BAKE % ('"a"', ""))
+    write(tmp_path, "docker-bake.hcl", BAKE % ('"a"', "", ""))
     write(tmp_path, "services/a/Dockerfile", "FROM scratch\n")
     assert bake_targets.run(tmp_path) == []
 
 
 def test_bake_missing_service_is_violation(tmp_path: Path) -> None:
-    write(tmp_path, "docker-bake.hcl", BAKE % ("", ""))
+    write(tmp_path, "docker-bake.hcl", BAKE % ("", "", ""))
     write(tmp_path, "services/a/Dockerfile", "FROM scratch\n")
     assert len(bake_targets.run(tmp_path)) == 1
 
 
 def test_bake_stale_entry_is_violation(tmp_path: Path) -> None:
-    write(tmp_path, "docker-bake.hcl", BAKE % ('"gone"', ""))
+    write(tmp_path, "docker-bake.hcl", BAKE % ('"gone"', "", ""))
+    assert len(bake_targets.run(tmp_path)) == 1
+
+
+def test_bake_job_areas_match_jobs_folders(tmp_path: Path) -> None:
+    write(tmp_path, "docker-bake.hcl", BAKE % ("", '"j"', ""))
+    write(tmp_path, "jobs/j/Dockerfile", "FROM scratch\n")
+    assert bake_targets.run(tmp_path) == []
+    write(tmp_path, "jobs/k/Dockerfile", "FROM scratch\n")
     assert len(bake_targets.run(tmp_path)) == 1
 
 

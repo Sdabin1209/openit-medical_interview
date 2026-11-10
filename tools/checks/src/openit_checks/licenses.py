@@ -143,8 +143,9 @@ def python_packages(python: Path, exclude: Iterable[str] = ()) -> list[tuple[str
         sys.executable, "-m", "piplicenses", "--python", str(python), "--format", "json",
         "--with-system", "--from", "mixed",
     ]
-    for name in exclude:
-        command += ["--ignore-packages", name]
+    names = list(exclude)
+    if names:  # 왜 한 번에: --ignore-packages 는 값을 여러 개 받고, 옵션을 반복하면 마지막 것만 남는다
+        command += ["--ignore-packages", *names]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"pip-licenses 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
@@ -177,11 +178,21 @@ def _project_name(folder: Path) -> str:
     return tomllib.loads((folder / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
 
 
+def own_packages(folder: Path) -> list[str]:
+    """잠금 파일에서 우리 코드인 패키지(영역 자신과 libs/ 의 경로 의존). 제3자가 아니라 점검하지 않는다(ADR 0020)."""
+    lock = tomllib.loads((folder / "uv.lock").read_text(encoding="utf-8"))
+    names: list[str] = []
+    for package in lock.get("package", []):
+        if set(package.get("source", {})) & {"editable", "virtual", "directory", "path"}:
+            names += [package["name"], package["name"].replace("-", "_")]  # 왜 둘: 설치 메타데이터의 이름 표기가 하이픈·밑줄 어느 쪽일 수 있다
+    return names
+
+
 def _sync_and_read(folder: Path, groups: list[str], exclude: str) -> tuple[list[tuple[str, str]] | None, str]:
     sync = subprocess.run(["uv", "sync", "--frozen", *groups], cwd=folder, capture_output=True, text=True, check=False)
     if sync.returncode != 0:
         return None, f"uv sync --frozen {' '.join(groups)} 실패: {sync.stderr.strip()[-200:]}"
-    return python_packages(folder / ".venv" / "bin" / "python", exclude=[exclude]), ""
+    return python_packages(folder / ".venv" / "bin" / "python", exclude=[exclude, *own_packages(folder)]), ""
 
 
 def run(root: Path) -> list[Violation]:

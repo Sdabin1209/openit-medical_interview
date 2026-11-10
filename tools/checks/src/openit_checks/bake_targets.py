@@ -1,4 +1,4 @@
-"""bake 대상 점검(ADR 0004): docker-bake.hcl 의 SERVICES·WEBS 목록이 services/·web/ 폴더와 같다.
+"""bake 대상 점검(ADR 0004): docker-bake.hcl 의 SERVICES·JOB_AREAS·WEBS 목록이 services/·jobs/·web/ 폴더와 같다.
 
 왜: HCL 에는 폴더 glob 이 없어 목록을 직접 둔다. 폴더와 어긋나면 빌드에서 영역이 조용히 빠지므로 여기서 잡는다.
 """
@@ -34,7 +34,7 @@ def run(root: Path) -> list[Violation]:
         return [Violation(CHECK, "docker-bake.hcl", "파일이 없다")]
     text = bake.read_text(encoding="utf-8")
     violations: list[Violation] = []
-    for var, folder in (("SERVICES", "services"), ("WEBS", "web")):
+    for var, folder in (("SERVICES", "services"), ("JOB_AREAS", "jobs"), ("WEBS", "web")):
         listed = _listed(text, var)
         if listed is None:
             violations.append(Violation(CHECK, "docker-bake.hcl", f"'// BEGIN {var}' 표시가 없다"))

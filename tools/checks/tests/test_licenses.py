@@ -145,3 +145,14 @@ def test_npm_dev_flag_splits_product_and_dev(tmp_path: Path) -> None:
     assert sorted(n for n, _ in licenses.npm_packages(path, dev=True)) == ["maybe", "tool"]
     violations, notes = licenses.judge_scoped("npm", "x", licenses.npm_packages(path, dev=False), licenses.npm_packages(path, dev=True), {})
     assert violations == [] and len(notes) == 2
+
+
+def test_own_packages_are_path_sources_from_the_lock(tmp_path: Path) -> None:
+    """영역 자신과 libs/ 의 경로 의존은 우리 코드라 라이선스 점검 대상이 아니다(ADR 0020)."""
+    (tmp_path / "uv.lock").write_text(
+        '[[package]]\nname = "openit-area"\nsource = { editable = "." }\n\n'
+        '[[package]]\nname = "openit-model-io"\nsource = { directory = "../../libs/model-io" }\n\n'
+        '[[package]]\nname = "pydantic"\nsource = { registry = "https://pypi.org/simple" }\n',
+        encoding="utf-8",
+    )
+    assert licenses.own_packages(tmp_path) == ["openit-area", "openit_area", "openit-model-io", "openit_model_io"]

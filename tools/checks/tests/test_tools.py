@@ -9,6 +9,7 @@ import pytest
 
 BAKE = (
     '// BEGIN SERVICES\nvariable "SERVICES" {\n  default = []\n}\n// END SERVICES\n'
+    '// BEGIN JOB_AREAS\nvariable "JOB_AREAS" {\n  default = []\n}\n// END JOB_AREAS\n'
     '// BEGIN WEBS\nvariable "WEBS" {\n  default = []\n}\n// END WEBS\n'
 )
 
@@ -16,7 +17,7 @@ BAKE = (
 def _sandbox(repo: Path, tmp: Path, name: str) -> Path:
     root = tmp / name
     (root / "templates").mkdir(parents=True)
-    for kind in ("service", "web"):
+    for kind in ("service", "job", "lib", "web"):
         if (repo / "templates" / kind).is_dir():
             skip = shutil.ignore_patterns("node_modules", ".venv", "dist")
             shutil.copytree(repo / "templates" / kind, root / "templates" / kind, ignore=skip)
@@ -37,24 +38,46 @@ def _same_tree(a: Path, b: Path) -> bool:
     return all(_same_tree(a / d, b / d) for d in cmp.common_dirs)
 
 
-@pytest.mark.parametrize("kind", ["service", "web"])
+FOLDERS = {"service": "services", "job": "jobs", "lib": "libs", "web": "web"}
+
+
+@pytest.mark.parametrize("kind", ["service", "job", "lib", "web"])
 def test_new_area_is_deterministic(repo: Path, tmp_path: Path, kind: str) -> None:
     one, two = _sandbox(repo, tmp_path, "one"), _sandbox(repo, tmp_path, "two")
-    folder = "services" if kind == "service" else "web"
+    folder = FOLDERS[kind]
     assert _new_area(repo, one, kind, "demo-area").returncode == 0
     assert _new_area(repo, two, kind, "demo-area").returncode == 0
     assert _same_tree(one / folder / "demo-area", two / folder / "demo-area")
     assert (one / "docker-bake.hcl").read_text() == (two / "docker-bake.hcl").read_text()
-    assert '"demo-area"' in (one / "docker-bake.hcl").read_text()
+    # 왜: lib 는 이미지가 없어 bake 목록에 들어가지 않는다
+    assert ('"demo-area"' in (one / "docker-bake.hcl").read_text()) == (kind != "lib")
 
 
-def test_new_area_leaves_no_placeholders(repo: Path, tmp_path: Path) -> None:
+def test_new_area_job_goes_to_job_areas_list(repo: Path, tmp_path: Path) -> None:
     root = _sandbox(repo, tmp_path, "r")
-    assert _new_area(repo, root, "service", "demo-area").returncode == 0
-    for path in (root / "services" / "demo-area").rglob("*"):
+    assert _new_area(repo, root, "job", "demo-job").returncode == 0
+    bake = (root / "docker-bake.hcl").read_text()
+    assert 'variable "JOB_AREAS" {\n  default = ["demo-job"]' in bake
+    assert 'variable "SERVICES" {\n  default = []' in bake
+
+
+def test_new_area_lib_and_openapi_options_are_checked(repo: Path, tmp_path: Path) -> None:
+    root = _sandbox(repo, tmp_path, "r")
+    assert _new_area(repo, root, "lib", "demo-lib", "--lib", "x").returncode == 2  # lib 에는 --lib 가 없다
+    assert _new_area(repo, root, "job", "demo-job", "--openapi", "platform").returncode == 2  # job 에는 --openapi 가 없다
+    assert _new_area(repo, root, "service", "demo", "--lib", "no-such-lib").returncode == 2  # 없는 라이브러리
+
+
+@pytest.mark.parametrize("kind", ["service", "job", "lib", "web"])
+def test_new_area_leaves_no_placeholders(repo: Path, tmp_path: Path, kind: str) -> None:
+    root = _sandbox(repo, tmp_path, "r")
+    assert _new_area(repo, root, kind, "demo-area").returncode == 0
+    for path in (root / FOLDERS[kind] / "demo-area").rglob("*"):
         if path.is_file():
-            assert "__AREA__" not in path.read_text() and "__PKG__" not in path.read_text(), path
-    assert (root / "services/demo-area/src/demo_area/main.py").is_file()
+            text = path.read_text()
+            assert "__AREA__" not in text and "__PKG__" not in text and "__SERVICE_NAME__" not in text, path
+    if kind != "web":
+        assert (root / FOLDERS[kind] / "demo-area/src/demo_area/__init__.py").is_file()
 
 
 def test_new_area_refuses_existing_and_bad_names(repo: Path, tmp_path: Path) -> None:
@@ -75,8 +98,26 @@ def test_example_service_matches_template(repo: Path, tmp_path: Path) -> None:
     """services/_example 은 템플릿에서 나온 그대로다(uv.lock 과 생성 환경 제외). 템플릿이 바뀌면 다시 만든다."""
     root = _sandbox(repo, tmp_path, "r")
     assert _new_area(repo, root, "service", "_example").returncode == 0
-    ignore = {".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "uv.lock"}
+    ignore = {".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".import_linter_cache", "uv.lock"}
     made, kept = root / "services/_example", repo / "services/_example"
+    for path in made.rglob("*"):
+        if path.is_file() and not ignore & set(path.relative_to(made).parts):
+            other = kept / path.relative_to(made)
+            if path.name == "pyproject.toml":
+                # 왜: _example 은 `--lib model-io` 로 만든다. uv add 가 더한 경로 의존(의존 한 줄과 sources 표)을 빼고 견준다
+                text = other.read_text(encoding="utf-8").replace('  "openit-model-io",\n', "")
+                text = text.replace('\n[tool.uv.sources]\nopenit-model-io = { path = "../../libs/model-io" }\n', "")
+                assert text == path.read_text(encoding="utf-8"), path
+                continue
+            assert other.is_file() and other.read_bytes() == path.read_bytes(), path
+
+
+def test_example_job_matches_template(repo: Path, tmp_path: Path) -> None:
+    """jobs/_example-job 은 템플릿에서 나온 그대로다(uv.lock 과 생성 환경 제외)."""
+    root = _sandbox(repo, tmp_path, "r")
+    assert _new_area(repo, root, "job", "_example-job").returncode == 0
+    ignore = {".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".import_linter_cache", "uv.lock"}
+    made, kept = root / "jobs/_example-job", repo / "jobs/_example-job"
     for path in made.rglob("*"):
         if path.is_file() and not ignore & set(path.relative_to(made).parts):
             other = kept / path.relative_to(made)

@@ -38,8 +38,8 @@ NOTICES_FILE = "THIRD_PARTY_NOTICES"
 DOC_PATH = "/usr/share/doc/openit/THIRD_PARTY_NOTICES"
 # 왜 화면은 한 곳 더: 번들된 JavaScript 는 브라우저(받는 사람)에게 배포된다. 같은 서버에서 받아 볼 수 있어야 고지가 전달된다
 WEB_PUBLIC_PATH = "/usr/share/nginx/html/THIRD_PARTY_NOTICES.txt"
-IMAGE_PATHS: dict[str, tuple[str, ...]] = {"service": (DOC_PATH,), "web": (DOC_PATH, WEB_PUBLIC_PATH)}
-KIND_FOLDERS = {"service": "services", "web": "web"}
+IMAGE_PATHS: dict[str, tuple[str, ...]] = {"service": (DOC_PATH,), "job": (DOC_PATH,), "web": (DOC_PATH, WEB_PUBLIC_PATH)}
+KIND_FOLDERS = {"service": "services", "job": "jobs", "web": "web"}
 
 # 라이선스·NOTICE 파일 이름(npm 의 license-checker 와 pip-licenses 가 쓰는 관례와 같은 계열)
 LICENSE_NAME = re.compile(r"(?i)^(?:licen[sc]e|licen[sc]ing|copying|copyright|notice|unlicense)(?:[-._].*)?$")
@@ -335,7 +335,7 @@ def generate(area: Path, overrides: dict[tuple[str, str, str], str] | None = Non
 
 
 def area_folders(root: Path) -> list[tuple[str, Path]]:
-    """(종류, 폴더). Dockerfile 이 있는 서비스·화면 영역."""
+    """(종류, 폴더). Dockerfile 이 있는 서비스·잡·화면 영역."""
     found: list[tuple[str, Path]] = []
     for kind, folder in KIND_FOLDERS.items():
         base = root / folder
@@ -348,7 +348,7 @@ def kind_of(root: Path, area: Path) -> str:
     for kind, folder in KIND_FOLDERS.items():
         if area.resolve().parent == (root / folder).resolve():
             return kind
-    raise NoticesError(f"{area}: services/ 나 web/ 아래 영역이 아니다")
+    raise NoticesError(f"{area}: services/·jobs/·web/ 아래 영역이 아니다")
 
 
 def _package_lines(text: str) -> set[str]:
