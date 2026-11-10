@@ -47,9 +47,18 @@ tools/smoke web admin-console
 ```
 
 ## 5. 시험 상태
-아래 명령별 종료 코드는 이 영역 작업 마지막에 돌려 적는다(날짜와 환경 포함). 돌리지 않은 것은 돌리지 않았다고 적는다.
+2026-11-10, 이 환경(WSL2, Docker Desktop, 호스트에 Playwright 브라우저 라이브러리 없음)에서 돌린 종료 코드다. 한 환경에서만 확인했다.
 
-(작성 중: 마지막 단계에서 채운다)
+| 명령 | rc |
+|---|---|
+| `npm test`(5 파일 76 시험: 단위, 계약 대조, 경계) | 0 |
+| `npx tsc --noEmit` | 0 |
+| `npm run lint` | 0 |
+| `npm run check:contract` | 0 |
+| `openit-check all` | 0 |
+| `deploy/deploy build web-admin-console`(Trivy 포함) | 0 |
+| `tools/smoke web admin-console` | 0 |
+| `tools/web-e2e admin-console`(6 시나리오: 시작 코드 발급 → 결과 확인 → 모델 활성화 승인, 알림, 역할, 로그인 만료, 문항 세트·실패 사례, SPA 경로) | 0 |
 
 확인하지 못한 것:
 - oauth2-proxy 의 `groups` 에 Keycloak 역할이 나오는 구성, 브라우저→서비스 경로 배분, 게이트웨이가 알림 스트림을 끊는지([변경 요청 001·005](../../docs/change-requests/)).
