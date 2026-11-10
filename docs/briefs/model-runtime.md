@@ -23,6 +23,11 @@
 - 활성 포인터와 활성화·롤백 기록(승인자, 시각, 사유)의 저장 방식은 ADR 로 정한다.
 - 추출 요청의 runtime_contract_version 이 적재 패키지와 다르면 409 QUESTION_BANK_VERSION_MISMATCH.
 
+## 모델 패키지 게시 도구(package_publish)
+- model-lab 을 나중에 만들기 전까지 모델 패키지를 만드는 유일한 경로다. 이미 학습한 LoRA-A·B 어댑터 폴더와 평가 집합(학습 서버 finaltest)을 받아 `libs/model-io` 로 평가 보고서를 만들고, 계약의 ModelPackageOciManifest 대로 레지스트리에 올린 뒤 digest 를 낸다.
+- 표준 OCI 클라이언트(ORAS 등)로 올린다. 레지스트리 TLS 신뢰는 사설 루트(ADR 0013).
+- 평가에 쓰는 추론은 실제 엔진이 필요하므로 GPU 에서 돈다. GPU 없는 시험은 가짜 엔진.
+
 ## 끝 조건(공통에 더해)
-- 가짜 엔진으로: 패키지 적재 → 활성화 → 추출(정상, 위반 → 출력 불가, 고쳐 쓰기) → 응답 문장 → 롤백 시나리오 시험 rc=0.
+- 가짜 엔진으로: package_publish(로컬 레지스트리) → 패키지 적재 → 활성화 → 추출(정상, 위반 → 출력 불가, 고쳐 쓰기) → 응답 문장 → 롤백 시나리오 시험 rc=0.
 - libs/model-io 시험 rc=0, 학습 파일 정답 출력 위반 0(측정 결과를 영역 README 5절에).

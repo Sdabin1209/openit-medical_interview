@@ -16,6 +16,6 @@
 |---|---|
 | survey-service | [survey-service.md](survey-service.md) |
 | model-runtime | [model-runtime.md](model-runtime.md) |
-| model-lab | [model-lab.md](model-lab.md) |
+| model-lab | 이번 범위 밖(design.md 2절). [model-lab.md](model-lab.md)는 나중에 학습 래퍼로 다시 쓴다 |
 | platform | [platform.md](platform.md) |
 | kiosk-frontend, admin-console | [web.md](web.md) |
