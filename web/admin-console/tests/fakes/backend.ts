@@ -127,6 +127,7 @@ export function createFakeBackend(options: FakeOptions = {}) {
     },
   ];
 
+  let loadingReported = false;
   let model: M["ModelStatus"] = { state: "READY", package_digest: DIGEST_A, runtime_contract_version: 1, model_io_version: "model-io-v2", activated_by: "approver-0", activated_at: NOW, loaded_at: NOW };
 
   const manifest: M["ModelPackageManifest"] = {
@@ -259,7 +260,14 @@ export function createFakeBackend(options: FakeOptions = {}) {
       return c ? json(200, c) : problem(404, "없다");
     }
 
-    if (req.path === "/v1/model-status") return json(200, model);
+    if (req.path === "/v1/model-status") {
+      // 적재는 시간이 아니라 읽기 횟수로 끝난다: 적재 중이라고 한 번 답한 뒤 다음 읽기에서 준비됨이 된다
+      if (model.state === "LOADING") {
+        if (loadingReported) model = { ...model, state: "READY", loaded_at: NOW };
+        loadingReported = true;
+      }
+      return json(200, model);
+    }
     if (req.path === "/v1/model-packages") {
       // 활성 여부는 지금 적재 상태의 패키지다(계약 ModelPackageSummary.is_active). 쪽 나누기는 limit 1 이면 첫 쪽만 주고 next_cursor 를 준다
       const all: M["ModelPackageSummary"][] = [DIGEST_B, DIGEST_A].map((d) => ({ package_digest: d, published_at: NOW, is_active: d === model.package_digest }));
@@ -275,19 +283,14 @@ export function createFakeBackend(options: FakeOptions = {}) {
       const input = body as unknown as M["ActivationRequest"];
       if (input.package_digest === model.package_digest) return json(200, model);
       model = { state: "LOADING", package_digest: input.package_digest, previous_package_digest: model.package_digest ?? "", runtime_contract_version: 1, model_io_version: "model-io-v2", activated_by: "approver-1", activated_at: NOW };
-      // 다음 읽기에서 적재가 끝난다
-      setTimeout(() => {
-        model = { ...model, state: "READY", loaded_at: NOW };
-      }, 50);
+      loadingReported = false;
       return json(202, model);
     }
     if (req.path === "/v1/model-rollbacks") {
       const input = body as unknown as M["RollbackCommand"];
       if (input.target_package_digest !== model.previous_package_digest) return problem(409, "되돌아갈 수 없다", { reason: "ROLLBACK_TARGET_INVALID" });
       model = { state: "LOADING", package_digest: input.target_package_digest, previous_package_digest: model.package_digest ?? "", runtime_contract_version: 1, model_io_version: "model-io-v2", activated_by: "approver-1", activated_at: NOW };
-      setTimeout(() => {
-        model = { ...model, state: "READY", loaded_at: NOW };
-      }, 50);
+      loadingReported = false;
       return json(202, model);
     }
     return problem(404, "가짜 서버에 없는 경로", { detail: req.path });

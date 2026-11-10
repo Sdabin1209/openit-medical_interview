@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/App";
 import { openAlertStream, type Connection, type StaffAlertEvent, useStaffAlerts } from "../../src/link/alerts";
 import { createFakeBackend, fakeFetch, type FakeOptions } from "../fakes/backend";
+import { useFakeClock, useRealClock } from "../fakes/clock";
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -43,7 +44,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.useRealTimers();
+  useRealClock();
 });
 
 function renderApp(options: FakeOptions, path = "/", basename?: string) {
@@ -120,16 +121,18 @@ describe("화면 흐름", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("doctor-1");
   });
   it("승인자: 목록에서 후보를 골라 평가 보고서를 보고 승인하면 적재 중에서 준비됨이 되고 목록의 활성 표시가 바뀐다", async () => {
+    // 적재 중 재읽기 간격(3초)은 가짜 시계로 넘긴다
+    const user = useFakeClock();
     const backend = renderApp({ roles: ["release-approver"] });
     expect(await screen.findByRole("row", { name: /sha256:b+.*비활성/ })).toBeVisible();
     expect(screen.getByRole("row", { name: /sha256:a+.*\s활성/ })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: `sha256:${"b".repeat(64)} 평가 보고서 보기` }));
+    await user.click(screen.getByRole("button", { name: `sha256:${"b".repeat(64)} 평가 보고서 보기` }));
     expect(await screen.findByText("next_item_accuracy")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "이 패키지 활성화 승인" }));
-    await userEvent.type(screen.getByLabelText("사유"), "평가 통과");
-    await userEvent.click(screen.getByRole("button", { name: "승인" }));
+    await user.click(screen.getByRole("button", { name: "이 패키지 활성화 승인" }));
+    await user.type(screen.getByLabelText("사유"), "평가 통과");
+    await user.click(screen.getByRole("button", { name: "승인" }));
     await waitFor(() => { expect(backend.calls.some((c) => c.path === "/v1/model-activations")).toBe(true); });
-    await waitFor(() => { expect(screen.getAllByRole("status")[0]).toHaveTextContent("준비됨"); }, { timeout: 8000 });
+    await waitFor(() => { expect(screen.getAllByRole("status")[0]).toHaveTextContent("준비됨"); }, { timeout: 10_000 });
   });
   it("운영자: 목록은 보이고 승인 버튼은 없다", async () => {
     renderApp({ roles: ["operator"] });
@@ -226,11 +229,12 @@ describe("openAlertStream", () => {
     await waitFor(() => { expect(backend.calls.filter((c) => c.path === "/v1/staff-alerts").length).toBe(before + 1); });
   });
   it("꺼져 있으면(직원도 의사도 아님) 스트림도 목록도 열지 않는다", async () => {
+    useFakeClock();
     const backend = createFakeBackend();
     vi.stubGlobal("fetch", fakeFetch(backend));
     const client = new QueryClient();
     renderHook(() => useStaffAlerts(false), { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(FakeEventSource.instances).toHaveLength(0);
     expect(backend.calls).toHaveLength(0);
   });

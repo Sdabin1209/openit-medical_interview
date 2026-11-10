@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeBackend, fakeFetch } from "../fakes/backend";
+import { useFakeClock, useRealClock } from "../fakes/clock";
 import { applyAlertEvent, base64UrlToBytes, enablePush, type StaffAlertEvent } from "../../src/link/alerts";
 import { ApiError } from "../../src/link/http";
 import { useActivateModelPackage, useModelStatus } from "../../src/link/model";
@@ -21,6 +22,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fakeFetch(backend));
 });
 afterEach(() => {
+  useRealClock();
   vi.unstubAllGlobals();
 });
 
@@ -77,11 +79,13 @@ describe("link 가 받는 계약 응답", () => {
   });
 
   it("결과 상세는 창 초점으로 다시 읽지 않는다(읽을 때마다 접근 기록이 남는다)", async () => {
+    useFakeClock();
     const { result } = renderHook(() => useResult("00000000-0000-4000-8000-000000000001"), { wrapper: wrapper() });
     await waitFor(() => { expect(result.current.isSuccess).toBe(true); });
     window.dispatchEvent(new Event("focus"));
     document.dispatchEvent(new Event("visibilitychange"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // 가짜 시계로 재읽기가 일어날 만큼 넘긴 뒤에도 읽기는 한 번뿐이어야 한다
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(backend.calls.filter((c) => c.path.startsWith("/v1/results/"))).toHaveLength(1);
   });
 
@@ -93,6 +97,7 @@ describe("link 가 받는 계약 응답", () => {
   });
 
   it("적재 중이면 상태를 다시 읽고 끝나면 멈춘다", async () => {
+    useFakeClock();
     const { result } = renderHook(() => ({ status: useModelStatus(), activate: useActivateModelPackage() }), { wrapper: wrapper() });
     await waitFor(() => { expect(result.current.status.data?.state).toBe("READY"); });
     result.current.activate.mutate({ packageDigest: `sha256:${"b".repeat(64)}`, reason: "r" });

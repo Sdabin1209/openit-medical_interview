@@ -20,10 +20,22 @@ beforeEach(() => {
 afterEach(() => {
   server.resetHandlers();
   vi.useRealTimers();
+  delete (globalThis as { jest?: unknown }).jest;
+  user = userEvent.setup();
 });
 afterAll(() => {
   server.close();
 });
+
+let user = userEvent.setup();
+
+// 가짜 시계: 실제 시간은 흐르지 않고 vi.advanceTimersByTime 으로만 넘어간다.
+// Testing Library 의 waitFor/findBy 는 `jest.advanceTimersByTime` 이 있으면 가짜 타이머로 판단해 시계를 직접 넘긴다(표준 연동 방법).
+function useFakeClock() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+  (globalThis as { jest?: unknown }).jest = { advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms) };
+  user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+}
 
 function renderApp(path = "/", basename?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,8 +49,8 @@ function renderApp(path = "/", basename?: string) {
 }
 
 async function enterCode(code: string) {
-  for (const digit of code) await userEvent.click(screen.getByRole("button", { name: digit }));
-  await userEvent.click(screen.getByRole("button", { name: "시작하기" }));
+  for (const digit of code) await user.click(screen.getByRole("button", { name: digit }));
+  await user.click(screen.getByRole("button", { name: "시작하기" }));
 }
 
 async function startSession() {
@@ -48,8 +60,8 @@ async function startSession() {
 }
 
 async function say(text: string) {
-  await userEvent.type(screen.getByRole("textbox", { name: "답변" }), text);
-  await userEvent.click(screen.getByRole("button", { name: "보내기" }));
+  await user.type(screen.getByRole("textbox", { name: "답변" }), text);
+  await user.click(screen.getByRole("button", { name: "보내기" }));
 }
 
 describe("화면 접두어(/kiosk/)", () => {
@@ -77,7 +89,7 @@ describe("시작", () => {
     renderApp();
     await waitFor(() => { expect(fake.requests.some((r) => r.path === "/v1/questionnaires")).toBe(true); });
     await enterCode(CODES.ok);
-    await userEvent.click(await screen.findByRole("button", { name: "B 문진표" }));
+    await user.click(await screen.findByRole("button", { name: "B 문진표" }));
     expect(await screen.findByText("B 문진표")).toBeInTheDocument();
     const bodies = fake.requests.filter((r) => r.path === "/v1/sessions").map((r) => r.body);
     expect(bodies).toEqual([{ start_code: CODES.ok }, { start_code: CODES.ok, questionnaire_id: "b" }]);
@@ -113,9 +125,9 @@ describe("대화", () => {
     await startSession();
     await say("실패 시키기");
     await screen.findByRole("alert");
-    await userEvent.clear(screen.getByRole("textbox", { name: "답변" }));
-    await userEvent.type(screen.getByRole("textbox", { name: "답변" }), "다시요");
-    await userEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await user.clear(screen.getByRole("textbox", { name: "답변" }));
+    await user.type(screen.getByRole("textbox", { name: "답변" }), "다시요");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
     await screen.findByText(/일주일에 술을 몇 번/);
     const ids = fake.requests.filter((r) => r.path.endsWith("/turns")).map((r) => (r.body as { turn_id: string }).turn_id);
     expect(new Set(ids).size).toBe(2);
@@ -128,13 +140,13 @@ describe("대화", () => {
     await screen.findByText(/운동은 일주일에/);
     await say("c");
     expect(await screen.findByRole("heading", { name: /문진이 끝났습니다/ })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "처음으로" }));
+    await user.click(screen.getByRole("button", { name: "처음으로" }));
     expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
   });
   it("문진 끝내기를 확인하면 중간 종료 안내가 나온다", async () => {
     await startSession();
-    await userEvent.click(screen.getByRole("button", { name: "문진 끝내기" }));
-    await userEvent.click(await screen.findByRole("button", { name: "끝내기" }));
+    await user.click(screen.getByRole("button", { name: "문진 끝내기" }));
+    await user.click(await screen.findByRole("button", { name: "끝내기" }));
     expect(await screen.findByRole("heading", { name: /저장되었습니다/ })).toBeInTheDocument();
   });
   it("서버가 세션이 멈췄다고 하면(409 SESSION_NOT_ACTIVE) 상태를 읽어 멈춤 화면으로 간다", async () => {
@@ -155,14 +167,14 @@ describe("대화", () => {
   it("끝내기를 눌렀는데 서버가 이미 만료시켰으면(endSession 이 EXPIRED) 시작 화면으로 돌아간다", async () => {
     await startSession();
     fake.expire();
-    await userEvent.click(screen.getByRole("button", { name: "문진 끝내기" }));
-    await userEvent.click(await screen.findByRole("button", { name: "끝내기" }));
+    await user.click(screen.getByRole("button", { name: "문진 끝내기" }));
+    await user.click(await screen.findByRole("button", { name: "끝내기" }));
     expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
   });
   it("멈춘 동안 읽은 상태가 EXPIRED 여도 시작 화면으로 돌아간다", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    useFakeClock();
     await startSession();
-    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await user.click(screen.getByRole("button", { name: "직원 부르기" }));
     await screen.findByRole("heading", { name: "잠시 기다려 주세요" });
     fake.expire();
     await vi.advanceTimersByTimeAsync(2000);
@@ -171,7 +183,7 @@ describe("대화", () => {
   it("직원 호출이 409 SESSION_NOT_ACTIVE 이고 상태가 EXPIRED 면 시작 화면으로 돌아간다", async () => {
     await startSession();
     fake.expire();
-    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await user.click(screen.getByRole("button", { name: "직원 부르기" }));
     expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
   });
 });
@@ -179,9 +191,9 @@ describe("대화", () => {
 describe("직원 호출", () => {
   it("직원을 부르면 멈춤 화면이 되고 직원이 풀면 resume_text 로 이어진다", async () => {
     // 2초 간격의 다음 읽기를 가짜 시계로 건너뛴다(계약 SessionStatePollSeconds)
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    useFakeClock();
     await startSession();
-    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await user.click(screen.getByRole("button", { name: "직원 부르기" }));
     expect(await screen.findByRole("heading", { name: "잠시 기다려 주세요" })).toBeInTheDocument();
     fake.resume("다시 시작하겠습니다.");
     await vi.advanceTimersByTimeAsync(2000);
@@ -190,33 +202,33 @@ describe("직원 호출", () => {
   });
   it("멈춤 화면에서 직원을 다시 부를 수 있다", async () => {
     await startSession();
-    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
-    await userEvent.click(await screen.findByRole("button", { name: "직원 다시 부르기" }));
+    await user.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await user.click(await screen.findByRole("button", { name: "직원 다시 부르기" }));
     await waitFor(() => { expect(fake.requests.filter((r) => r.path.endsWith("/staff-calls"))).toHaveLength(2); });
   });
 });
 
 describe("유휴 초기화(60초)", () => {
   it("대화 중 입력 없이 60초가 지나면 처음 화면으로 돌아가고 입력이 지워진다", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true });
+    useFakeClock();
     await startSession();
-    await userEvent.type(screen.getByRole("textbox", { name: "답변" }), "남은 글");
+    await user.type(screen.getByRole("textbox", { name: "답변" }), "남은 글");
     await vi.advanceTimersByTimeAsync(61_000);
     expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
     expect(screen.queryByDisplayValue("남은 글")).toBeNull();
   });
   it("멈춘 세션은 초기화하지 않는다(계약: 멈춘 세션은 만료하지 않는다)", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true });
+    useFakeClock();
     await startSession();
-    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await user.click(screen.getByRole("button", { name: "직원 부르기" }));
     await screen.findByRole("heading", { name: "잠시 기다려 주세요" });
     await vi.advanceTimersByTimeAsync(61_000);
     expect(screen.getByRole("heading", { name: "잠시 기다려 주세요" })).toBeInTheDocument();
   });
   it("시작 화면에서 입력 중이던 코드는 60초 뒤 지워진다", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true });
+    useFakeClock();
     renderApp();
-    await userEvent.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "1" }));
     expect(screen.getByRole("group", { name: /1자리 입력함/ })).toBeInTheDocument();
     await vi.advanceTimersByTimeAsync(61_000);
     expect(screen.getByRole("group", { name: /0자리 입력함/ })).toBeInTheDocument();
