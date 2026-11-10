@@ -13,7 +13,8 @@ const queryClient = new QueryClient();
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      {/* 왜 BASE_URL: Vite base 가 정본이다. 접두어를 코드에 두 번 쓰지 않는다 */}
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <App />
       </BrowserRouter>
     </QueryClientProvider>

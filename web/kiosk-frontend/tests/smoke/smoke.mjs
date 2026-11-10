@@ -61,11 +61,11 @@ try {
   check("/readyz 200 pass", readyz.status === 200 && JSON.parse(readyz.body).status === "pass");
   const metrics = await get("/metrics");
   check("/metrics 가 Prometheus 텍스트를 낸다", metrics.status === 200 && metrics.body.includes("# TYPE kiosk_frontend_up gauge"));
-  const index = await get("/");
-  check("/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
-  const spa = await get("/talk");
+  const index = await get("/kiosk/");
+  check("/kiosk/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
+  const spa = await get("/kiosk/talk");
   check("없는 경로는 index.html 로(SPA 라우팅)", spa.status === 200 && spa.body.includes('id="root"'));
-  const headers = await getWithHeaders("/");
+  const headers = await getWithHeaders("/kiosk/");
   check("CSP: 연결은 같은 출처로만(connect-src 'self')", (headers.get("content-security-policy") ?? "").includes("connect-src 'self'"));
   check("정적 파일에도 보안 헤더", ((await getWithHeaders("/healthz")).get("x-content-type-options") ?? "") === "nosniff");
   check("비root 로 실행", docker("exec", cid, "id", "-u") !== "0");

@@ -1,6 +1,6 @@
 {
   "routes": [
-    { "path_prefix": "/", "methods": ["GET"], "audience": "HUMAN_OIDC" }
+    { "path_prefix": "/console/", "methods": ["GET"], "audience": "HUMAN_OIDC" }
   ],
   "egress": []
 }

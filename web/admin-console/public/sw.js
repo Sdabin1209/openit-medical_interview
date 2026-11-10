@@ -14,7 +14,8 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       const open = windows.find((w) => "focus" in w);
-      return open ? open.focus() : self.clients.openWindow("/alerts");
+      // 왜 scope: 서비스 워커는 화면 접두어(/console/) 아래에서 등록되므로 scope 가 화면의 루트다
+      return open ? open.focus() : self.clients.openWindow(self.registration.scope + "alerts");
     }),
   );
 });

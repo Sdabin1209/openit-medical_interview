@@ -1,6 +1,6 @@
 {
   "routes": [
-    { "path_prefix": "/", "methods": ["GET"], "audience": "DEVICE_MTLS" }
+    { "path_prefix": "/kiosk/", "methods": ["GET"], "audience": "DEVICE_MTLS" }
   ],
   "egress": []
 }

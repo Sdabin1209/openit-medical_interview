@@ -53,9 +53,9 @@ try {
   check("/healthz 200", healthz.status === 200 && JSON.parse(healthz.body).status === "pass");
   const readyz = await get("/readyz");
   check("/readyz 200 pass", readyz.status === 200 && JSON.parse(readyz.body).status === "pass");
-  const index = await get("/");
-  check("/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
-  const spa = await get("/about");
+  const index = await get("/console/");
+  check("/console/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
+  const spa = await get("/console/about");
   check("없는 경로는 index.html 로(SPA 라우팅)", spa.status === 200 && spa.body.includes('id="root"'));
   check("비root 로 실행", docker("exec", cid, "id", "-u") !== "0");
   check("루트 파일시스템 읽기 전용", docker("inspect", "-f", "{{.HostConfig.ReadonlyRootfs}}", cid) === "true");

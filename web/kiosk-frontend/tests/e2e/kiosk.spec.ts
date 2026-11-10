@@ -8,7 +8,7 @@ import { CODES, createFakeSurveyService, type FakeSurveyService } from "../fakes
 async function open(page: Page, fake: FakeSurveyService, speech: SpeechStub = { available: false }) {
   await stubSpeech(page, speech);
   await routeFake(page, fake);
-  await page.goto("/");
+  await page.goto("/kiosk/");
   await expect(page.getByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeVisible();
 }
 
@@ -111,12 +111,12 @@ test("기기 안 음성 인식이 안 되면 말하기 버튼 없이 글자 입�
 test("없는 경로도 처음 화면으로 간다(SPA 라우팅)", async ({ page }) => {
   await stubSpeech(page, { available: false });
   await routeFake(page, createFakeSurveyService());
-  await page.goto("/talk");
+  await page.goto("/kiosk/talk");
   await expect(page.getByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeVisible();
 });
 
 test("보안 헤더: 연결은 같은 출처로만 허용한다(CSP connect-src 'self')", async ({ page }) => {
   await stubSpeech(page, { available: false });
-  const response = await page.goto("/");
+  const response = await page.goto("/kiosk/");
   expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'");
 });

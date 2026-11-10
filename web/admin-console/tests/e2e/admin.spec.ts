@@ -26,7 +26,7 @@ async function withBackend(page: Page, options: FakeOptions) {
 
 test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async ({ page }) => {
   const backend = await withBackend(page, { roles: ["staff", "clinician", "release-approver"] });
-  await page.goto("/");
+  await page.goto("/console/");
 
   // 1. 직원이 시작 코드를 발급한다(첫 화면). 6자리 숫자가 보이고 QR 은 없다
   await expect(page.getByRole("heading", { name: "시작 코드 발급" })).toBeVisible();
@@ -68,7 +68,7 @@ test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async
 
 test("직원 알림: 스트림으로 새 위험 알림이 뜨고 정지 해제는 확인 뒤에 보낸다", async ({ page }) => {
   const backend = await withBackend(page, { roles: ["staff"] });
-  await page.goto("/alerts");
+  await page.goto("/console/alerts");
   await expect(page.getByText("기기 kiosk-02")).toBeVisible(); // 스트림이 준 RISK 알림
   await expect(page.getByText("기기 kiosk-01")).toBeVisible(); // 목록이 준 직원 호출
   // 가짜 스트림은 이벤트 하나를 주고 끝나므로 연결 상태 문구는 여기서 보지 않는다(단위 시험이 본다)
@@ -82,7 +82,7 @@ test("직원 알림: 스트림으로 새 위험 알림이 뜨고 정지 해제�
 
 test("역할에 없는 화면은 메뉴에도 없고 주소로 들어가도 열리지 않는다", async ({ page }) => {
   await withBackend(page, { roles: ["author"] });
-  await page.goto("/release");
+  await page.goto("/console/release");
   await expect(page.getByText("이 화면을 볼 권한이 없다")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "화면 메뉴" }).getByRole("link")).toHaveText(["문항 세트"]);
 });
@@ -94,13 +94,13 @@ test("로그인이 끝나면(401) oauth2-proxy 로그인으로 보낸다", async
     started = new URL(route.request().url()).search;
     return route.fulfill({ status: 200, contentType: "text/html", body: "로그인" });
   });
-  await page.goto("/results");
-  await expect.poll(() => started).toBe("?rd=%2Fresults");
+  await page.goto("/console/results");
+  await expect.poll(() => started).toBe("?rd=%2Fconsole%2Fresults");
 });
 
 test("문항 세트 올리기와 실패 사례 검토", async ({ page }) => {
   const backend = await withBackend(page, { roles: ["author", "reviewer"] });
-  await page.goto("/question-sets");
+  await page.goto("/console/question-sets");
   const upload = { questionnaire_id: "nh2", runtime_contract_version: 1, content: { title: "새 세트", bank: { items: [] }, flow: { start_item: "Q1", rules: [] } } };
   await page.getByLabel("문항 세트 파일(JSON)").setInputFiles({ name: "q.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(upload)) });
   await expect(page.getByText(/새 세트 버전 2/)).toBeVisible();
@@ -121,6 +121,6 @@ test("문항 세트 올리기와 실패 사례 검토", async ({ page }) => {
 
 test("없는 경로도 화면이 열린다(SPA 라우팅)", async ({ page }) => {
   await withBackend(page, { roles: ["staff"] });
-  await page.goto("/nowhere");
+  await page.goto("/console/nowhere");
   await expect(page.getByText("없는 화면이다")).toBeVisible();
 });

@@ -25,11 +25,11 @@ afterAll(() => {
   server.close();
 });
 
-function renderApp() {
+function renderApp(path = "/", basename?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={[path]} {...(basename === undefined ? {} : { basename })}>
         <App />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -51,6 +51,13 @@ async function say(text: string) {
   await userEvent.type(screen.getByRole("textbox", { name: "답변" }), text);
   await userEvent.click(screen.getByRole("button", { name: "보내기" }));
 }
+
+describe("화면 접두어(/kiosk/)", () => {
+  it("접두어 아래 주소로 열면 시작 화면이 보이고, 모르는 경로도 시작 화면으로 간다", async () => {
+    renderApp("/kiosk/nowhere", "/kiosk/");
+    expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeVisible();
+  });
+});
 
 describe("시작", () => {
   it("올바른 코드로 시작하면 첫 문장이 보인다", async () => {

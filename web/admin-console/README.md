@@ -5,8 +5,8 @@
 
 ## 2. 받는 계약·내는 계약
 - 부르는 계약: [survey-service](../../contracts/openapi/survey-service.yaml)(N05, N06), [model-runtime](../../contracts/openapi/model-runtime.yaml)(N07). 타입은 `npm run generate:contract` 로만 만든다(`src/contract/`, 손으로 고치지 않는다). 위 두 문서에 더해 공유 값 문서 [components.yaml](../../contracts/components.yaml)도 생성 입력이라 작업이 참조하지 않는 `UserRole`·`StaffAlertEvent` 등도 생성 타입에서 얻는다([ADR 0007](docs/adr/0007-계약-타입-생성에-공유-값-문서를-포함한다.md)). 생성물이 계약과 같은지는 `npm run check:contract` 와 `openit-check contract-drift` 가 본다.
-- 내는 계약: [admin-console](../../contracts/openapi/admin-console.yaml)(`/healthz`, `/readyz`, `/metrics`). `/healthz`, `/readyz` 는 nginx 설정이 답한다.
-- 선언: `exposure.json`(`Exposure`: 화면 경로 `/`, `HUMAN_OIDC`, 나가는 호출 없음)과 `inputs.json`(`ContainerInputs`)이 이미지 라벨 `io.openit.exposure`·`io.openit.inputs` 의 원본이다. Dockerfile 은 `ARG EXPOSURE`·`ARG INPUTS` 로 라벨을 단다([ADR 0009](docs/adr/0009-노출-선언과-이미지-라벨-원본-파일.md)).
+- 내는 계약: [admin-console](../../contracts/openapi/admin-console.yaml)(`/healthz`, `/readyz`, `/metrics`). `/healthz`, `/readyz` 는 nginx 설정이 답한다. 화면은 `/console/` 아래에서 서비스하고 감시 경로는 접두어 밖 루트다. 화면이 부르는 `/v1/…`, `/oauth2/…` 는 접두어 밖 절대 경로다([ADR 0010](docs/adr/0010-화면은-console-접두어-아래에서-서비스한다.md)).
+- 선언: `exposure.json`(`Exposure`: 화면 경로 `/console/`, `HUMAN_OIDC`, 나가는 호출 없음)과 `inputs.json`(`ContainerInputs`)이 이미지 라벨 `io.openit.exposure`·`io.openit.inputs` 의 원본이다. Dockerfile 은 `ARG EXPOSURE`·`ARG INPUTS` 로 라벨을 단다([ADR 0009](docs/adr/0009-노출-선언과-이미지-라벨-원본-파일.md)).
 - [변경 요청 001~005](../../docs/change-requests/)의 처리(계약 9.0.0): 001 역할은 oauth2-proxy `groups` 로 확정([ADR 0002](docs/adr/0002-같은-출처와-oauth2-proxy-로그인-역할-읽기.md)), 002 패키지 목록과 004 활성 표시([ADR 0008](docs/adr/0008-모델-패키지는-목록에서-고르고-활성-여부를-보인다.md)), 003 생성 타입에 공유 값 문서 포함(ADR 0007), 005 같은 출처 상대 경로 확정과 노출 선언(ADR 0009).
 
 ## 3. 컴포넌트
@@ -81,3 +81,4 @@ tools/smoke web admin-console
 - [0007 계약 타입 생성에 공유 값 문서 포함](docs/adr/0007-계약-타입-생성에-공유-값-문서를-포함한다.md)
 - [0008 모델 패키지는 목록에서 고르고 활성 여부를 보인다](docs/adr/0008-모델-패키지는-목록에서-고르고-활성-여부를-보인다.md)
 - [0009 노출 선언과 이미지 라벨 원본 파일](docs/adr/0009-노출-선언과-이미지-라벨-원본-파일.md)
+- [0010 화면은 /console/ 접두어 아래에서 서비스한다](docs/adr/0010-화면은-console-접두어-아래에서-서비스한다.md)

@@ -34,10 +34,10 @@ describe("session", () => {
   });
   it("401 이면 oauth2-proxy 로그인으로 보낸다(rd 는 지금 경로)", async () => {
     const assign = vi.fn();
-    vi.stubGlobal("location", { origin: window.location.origin, pathname: "/results", search: "?x=1", assign });
+    vi.stubGlobal("location", { origin: window.location.origin, pathname: "/console/results", search: "?x=1", assign });
     vi.stubGlobal("fetch", () => Promise.resolve(new Response("", { status: 401 })));
     await expect(fetchCurrentUser()).rejects.toThrow();
-    expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2Fresults%3Fx%3D1");
+    expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2Fconsole%2Fresults%3Fx%3D1");
   });
 });
 

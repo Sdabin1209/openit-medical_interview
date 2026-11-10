@@ -16,6 +16,8 @@ export const HEARTBEAT_SECONDS: Schemas["AlertStreamHeartbeatSeconds"] = 15;
 // 왜 3 배: heartbeat 를 세 번 연달아 놓치면 연결이 죽었다고 본다. EventSource 는 반쯤 끊긴 연결을 스스로 알아채지 못한다(계약 heartbeat 설명).
 // 3 은 표준이 아니라 이 화면이 고른 값이고 측정하지 않았다(ADR 0004).
 const STALE_AFTER_MS = HEARTBEAT_SECONDS * 3 * 1000;
+// 왜 BASE_URL: 서비스 워커 파일(public/sw.js)은 화면 접두어(/console/) 아래에 놓이므로 절대 경로 /sw.js 가 아니다(ADR 0010). API 경로(/v1/…)는 접두어 밖 절대 경로 그대로다
+const SERVICE_WORKER_URL = `${import.meta.env.BASE_URL}sw.js`;
 export const STREAM_URL = "/v1/staff-alerts/stream";
 
 export type Connection = "connecting" | "open" | "closed";
@@ -162,7 +164,7 @@ export async function enablePush(): Promise<void> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("알림 권한이 허용되지 않았다");
   const { vapid_public_key: key } = unwrap(await survey.GET("/v1/push-config"));
-  const registration = await navigator.serviceWorker.register("/sw.js");
+  const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL);
   await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(key) });
   const json = subscription.toJSON();
@@ -174,6 +176,6 @@ export async function enablePush(): Promise<void> {
 
 export async function isPushEnabled(): Promise<boolean> {
   if (pushSupport() === "unsupported") return false;
-  const registration = await navigator.serviceWorker.getRegistration("/sw.js");
+  const registration = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL);
   return (await registration?.pushManager.getSubscription()) != null;
 }

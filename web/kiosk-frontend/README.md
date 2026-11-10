@@ -5,7 +5,7 @@
 
 ## 2. 받는 계약·내는 계약
 - 부르는 계약: [survey-service](../../contracts/openapi/survey-service.yaml) 의 `listActiveQuestionnaires`, `startSession`, `submitTurn`, `endSession`, `getSessionState`, `requestStaffCall`(흐름 N01, N02).
-- 내는 계약: [kiosk-frontend](../../contracts/openapi/kiosk-frontend.yaml)(`/healthz`, `/readyz`, `/metrics`). nginx 가 `/healthz`, `/readyz` 를 답한다. `/metrics` 도 nginx 가 살아 있음 지표(`kiosk_frontend_up`) 하나를 낸다.
+- 내는 계약: [kiosk-frontend](../../contracts/openapi/kiosk-frontend.yaml)(`/healthz`, `/readyz`, `/metrics`). 화면은 `/kiosk/` 아래에서 서비스하고(노출 선언 `DEVICE_MTLS`) 감시 경로는 접두어 밖 루트다. 화면이 부르는 `/v1/…` 는 접두어 밖 절대 경로다([ADR 0007](docs/adr/0007-화면은-kiosk-접두어-아래에서-서비스한다.md)). nginx 가 `/healthz`, `/readyz` 를 답한다. `/metrics` 도 nginx 가 살아 있음 지표(`kiosk_frontend_up`) 하나를 낸다.
 - 타입은 `npm run generate:contract` 로만 만든다(`src/contract/`, 손으로 고치지 않는다). 설정은 `redocly.yaml`, 점검은 `npm run check:contract` 와 `openit-check contract-drift`(ADR 0020).
 - 계약이 부족하거나 틀렸다고 본 것은 계약 9.0.0 이 반영했다(`contracts/README.md` 의 9.0.0 절): [kiosk-frontend-001](../../docs/change-requests/kiosk-frontend-001.md)(문진표 선택, ADR 0005), [002](../../docs/change-requests/kiosk-frontend-002.md)(유휴 만료의 주체는 서버, ADR 0004), [003](../../docs/change-requests/kiosk-frontend-003.md)(실패 신호의 turn_id, ADR 0003).
 - 선언 파일: `exposure.json`(Exposure), `inputs.json`(ContainerInputs)가 이미지 라벨 `io.openit.exposure`·`io.openit.inputs` 의 원본이다(ADR 0006). 키오스크가 부르는 `/v1/` 경로는 survey-service 가 자기 Exposure 로 선언한다.
@@ -53,3 +53,4 @@ tools/smoke web kiosk-frontend        # 이미지 스모크
 - [0004 고령자 접근성과 유휴 초기화](docs/adr/0004-고령자-접근성과-유휴-초기화.md)
 - [0005 문진표 선택은 서버가 요구할 때만 보인다](docs/adr/0005-문진표-선택은-서버가-요구할-때만.md)
 - [0006 이미지 선언(exposure.json, inputs.json)과 라벨](docs/adr/0006-이미지-선언과-라벨.md)
+- [0007 화면은 /kiosk/ 접두어 아래에서 서비스한다](docs/adr/0007-화면은-kiosk-접두어-아래에서-서비스한다.md)

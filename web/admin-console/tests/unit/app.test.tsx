@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,19 +46,28 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function renderApp(options: FakeOptions, path = "/") {
+function renderApp(options: FakeOptions, path = "/", basename?: string) {
   const backend = createFakeBackend(options);
   vi.stubGlobal("fetch", fakeFetch(backend));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter initialEntries={[path]} {...(basename === undefined ? {} : { basename })}>
         <App />
       </MemoryRouter>
     </QueryClientProvider>,
   );
   return backend;
 }
+
+describe("화면 접두어(/console/)", () => {
+  it("접두어 아래 주소로 열고 메뉴 링크가 접두어를 지킨다", async () => {
+    renderApp({ roles: ["staff"] }, "/console/alerts", "/console/");
+    const nav = await screen.findByRole("navigation", { name: "화면 메뉴" });
+    expect(within(nav).getByRole("link", { name: "시작 코드" })).toHaveAttribute("href", "/console/start-codes");
+    expect(within(nav).getByRole("link", { name: /알림/ })).toHaveAttribute("href", "/console/alerts");
+  });
+});
 
 describe("역할에 따라 화면을 보인다", () => {
   it("직원: 시작 코드와 알림 메뉴만, 첫 화면은 시작 코드", async () => {

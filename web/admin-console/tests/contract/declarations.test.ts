@@ -24,6 +24,8 @@ const read = (name: string): unknown => JSON.parse(readFileSync(resolve(root, na
 const exposure = read("exposure.json") as { routes: { path_prefix: string; audience: string }[]; egress: unknown[] };
 const inputs = read("inputs.json") as { run_as_uid: number; env: unknown[]; processes: { argv: string[] }[] };
 const dockerfile = readFileSync(resolve(root, "Dockerfile"), "utf8");
+const viteConfig = readFileSync(resolve(root, "vite.config.ts"), "utf8");
+const nginx = readFileSync(resolve(root, "nginx/default.conf"), "utf8");
 
 describe("선언 파일", () => {
   it("exposure.json 은 계약 Exposure 를 지킨다", () => {
@@ -38,6 +40,14 @@ describe("선언 파일", () => {
   it("화면 경로는 사람 인증(OIDC) 뒤에만 열고 나가는 호출이 없다(서버 호출은 브라우저가 같은 출처로 입구에 하고 입구가 각 서비스의 Exposure 로 나눈다)", () => {
     expect(exposure.routes.map((route) => route.audience)).toEqual(["HUMAN_OIDC"]);
     expect(exposure.egress).toEqual([]);
+  });
+  it("노출 접두어, Vite base, nginx 경로가 같다(입구는 경로를 바꾸지 않고 넘긴다)", () => {
+    const prefix = exposure.routes[0]?.path_prefix ?? "";
+    expect(prefix).toBe("/console/");
+    expect(viteConfig).toContain(`base: "${prefix}"`);
+    expect(nginx).toContain(`location ${prefix} {`);
+    expect(nginx).toContain(`/console/index.html`);
+    expect(dockerfile).toContain("/usr/share/nginx/html/console");
   });
   it("환경 입력이 없다(정적 화면은 설정을 환경 변수로 받지 않는다)", () => {
     expect(inputs.env).toEqual([]);
