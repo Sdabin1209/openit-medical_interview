@@ -30,6 +30,7 @@ function startErrorOf(error: unknown): StartViewError {
   if (error.reason === "START_CODE_INVALID") return "INVALID";
   if (error.reason === "START_CODE_EXPIRED") return "EXPIRED";
   if (error.reason === "START_CODE_USED") return "USED";
+  if (error.reason === "QUESTIONNAIRE_REQUIRED") return "QUESTIONNAIRE_REQUIRED";
   return "UNAVAILABLE";
 }
 
@@ -95,7 +96,9 @@ export function App({ link: injected }: AppProps) {
 
   function apply(current: ActiveSession, next: Parameters<typeof applyStatus>[1]) {
     const result = applyStatus(current, next);
-    if (result.end !== null) finish(result.end, next.text);
+    // 왜 reset: 서버가 유휴로 만료시킨 세션은 이어 쓸 수 없고 지울 입력도 남아 있으므로 처음 화면으로 간다(계약 EXPIRED, ADR 0004)
+    if (result.end === "EXPIRED") reset();
+    else if (result.end !== null) finish(result.end, next.text);
     else setSession(result.session);
   }
 
@@ -196,7 +199,9 @@ export function App({ link: injected }: AppProps) {
     if (session === null) return;
     endMutation.mutate(session.sessionId, {
       onSuccess: (ended) => {
-        finish(ended.status === "ENDED_COMPLETE" ? "COMPLETE" : "PARTIAL");
+        // 이미 유휴로 만료된 세션의 endSession 은 EXPIRED 를 준다(계약 SessionEnded). 끝 인사 대신 처음 화면으로 간다
+        if (ended.status === "EXPIRED") reset();
+        else finish(ended.status === "ENDED_COMPLETE" ? "COMPLETE" : "PARTIAL");
       },
       onError: () => {
         setFailure("UNREACHABLE");

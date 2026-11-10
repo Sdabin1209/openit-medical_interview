@@ -47,14 +47,29 @@ describe("StartView 시작 코드 키패드", () => {
     await userEvent.click(screen.getByRole("button", { name: "시작하기" }));
     expect(onStart).toHaveBeenCalledWith({ startCode: "123456" });
   });
-  it("문진표가 둘 이상이면 코드 뒤에 고르게 하고 고른 id 를 보낸다", async () => {
+  it("문진표가 둘 이상이어도 처음에는 questionnaire_id 없이 보낸다", async () => {
     const onStart = vi.fn(() => Promise.resolve(null));
     render(<StartView codeLength={6} questionnaires={two} onStart={onStart} />);
     await typeCode("123456");
     await userEvent.click(screen.getByRole("button", { name: "시작하기" }));
-    expect(onStart).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "B 문진표" }));
-    expect(onStart).toHaveBeenCalledWith({ startCode: "123456", questionnaireId: "b" });
+    expect(onStart).toHaveBeenCalledWith({ startCode: "123456" });
+    expect(screen.queryByRole("button", { name: "B 문진표" })).toBeNull();
+  });
+  it("서버가 문진표 선택을 요구하면(QUESTIONNAIRE_REQUIRED) 고르게 하고 같은 코드에 고른 id 를 더해 다시 보낸다", async () => {
+    const onStart = vi.fn((input: { startCode: string; questionnaireId?: string }) =>
+      Promise.resolve<StartViewError | null>(input.questionnaireId === undefined ? "QUESTIONNAIRE_REQUIRED" : null),
+    );
+    render(<StartView codeLength={6} questionnaires={two} onStart={onStart} />);
+    await typeCode("123456");
+    await userEvent.click(screen.getByRole("button", { name: "시작하기" }));
+    await userEvent.click(await screen.findByRole("button", { name: "B 문진표" }));
+    expect(onStart).toHaveBeenNthCalledWith(2, { startCode: "123456", questionnaireId: "b" });
+  });
+  it("선택을 요구받았는데 목록이 비어 있으면 연결 안내를 보인다", async () => {
+    render(<StartView codeLength={6} questionnaires={[]} onStart={() => Promise.resolve("QUESTIONNAIRE_REQUIRED")} />);
+    await typeCode("123456");
+    await userEvent.click(screen.getByRole("button", { name: "시작하기" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("연결할 수 없습니다");
   });
   it.each<[StartViewError, RegExp]>([
     ["INVALID", /코드가 맞지 않습니다/],

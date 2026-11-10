@@ -1,8 +1,8 @@
 // 끝 화면: 문진이 끝났다는 인사와 처음으로 가는 버튼. 서버 호출은 하지 않는다(ADR 0003).
 import "./EndView.css";
 
-/** COMPLETE: 모든 문항을 마침, PARTIAL: 중간에 끝냄, EXPIRED: 오래 입력이 없어 끝남(계약 SessionStatus) */
-export type EndOutcome = "COMPLETE" | "PARTIAL" | "EXPIRED";
+/** COMPLETE: 모든 문항을 마침, PARTIAL: 중간에 끝냄. 만료(EXPIRED)는 끝 화면 없이 처음 화면으로 간다(ADR 0004) */
+export type EndOutcome = "COMPLETE" | "PARTIAL";
 
 export interface EndViewProps {
   outcome: EndOutcome;
@@ -14,7 +14,6 @@ export interface EndViewProps {
 const TEXT: Record<EndOutcome, string> = {
   COMPLETE: "문진이 끝났습니다. 수고하셨습니다.",
   PARTIAL: "문진을 마쳤습니다. 지금까지 답한 내용은 저장되었습니다.",
-  EXPIRED: "오래 입력이 없어 문진을 끝냈습니다. 필요하면 처음부터 다시 시작해 주세요.",
 };
 
 export function EndView({ outcome, closingText, onDone }: EndViewProps) {

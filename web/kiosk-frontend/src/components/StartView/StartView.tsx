@@ -1,4 +1,4 @@
-// 시작 화면(start_view): 숫자 키패드로 6자리 시작 코드 입력(QR 없음), 문진표가 둘 이상이면 선택.
+// 시작 화면(start_view): 숫자 키패드로 6자리 시작 코드 입력(QR 없음), 서버가 문진표 선택을 요구하면(422 QUESTIONNAIRE_REQUIRED) 선택.
 // 입력은 props 로 받고 서버 호출은 하지 않는다(ADR 0003). 시작 결과는 onStart 가 돌려준 오류로 받는다.
 import { useState } from "react";
 
@@ -7,8 +7,8 @@ import "./StartView.css";
 
 type Questionnaire = components["schemas"]["QuestionnaireSummary"];
 
-/** 시작에 실패한 까닭. 계약 startSession 의 오류(422 START_CODE_INVALID, 409 START_CODE_EXPIRED·START_CODE_USED, 429)와 연결 실패다 */
-export type StartViewError = "INVALID" | "EXPIRED" | "USED" | "RATE_LIMITED" | "UNAVAILABLE";
+/** 시작에 실패한 까닭. 계약 startSession 의 오류(422 START_CODE_INVALID·QUESTIONNAIRE_REQUIRED, 409 START_CODE_EXPIRED·START_CODE_USED, 429)와 연결 실패다. QUESTIONNAIRE_REQUIRED 는 오류가 아니라 선택 화면으로 가는 신호다 */
+export type StartViewError = "INVALID" | "EXPIRED" | "USED" | "RATE_LIMITED" | "UNAVAILABLE" | "QUESTIONNAIRE_REQUIRED";
 
 export interface StartInput {
   startCode: string;
@@ -18,7 +18,7 @@ export interface StartInput {
 export interface StartViewProps {
   /** 시작 코드의 자릿수(계약 StartCodeValue) */
   codeLength: number;
-  /** 활성 문진표. 둘 이상이면 코드 입력 뒤에 고르게 한다 */
+  /** 활성 문진표. 서버가 선택을 요구할 때만 고르게 한다 */
   questionnaires: readonly Questionnaire[];
   /** 시작을 요청하고 실패하면 그 까닭을, 성공하면 null 을 돌려준다 */
   onStart: (input: StartInput) => Promise<StartViewError | null>;
@@ -32,6 +32,8 @@ const MESSAGES: Record<StartViewError, string> = {
   USED: "이미 사용한 코드입니다. 직원에게 새 코드를 받아 주세요.",
   RATE_LIMITED: "잠시 후에 다시 입력해 주세요.",
   UNAVAILABLE: "지금은 연결할 수 없습니다. 잠시 후에 다시 눌러 주세요.",
+  // 선택 화면으로 가는 신호라 보이지 않는다
+  QUESTIONNAIRE_REQUIRED: "",
 };
 
 // 왜 코드를 지운다: 틀리거나 못 쓰는 코드를 다시 입력하게 한다(브리프). 연결 실패는 같은 코드로 다시 누르면 되므로 지우지 않는다
@@ -63,16 +65,19 @@ export function StartView({ codeLength, questionnaires, onStart, onDirtyChange }
     const failure = await onStart(questionnaireId === undefined ? { startCode: code } : { startCode: code, questionnaireId });
     setBusy(false);
     if (failure === null) return;
+    if (failure === "QUESTIONNAIRE_REQUIRED") {
+      // 왜 목록이 비면 UNAVAILABLE: 고를 것이 없으면 선택 화면은 막다른 길이다(서버가 둘 이상이라 했는데 목록을 못 읽은 경우)
+      if (questionnaires.length === 0) setError("UNAVAILABLE");
+      else setStep("choose");
+      return;
+    }
     setError(failure);
     if (CLEARS_CODE.has(failure)) update("", "code");
   }
 
   function submit() {
     if (code.length !== codeLength || busy) return;
-    if (questionnaires.length >= 2) {
-      setStep("choose");
-      return;
-    }
+    // 왜 처음에는 questionnaire_id 없이: 코드·기기 배치가 문진표를 정했는지는 서버만 안다(계약 startSession)
     void start();
   }
 

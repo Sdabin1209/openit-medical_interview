@@ -64,14 +64,25 @@ describe("시작", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("코드가 맞지 않습니다");
     expect(screen.getByRole("group", { name: /0자리 입력함/ })).toBeInTheDocument();
   });
-  it("문진표가 둘이면 코드 뒤에 고른 문진표로 시작한다", async () => {
-    fake = createFakeSurveyService({ questionnaires: [{ questionnaire_id: "a", title: "A 문진표" }, { questionnaire_id: "b", title: "B 문진표" }] });
+  const two = [{ questionnaire_id: "a", title: "A 문진표" }, { questionnaire_id: "b", title: "B 문진표" }];
+  it("문진표가 둘이고 정해진 것이 없으면 서버의 422 QUESTIONNAIRE_REQUIRED 뒤에 고르게 하고 같은 코드로 다시 보낸다", async () => {
+    fake = createFakeSurveyService({ questionnaires: two });
     renderApp();
     await waitFor(() => { expect(fake.requests.some((r) => r.path === "/v1/questionnaires")).toBe(true); });
     await enterCode(CODES.ok);
     await userEvent.click(await screen.findByRole("button", { name: "B 문진표" }));
     expect(await screen.findByText("B 문진표")).toBeInTheDocument();
-    expect(fake.requests.find((r) => r.path === "/v1/sessions")?.body).toEqual({ start_code: CODES.ok, questionnaire_id: "b" });
+    const bodies = fake.requests.filter((r) => r.path === "/v1/sessions").map((r) => r.body);
+    expect(bodies).toEqual([{ start_code: CODES.ok }, { start_code: CODES.ok, questionnaire_id: "b" }]);
+  });
+  it("코드나 기기 배치가 문진표를 정했으면(문진표가 둘이어도) 선택 화면 없이 시작한다", async () => {
+    fake = createFakeSurveyService({ questionnaires: two, boundQuestionnaire: true });
+    renderApp();
+    await waitFor(() => { expect(fake.requests.some((r) => r.path === "/v1/questionnaires")).toBe(true); });
+    await enterCode(CODES.ok);
+    await screen.findByRole("textbox", { name: "답변" });
+    expect(screen.queryByRole("button", { name: "B 문진표" })).toBeNull();
+    expect(fake.requests.filter((r) => r.path === "/v1/sessions").map((r) => r.body)).toEqual([{ start_code: CODES.ok }]);
   });
 });
 
@@ -126,11 +137,35 @@ describe("대화", () => {
     expect(await screen.findByRole("heading", { name: "잠시 기다려 주세요" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("직원이 곧 도와드립니다");
   });
-  it("서버가 세션이 끝났다고 하면 끝 화면으로 간다", async () => {
+  it("서버가 세션을 만료시켰으면(409 SESSION_NOT_ACTIVE 뒤 상태 EXPIRED) 시작 화면으로 돌아가고 입력이 지워진다", async () => {
     await startSession();
     fake.expire();
     await say("네");
-    expect(await screen.findByRole("heading", { name: /오래 입력이 없어/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("네")).toBeNull();
+    expect(fake.requests.some((r) => r.method === "GET" && r.path.endsWith("/state"))).toBe(true);
+  });
+  it("끝내기를 눌렀는데 서버가 이미 만료시켰으면(endSession 이 EXPIRED) 시작 화면으로 돌아간다", async () => {
+    await startSession();
+    fake.expire();
+    await userEvent.click(screen.getByRole("button", { name: "문진 끝내기" }));
+    await userEvent.click(await screen.findByRole("button", { name: "끝내기" }));
+    expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
+  });
+  it("멈춘 동안 읽은 상태가 EXPIRED 여도 시작 화면으로 돌아간다", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    await startSession();
+    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    await screen.findByRole("heading", { name: "잠시 기다려 주세요" });
+    fake.expire();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
+  });
+  it("직원 호출이 409 SESSION_NOT_ACTIVE 이고 상태가 EXPIRED 면 시작 화면으로 돌아간다", async () => {
+    await startSession();
+    fake.expire();
+    await userEvent.click(screen.getByRole("button", { name: "직원 부르기" }));
+    expect(await screen.findByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeInTheDocument();
   });
 });
 

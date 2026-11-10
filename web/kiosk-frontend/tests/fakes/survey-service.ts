@@ -43,6 +43,8 @@ function json(status: number, body: unknown): FakeResponse {
 
 export interface FakeOptions {
   questionnaires?: S["QuestionnaireSummary"][];
+  /** 시작 코드나 기기 배치가 문진표를 이미 정한 설치처(문진표가 둘 이상이어도 선택을 요구하지 않는다) */
+  boundQuestionnaire?: boolean;
 }
 
 export function createFakeSurveyService(options: FakeOptions = {}) {
@@ -73,6 +75,8 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
       if (body.start_code === CODES.expired) return problem(409, "시작 코드가 만료되었다", "START_CODE_EXPIRED");
       if (body.start_code === CODES.used) return problem(409, "다른 기기가 쓴 코드다", "START_CODE_USED");
       if (body.start_code === CODES.rateLimited) return problem(429, "시도가 너무 잦다", undefined, { "retry-after": "5" });
+      // 계약 startSession: 코드·요청·기기 배치 어디에도 문진표가 없고 활성 문진표가 둘 이상이면 422 QUESTIONNAIRE_REQUIRED(코드는 쓰지 않은 것으로 한다)
+      if (body.questionnaire_id === undefined && !options.boundQuestionnaire && questionnaires.length >= 2) return problem(422, "문진표를 골라야 한다", "QUESTIONNAIRE_REQUIRED");
       const first = !started;
       started = true;
       const result: S["SessionStarted"] = {
@@ -94,7 +98,8 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
       return json(200, result);
     }
     if (method === "POST" && action === "end") {
-      status = turns >= QUESTIONS.length ? "ENDED_COMPLETE" : "ENDED_PARTIAL";
+      // 계약 SessionEnded: 이미 유휴로 만료된 세션이면 EXPIRED
+      if (status !== "EXPIRED") status = turns >= QUESTIONS.length ? "ENDED_COMPLETE" : "ENDED_PARTIAL";
       const result: S["SessionEnded"] = { session_id: SESSION_ID, status, ended_at: "2026-11-10T09:00:00Z" };
       return json(200, result);
     }
@@ -112,18 +117,19 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
       const earlier = seenTurns.get(body.turn_id);
       if (earlier !== undefined) return json(200, earlier);
       if (status !== "ACTIVE") return problem(409, "세션이 끝났거나 멈췄다", "SESSION_NOT_ACTIVE");
-      let result: S["TurnResponse"];
       if (body.utterance.includes("실패")) {
-        result = { turn_id: body.turn_id, status: "ACTIVE", failure_signal: "EXTRACTION_UNAVAILABLE" };
+        // 계약 submitTurn: 실패 신호를 준 turn_id 는 기록하지 않아 같은 turn_id 의 재전송은 다시 처리된다
+        const failed: S["TurnResponse"] = { turn_id: body.turn_id, status: "ACTIVE", failure_signal: "EXTRACTION_UNAVAILABLE" };
+        return json(200, failed);
+      }
+      let result: S["TurnResponse"];
+      turns += 1;
+      const next = QUESTIONS[turns];
+      if (next === undefined) {
+        status = "ENDED_COMPLETE";
+        result = { turn_id: body.turn_id, status, response_text: "문진이 모두 끝났습니다. 감사합니다." };
       } else {
-        turns += 1;
-        const next = QUESTIONS[turns];
-        if (next === undefined) {
-          status = "ENDED_COMPLETE";
-          result = { turn_id: body.turn_id, status, response_text: "문진이 모두 끝났습니다. 감사합니다." };
-        } else {
-          result = { turn_id: body.turn_id, status: "ACTIVE", response_text: `네, 알겠습니다. ${next}`, current_item_id: `Q${String(turns + 1)}` };
-        }
+        result = { turn_id: body.turn_id, status: "ACTIVE", response_text: `네, 알겠습니다. ${next}`, current_item_id: `Q${String(turns + 1)}` };
       }
       seenTurns.set(body.turn_id, result);
       return json(200, result);

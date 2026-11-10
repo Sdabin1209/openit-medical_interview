@@ -1,0 +1,6 @@
+{
+  "routes": [
+    { "path_prefix": "/", "methods": ["GET"], "audience": "DEVICE_MTLS" }
+  ],
+  "egress": []
+}

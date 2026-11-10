@@ -121,7 +121,6 @@ describe("EndView", () => {
   it.each([
     ["COMPLETE", "문진이 끝났습니다"],
     ["PARTIAL", "저장되었습니다"],
-    ["EXPIRED", "오래 입력이 없어"],
   ] as const)("%s", (outcome, text) => {
     render(<EndView outcome={outcome} onDone={vi.fn()} />);
     expect(screen.getByRole("heading")).toHaveTextContent(text);

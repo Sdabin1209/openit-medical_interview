@@ -1,7 +1,10 @@
 // 화면의 세션 상태(app 층). 서버가 준 상태를 화면이 보일 모양으로 옮긴다.
 import type { SessionStarted, SessionState } from "./link/survey";
 
-export type EndOutcome = "COMPLETE" | "PARTIAL" | "EXPIRED";
+export type EndOutcome = "COMPLETE" | "PARTIAL";
+
+/** 서버가 만료(EXPIRED)로 답하면 끝 화면이 아니라 처음 화면으로 돌아간다(계약 SessionStatus, ADR 0004) */
+export type StatusEnd = EndOutcome | "EXPIRED";
 
 export interface ActiveSession {
   sessionId: string;
@@ -16,7 +19,7 @@ export function fromStarted(started: SessionStarted): ActiveSession {
   return { sessionId: started.session_id, title: started.questionnaire_title, sentence: started.response_text, staffHelpNotice: false, paused: null };
 }
 
-export function outcomeOf(status: SessionState["status"]): EndOutcome | null {
+export function outcomeOf(status: SessionState["status"]): StatusEnd | null {
   if (status === "ENDED_COMPLETE") return "COMPLETE";
   if (status === "ENDED_PARTIAL") return "PARTIAL";
   if (status === "EXPIRED") return "EXPIRED";
@@ -27,7 +30,7 @@ export function outcomeOf(status: SessionState["status"]): EndOutcome | null {
 export function applyStatus(
   session: ActiveSession,
   next: { status: SessionState["status"]; pause_reason?: "RISK_SIGNAL" | "STAFF_CALL" | undefined; text?: string | undefined; staffHelpNotice?: boolean | undefined },
-): { session: ActiveSession; end: EndOutcome | null } {
+): { session: ActiveSession; end: StatusEnd | null } {
   const end = outcomeOf(next.status);
   if (end !== null) return { session, end };
   if (next.status === "PAUSED") {

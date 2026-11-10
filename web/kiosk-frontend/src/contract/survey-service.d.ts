@@ -55,7 +55,7 @@ export interface paths {
         put?: never;
         /**
          * 시작 코드로 세션 시작
-         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것, 모두 없고 활성 문진표가 둘 이상이면 환자 선택 순서로 정한다.
+         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것으로 정하고 활성 문진표가 하나뿐이면 그것이다. 모두 없고 활성 문진표가 둘 이상이면 환자가 골라야 하므로 422 QUESTIONNAIRE_REQUIRED 로 답하며, 이 응답은 시작 코드를 쓰지 않은 것으로 한다. 키오스크는 먼저 questionnaire_id 없이 보내고(같은 기기·같은 코드 재전송은 멱등) 이 사유일 때만 선택 화면을 보여 고른 값을 더해 다시 보낸다. 시작은 세션의 첫 활동이다(유휴 만료 기준은 getSessionState).
          */
         post: operations["startSession"];
         delete?: never;
@@ -78,7 +78,7 @@ export interface paths {
         put?: never;
         /**
          * 환자 발화 한 턴 보내기
-         * @description 환자의 발화를 보내고 다음 문장을 받는다. 같은 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다(N01, N02, D55, D75(1), D86). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
+         * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다. failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 세션 상태를 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
          */
         post: operations["submitTurn"];
         delete?: never;
@@ -101,7 +101,7 @@ export interface paths {
         put?: never;
         /**
          * 세션 끝내기
-         * @description 환자가 문진을 끝낸다. 문진표가 끝까지 가지 않았으면 ENDED_PARTIAL 로 끝나고 부분 결과가 남는다. 이미 끝난 세션에 다시 보내도 같은 결과를 준다(N01). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
+         * @description 환자가 문진을 끝낸다. 문진표가 끝까지 가지 않았으면 ENDED_PARTIAL 로 끝나고 부분 결과가 남는다. 이미 끝난 세션에 다시 보내도 같은 결과를 준다. 마지막 활동 뒤 KioskIdleResetSeconds 가 지나 EXPIRED 가 된 세션에는 200 으로 status EXPIRED 를 준다(만료 판정은 이 호출에서도 한다. N01). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
          */
         post: operations["endSession"];
         delete?: never;
@@ -122,7 +122,7 @@ export interface paths {
         };
         /**
          * 세션 상태 확인
-         * @description 키오스크가 2초마다 읽어 직원이 정지를 풀었는지 안다. 정지가 풀린 뒤에는 다음 발화 턴을 받기 전까지 resume_text 를 준다(N02, D66(6)). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
+         * @description 키오스크가 2초마다 읽어 직원이 정지를 풀었는지 안다. 정지가 풀린 뒤에는 다음 발화 턴을 받기 전까지 resume_text 를 준다(N02, D66(6)). 유휴 만료의 주체는 서버다. 활동은 startSession, submitTurn, requestStaffCall 호출이고, 마지막 활동 뒤 KioskIdleResetSeconds(60초)가 지난 ACTIVE 세션은 이 호출에서 EXPIRED 로 판정해 status 에 준다(이 읽기는 활동이 아니다). 멈춘(PAUSED) 세션은 만료하지 않는다. 만료 판정은 getSessionState, submitTurn, endSession 호출 때와 PURGE_EXPIRED 잡에서 한다. 키오스크의 화면 초기화는 화면 동작이라 서버에 알리지 않아도 된다(알리려면 endSession). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
          */
         get: operations["getSessionState"];
         put?: never;
@@ -147,7 +147,7 @@ export interface paths {
         put?: never;
         /**
          * 직원 다시 부르기
-         * @description 직원 호출 알림이 닿지 않았을 때 키오스크가 직원을 다시 부른다. 세션은 멈추고 CALL_STAFF 알림이 새로 생긴다. 이미 열린 호출이 있으면 새로 만들지 않고 200 으로 그 알림을 다시 알린다(N01, L23, D95). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
+         * @description 직원 호출 알림이 닿지 않았을 때 키오스크가 직원을 다시 부른다. 세션은 멈추고 CALL_STAFF 알림이 새로 생긴다. 이미 열린 호출이 있으면 새로 만들지 않고 200 으로 그 알림을 다시 알린다(N01, L23, D95). 이 호출은 세션의 활동이다(유휴 만료 기준은 getSessionState). 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8).
          */
         post: operations["requestStaffCall"];
         delete?: never;
@@ -674,7 +674,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -756,7 +756,7 @@ export interface components {
         SessionStartRequest: {
             /** @description 환자가 입력한 일회용 시작 코드 */
             start_code: components["schemas"]["StartCodeValue"];
-            /** @description 환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다 */
+            /** @description 환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다. 키오스크는 먼저 이 칸 없이 보내고 서버가 422 QUESTIONNAIRE_REQUIRED 로 답했을 때만 환자가 고른 값을 더해 다시 보낸다 */
             questionnaire_id?: components["schemas"]["QuestionnaireId"];
         };
         /**
@@ -846,7 +846,7 @@ export interface components {
         SessionEnded: {
             /** @description 끝난 세션 */
             session_id: components["schemas"]["SessionId"];
-            /** @description 끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE) */
+            /** @description 끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE. 이미 유휴로 만료된 세션이면 EXPIRED) */
             status: components["schemas"]["SessionStatus"];
             /** @description 끝난 때 */
             ended_at: components["schemas"]["Timestamp"];
@@ -1501,7 +1501,12 @@ export interface components {
          * @example e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
          */
         Sha256Digest: string;
-        /** @description 올린 문항 세트의 한 버전. 한 번 저장하면 바뀌지 않는다 */
+        /**
+         * @description 문항 세트 버전이 그 문진표의 지금 활성 버전이면 참. 문진표마다 활성 버전은 하나이고 활성화하면 이전 활성 버전은 거짓이 된다
+         * @example true
+         */
+        QuestionSetVersionIsActive: boolean;
+        /** @description 올린 문항 세트의 한 버전. 내용은 한 번 저장하면 바뀌지 않고 활성 여부(is_active)만 활성화에 따라 바뀐다 */
         QuestionSetVersion: {
             /** @description 이 버전의 식별자 */
             question_set_version_id: components["schemas"]["QuestionSetVersionId"];
@@ -1519,6 +1524,8 @@ export interface components {
             uploaded_by: components["schemas"]["UserId"];
             /** @description 버전을 저장한 때 */
             created_at: components["schemas"]["Timestamp"];
+            /** @description 이 버전이 그 문진표의 지금 활성 버전인지 */
+            is_active: components["schemas"]["QuestionSetVersionIsActive"];
         };
         /** @description 저장한 문항 세트 버전 목록 한 쪽 */
         QuestionSetVersionPage: {
@@ -1706,7 +1713,7 @@ export interface components {
         };
     };
     parameters: {
-        /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+        /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
         ForwardedClientCert: components["schemas"]["ForwardedClientCertValue"];
         /** @description 같은 요청을 다시 보낼 때 같은 값을 보내는 키. 같은 키의 재전송은 앞선 결과를 그대로 돌려준다 */
         IdempotencyKey: components["schemas"]["IdempotencyKeyValue"];
@@ -1730,7 +1737,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path?: never;
@@ -1787,7 +1794,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path?: never;
@@ -1829,7 +1836,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path: {
@@ -1864,7 +1871,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path: {
@@ -1893,7 +1900,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path: {
@@ -1922,7 +1929,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다 */
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
                 "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
             };
             path: {
