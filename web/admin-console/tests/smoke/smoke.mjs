@@ -51,6 +51,8 @@ function check(label, ok) {
 try {
   const healthz = await get("/healthz");
   check("/healthz 200", healthz.status === 200 && JSON.parse(healthz.body).status === "pass");
+  const metrics = await get("/metrics");
+  check("/metrics 가 Prometheus 텍스트를 낸다", metrics.status === 200 && metrics.body.includes("# TYPE admin_console_up gauge"));
   const readyz = await get("/readyz");
   check("/readyz 200 pass", readyz.status === 200 && JSON.parse(readyz.body).status === "pass");
   const index = await get("/console/");
