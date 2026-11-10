@@ -1,0 +1,1884 @@
+openapi: 3.1.0
+info:
+  title: openit v7 영역 사이 공유 값
+  version: 7.0.0
+  description: >-
+    영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
+    (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
+    x-owner 는 값을 책임지는 영역(areas.yaml), x-basis 는 근거(결정 번호, 표준, 측정, 사용자 결정)다.
+    문자열 길이 상한의 단계 규칙은 README 의 길이 규칙을 따른다.
+  contact: { name: head }
+paths: {}
+components:
+  schemas:
+    # ======================================================================
+    # 공통: 시각, 오류(RFC 9457), 쪽 나누기, 건강 상태
+    # ======================================================================
+    Timestamp: { type: string, format: date-time, maxLength: 35, description: "일이 일어난 때. UTC 오프셋을 포함한 RFC 3339 날짜-시각", x-owner: head, x-basis: "RFC 3339 5.6 date-time (최대 길이 35는 소수 9자리와 +hh:mm 을 포함한 표기 길이)" }
+    ProblemType: { type: string, format: uri-reference, maxLength: 8000, description: "오류의 종류를 가리키는 URI 참조. 이 계약에서는 ProblemReason 값을 경로로 하는 상대 참조를 쓴다", x-owner: head, x-basis: "RFC 9457 3.1.1 (type 은 URI 참조), RFC 9110 4.1 (URI 8000옥텟 지원 권고)" }
+    ProblemTitle: { type: string, maxLength: 200, description: "오류 종류의 짧은 사람용 이름. 같은 종류면 항상 같다", x-owner: head, x-basis: "RFC 9457 3.1.3 (title), 길이 규칙 L2" }
+    HttpStatus: { type: integer, minimum: 400, maximum: 599, description: "오류 응답의 HTTP 상태 코드(클라이언트 오류 4xx, 서버 오류 5xx)", x-owner: head, x-basis: "RFC 9457 3.1.2 (status), RFC 9110 15.5 와 15.6 (4xx 와 5xx 범위)" }
+    ProblemDetail: { type: string, maxLength: 4000, description: "이번 오류가 일어난 까닭의 사람용 설명. 환자 발화와 비밀 값은 넣지 않는다", x-owner: head, x-basis: "RFC 9457 3.1.4 (detail), 길이 규칙 L4, D88(최소 수집)" }
+    ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), RFC 9110 4.1" }
+    ProblemReason:
+      type: string
+      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, STALE_REPORT, ALREADY_DECIDED, RELEASE_VERSION_MISMATCH, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, DEADLINE_EXCEEDED, QUESTION_STRUCTURE_MISMATCH, SAME_PERSON_APPROVAL, DUPLICATE_DELIVERY, PARSE_FAILED]
+      x-enum-descriptions:
+        OUTPUT_INVALID: "LoRA-A 출력이 끝내 규칙을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다"
+        TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(409, Retry-After 를 따른다)"
+        STALE_REPORT: "승인 요청이 가리킨 검토 보고서 해시가 지금 보고서와 다르다(409)"
+        ALREADY_DECIDED: "이 접수는 이미 사람이 결정했다(409)"
+        RELEASE_VERSION_MISMATCH: "릴리스의 규칙 세대나 서빙 구성의 버전이 설치본과 맞지 않아 적재를 거부했다"
+        START_CODE_INVALID: "시작 코드가 발급된 적 없는 값이다"
+        START_CODE_EXPIRED: "시작 코드의 유효 기간이 지났다"
+        START_CODE_USED: "시작 코드는 일회용이라 이미 쓰였다"
+        SESSION_NOT_ACTIVE: "세션이 진행 중이 아니어서 이 작업을 받을 수 없다(끝났거나 직원 개입으로 멈췄다)"
+        MODEL_NOT_LOADED: "추론 서버가 활성 릴리스를 아직 적재하지 못했다"
+        DEADLINE_EXCEEDED: "서버가 정한 요청 전체 마감을 넘겼다. 변경은 되돌렸다(재시도 가능)"
+        QUESTION_STRUCTURE_MISMATCH: "함께 운영하려는 문진표의 문항·칸 구조가 모델 패키지가 학습한 구조와 다르다"
+        SAME_PERSON_APPROVAL: "2인 임상 승인이 켜진 설치에서 저자와 검수자가 같은 사람이다"
+        DUPLICATE_DELIVERY: "이미 받은 전달을 다시 받았다(멱등으로 처리했음을 알린다)"
+        PARSE_FAILED: "올린 문항 자료를 읽지 못했다. 화면 입력으로 이어 갈 수 있다"
+      description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값"
+      x-owner: head
+      x-basis: "RFC 9457 3.2 (확장 멤버), D75(1) OUTPUT_INVALID, D86 TURN_IN_PROGRESS, D69 STALE_REPORT·ALREADY_DECIDED, D46 적재 거부, 사용자 결정 2026-11-10 시작 코드, D120 마감, U81 구조 대조, L13·D92 2인 승인, D16 멱등, D33 파싱 실패"
+    JsonPointer: { type: string, format: json-pointer, maxLength: 1000, description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901, RFC 9457 4.1 (확장 멤버 예시), 길이 규칙 L3" }
+    ProblemFieldError:
+      type: object
+      additionalProperties: false
+      description: "요청의 칸 하나가 계약을 어긴 내용. 위치와 까닭"
+      x-owner: head
+      x-basis: "RFC 9457 3 (확장 멤버로 칸별 오류 나열), 4.1 의 예시 형태"
+      required: [pointer, detail]
+      properties:
+        pointer: { $ref: "#/components/schemas/JsonPointer", description: "잘못된 값이 있는 요청 본문 안의 위치" }
+        detail: { $ref: "#/components/schemas/ProblemDetail", description: "그 칸이 어긋난 까닭" }
+    ProblemFieldErrors: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ProblemFieldError" }, description: "한 요청에서 어긋난 칸들의 목록", x-owner: head, x-basis: "개수 규칙 N2(PageLimit 최대값과 같다)" }
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      description: "모든 오류 응답의 본문(application/problem+json). 4xx 와 5xx 모두 이 모양이다"
+      x-owner: head
+      x-basis: "RFC 9457 (Problem Details for HTTP APIs), RFC 9110 15.5 와 15.6"
+      required: [type, title, status]
+      properties:
+        type: { $ref: "#/components/schemas/ProblemType", description: "오류 종류를 가리키는 URI 참조" }
+        title: { $ref: "#/components/schemas/ProblemTitle", description: "오류 종류의 짧은 이름" }
+        status: { $ref: "#/components/schemas/HttpStatus", description: "응답의 HTTP 상태 코드" }
+        detail: { $ref: "#/components/schemas/ProblemDetail", description: "이번 오류의 설명" }
+        instance: { $ref: "#/components/schemas/ProblemInstance", description: "이번 오류 발생을 가리키는 URI 참조" }
+        reason: { $ref: "#/components/schemas/ProblemReason", description: "상태 코드만으로 가를 수 없는 세부 사유" }
+        errors: { $ref: "#/components/schemas/ProblemFieldErrors", description: "요청 본문에서 어긋난 칸들(검증 실패일 때만)" }
+    RetryAfterSeconds: { type: integer, minimum: 0, maximum: 190, description: "클라이언트가 같은 요청을 다시 보내기 전에 기다릴 초", x-owner: head, x-basis: "RFC 9110 10.2.3 (Retry-After 의 delay-seconds), 상한은 D125 의 가장 긴 사람 화면 실패 판정 상한 190초" }
+    PageLimit: { type: integer, minimum: 1, maximum: 100, default: 30, description: "한 번에 받을 항목의 최대 개수", x-owner: head, x-basis: "업계 관행(GitHub REST per_page 기본 30 최대 100, Stripe limit 최대 100), Google AIP-158" }
+    PageCursor: { type: string, maxLength: 1000, description: "다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다", x-owner: head, x-basis: "Google AIP-158 (page_token 은 불투명), 길이 규칙 L3" }
+
+    ServiceName:
+      type: string
+      enum: [survey-service, release-gate, question-authoring, ops-feedback, model-runtime, model-lab, synthetic-data, platform, kiosk-frontend, admin-console]
+      x-enum-descriptions:
+        survey-service: "문진 진행·세션·결과를 맡는 서버"
+        release-gate: "출시 후보 검사·사람 승인·활성 릴리스를 맡는 서버"
+        question-authoring: "문항 자료 등록·미리보기·저자 확인을 맡는 서버"
+        ops-feedback: "턴 기록 수집·비식별·실패 사례 검토를 맡는 서버"
+        model-runtime: "LoRA-A 추출과 LoRA-B 응답 생성을 맡는 추론 서버"
+        model-lab: "모델 개발·평가와 모델 레지스트리를 맡는 서버"
+        synthetic-data: "학습·평가 데이터셋 게시를 맡는 서버"
+        platform: "공개 입구·사람 인증·사설 인증 기관·감시·백업 저장소"
+        kiosk-frontend: "환자가 쓰는 키오스크 화면"
+        admin-console: "사람이 쓰는 모든 업무 화면(직원·의사·저자·검수자·검토자·승인자·운영자)"
+      description: "계약에 나오는 서비스(컨테이너 이미지가 하나인 단위)의 이름"
+      x-owner: head
+      x-basis: "contracts/README.md 서비스 목록, ADR 0002(서비스 폴더 하나는 이미지 하나), 사용자 결정 C01(사람 화면은 admin-console)"
+    HealthStatus:
+      type: string
+      enum: [pass, warn, fail]
+      x-enum-descriptions: { pass: "정상", warn: "동작하지만 주의가 필요하다", fail: "동작하지 못한다" }
+      description: "건강 점검 하나 또는 전체의 결과"
+      x-owner: head
+      x-basis: "draft-inadarei-api-health-check (status 값 pass·warn·fail), D111"
+    HealthCheckName: { type: string, maxLength: 64, description: "점검 항목의 이름(예를 들어 database)", x-owner: head, x-basis: "길이 규칙 L1, D111(/readyz 가 의존 준비를 점검)" }
+    HealthCheck:
+      type: object
+      additionalProperties: false
+      description: "건강 점검 항목 하나의 결과"
+      x-owner: head
+      x-basis: "draft-inadarei-api-health-check checks 멤버, D111"
+      required: [name, status]
+      properties:
+        name: { $ref: "#/components/schemas/HealthCheckName", description: "점검한 의존 또는 기능의 이름" }
+        status: { $ref: "#/components/schemas/HealthStatus", description: "이 항목의 점검 결과" }
+        observed_at: { $ref: "#/components/schemas/Timestamp", description: "이 항목을 마지막으로 점검한 때" }
+    HealthChecks: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/HealthCheck" }, description: "건강 점검 항목들", x-owner: head, x-basis: "개수 규칙 N1" }
+    ImageRevision: { type: string, pattern: "^[0-9a-f]{40,64}$", maxLength: 64, description: "이미지를 만든 소스의 커밋 해시(소문자 16진수)", x-owner: deploy, x-basis: "OCI Image Spec 어노테이션 org.opencontainers.image.revision, ADR 0004" }
+    HealthReport:
+      type: object
+      additionalProperties: false
+      description: "서비스의 건강 점검 응답 본문(application/health+json). /healthz 와 /readyz 가 낸다"
+      x-owner: head
+      x-basis: "draft-inadarei-api-health-check, D111, F58"
+      required: [status, service]
+      properties:
+        status: { $ref: "#/components/schemas/HealthStatus", description: "전체 결과. /healthz 는 프로세스 생존만, /readyz 는 의존 준비까지 본다" }
+        service: { $ref: "#/components/schemas/ServiceName", description: "응답한 서비스" }
+        revision: { $ref: "#/components/schemas/ImageRevision", description: "실행 중인 이미지의 소스 커밋" }
+        checks: { $ref: "#/components/schemas/HealthChecks", description: "의존별 점검 결과(/readyz 에서만)" }
+    PrometheusExposition: { type: string, maxLength: 8388608, description: "Prometheus 텍스트 노출 형식의 지표 본문", x-owner: platform, x-basis: "Prometheus exposition format 0.0.4, D111, 길이 상한 8 MiB 는 근거 없음(측정 안 함)" }
+
+    # ======================================================================
+    # 인증: 사람(OIDC)과 기계(bearer 토큰)와 기기(mTLS)
+    # ======================================================================
+    UserId: { type: string, maxLength: 255, description: "사람 계정의 고유 식별자(OIDC 의 sub 값). 승인·검토·확인 기록에 남는다", x-owner: platform, x-basis: "OpenID Connect Core 1.0 2 (sub 는 최대 255 ASCII 문자), D88 U7(개인 식별 필수)" }
+    UserRole:
+      type: string
+      enum: [staff, clinician, author, clinical-reviewer, reviewer, release-approver, operator, admin]
+      x-enum-descriptions:
+        staff: "병원 직원. 시작 코드 발급, 직원 알림 확인, 위험 정지 해제"
+        clinician: "의사. 문진 결과 목록·상세·인쇄·확인 표시"
+        author: "문항 저자. 문항 자료 등록과 미리보기 확인, 개선 신호 읽기"
+        clinical-reviewer: "임상 근거 검수자. 2인 승인을 켠 설치에서 저자와 다른 사람이 승인"
+        reviewer: "실패 사례 검토자. 사례를 검토해 기대 답과 고쳐 쓴 입력을 확정"
+        release-approver: "출고 승인자. 후보와 활성 릴리스를 맞댄 보고서를 보고 승인 또는 반려"
+        operator: "운영자. 릴리스 활성화·롤백, 재판정, 가입 승인과 역할 부여"
+        admin: "계정 관리자. 초기 admin 계정은 임시 비밀번호로 시작한다"
+      description: "사람 계정에 부여하는 역할. Keycloak 의 realm 역할 이름과 같다"
+      x-owner: platform
+      x-basis: "U82(표준 IdP 와 역할), U83(clinician), D71(reviewer·release-approver), D124(author·clinical-reviewer), D105(2)(operator), D58(4)(staff)"
+    MachineRole:
+      type: string
+      enum: [result-reader, risk-detector, release-reader, model-serving, candidate-reader, decision-reader, question-reader, case-reader, signal-reader, trace-sender, rollback-requester, dataset-reader, dataset-publisher, model-publisher]
+      x-enum-descriptions:
+        result-reader: "병원 시스템. 문진 결과와 FHIR 결과를 당겨 간다"
+        risk-detector: "외부 위험 감지기. 위험 신호를 보낸다"
+        release-reader: "활성 릴리스를 읽는 서비스(survey-service, ops-feedback)"
+        model-serving: "추론 서버. 활성 릴리스의 모델 패키지를 스스로 읽는다"
+        candidate-reader: "release-gate. 문항 세트와 모델 패키지 후보를 가져간다"
+        decision-reader: "question-authoring 과 model-lab. 자기 산출물의 게이트 판정을 읽는다"
+        question-reader: "model-lab 과 synthetic-data. 문항 정의를 읽는다"
+        case-reader: "model-lab 과 synthetic-data. 확정된 실패 사례와 시드 사례를 읽는다"
+        signal-reader: "question-authoring. 문항별 실패율과 혼동 사례를 읽는다"
+        trace-sender: "survey-service. 턴 기록을 보낸다"
+        rollback-requester: "ops-feedback. 롤백 요청을 낸다"
+        dataset-reader: "model-lab. 지정 버전의 데이터셋을 읽는다"
+        dataset-publisher: "데이터셋 담당. 확정한 최종 데이터를 게시한다"
+        model-publisher: "학습 서버. 학습 결과를 모델 레지스트리에 게시한다"
+      description: "기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다"
+      x-owner: platform
+      x-basis: "D122(기계 토큰 경로는 읽을 것만 연다), D58(2)(401 과 403 구분), C16(학습 서버 게시), C10(병원 시스템 당겨 가기), C17(판정 읽기)"
+    MachineClientName: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$", maxLength: 64, description: "기계 토큰을 쓰는 호출자의 이름(서비스 이름 또는 외부 시스템 이름)", x-owner: platform, x-basis: "DNS 레이블 규칙(RFC 1035 3.1 의 소문자 영숫자와 하이픈), 길이 규칙 L1" }
+    MachineTokenEntry:
+      type: object
+      additionalProperties: false
+      description: "기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로"
+      x-owner: platform
+      x-basis: "D84(비밀은 파일), D122, D129"
+      required: [client, roles, token_file]
+      properties:
+        client: { $ref: "#/components/schemas/MachineClientName", description: "호출자 이름" }
+        roles: { type: array, maxItems: 14, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들" }
+        token_file: { $ref: "#/components/schemas/SecretFilePath", description: "토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)" }
+    MachineTokenTable:
+      type: object
+      additionalProperties: false
+      description: "받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)"
+      x-owner: platform
+      x-basis: "D84, D122, F54"
+      required: [tokens]
+      properties:
+        tokens: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/MachineTokenEntry" }, description: "호출자별 권한과 토큰 파일" }
+    RealmAccessClaim:
+      type: object
+      additionalProperties: false
+      description: "OIDC 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임)"
+      x-owner: platform
+      x-basis: "Keycloak 접근 토큰 기본 클레임 realm_access.roles, U82"
+      required: [roles]
+      properties:
+        roles: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/UserRole" }, description: "이 사람에게 부여된 역할들" }
+    PreferredUsername: { type: string, maxLength: 255, description: "사람이 읽는 계정 이름(화면 표시용). 권한 판단에는 쓰지 않는다", x-owner: platform, x-basis: "OpenID Connect Core 1.0 5.1 (preferred_username)" }
+    UserIdentityClaims:
+      type: object
+      additionalProperties: false
+      description: "공개 입구가 검증해 영역에 넘기는 사람 신원(접근 토큰의 클레임). 영역은 서명을 다시 검증하지 않고 이 값을 믿는다"
+      x-owner: platform
+      x-basis: "OpenID Connect Core 1.0, RFC 9068(JWT 접근 토큰), F52, D69(승인자 ID 는 본문보다 헤더가 우선)"
+      required: [sub, realm_access]
+      properties:
+        sub: { $ref: "#/components/schemas/UserId", description: "사람 계정 식별자" }
+        preferred_username: { $ref: "#/components/schemas/PreferredUsername", description: "화면 표시용 계정 이름" }
+        realm_access: { $ref: "#/components/schemas/RealmAccessClaim", description: "부여된 역할" }
+    DeviceId: { type: string, pattern: "^[A-Za-z0-9._-]+$", maxLength: 64, description: "키오스크 기기의 식별자. 기기 인증서 주체의 CN 값이다", x-owner: platform, x-basis: "D136(기기 ID 와 일련번호 허용 목록), RFC 5280 부록 A ub-common-name 64" }
+    DeviceSerialNumber: { type: string, pattern: "^[0-9a-f]{1,40}$", maxLength: 40, description: "기기 인증서의 일련번호(소문자 16진수)", x-owner: platform, x-basis: "RFC 5280 4.1.2.2 (일련번호는 최대 20옥텟, 곧 16진수 40자), D136" }
+
+    # ======================================================================
+    # 문진 서비스: 문진표, 시작 코드, 세션, 턴
+    # ======================================================================
+    QuestionnaireId: { type: string, pattern: "^[A-Za-z0-9_-]+$", maxLength: 64, description: "문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다", x-owner: question-authoring, x-basis: "U85(문진표가 여럿), 길이 규칙 L1" }
+    QuestionnaireTitle: { type: string, minLength: 1, maxLength: 200, description: "문진표의 제목. 결과와 선택 화면에 보인다", x-owner: question-authoring, x-basis: "U87(결과에 문진표 제목), 길이 규칙 L2" }
+    QuestionnaireSummary:
+      type: object
+      additionalProperties: false
+      description: "활성 문진표 하나의 요약(선택 화면에 보일 만큼)"
+      x-owner: survey-service
+      x-basis: "U86, F30"
+      required: [questionnaire_id, title]
+      properties:
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표 식별자" }
+        title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "문진표 제목" }
+    ActiveQuestionnaireList:
+      type: object
+      additionalProperties: false
+      description: "활성 릴리스에 들어 있는 문진표 목록"
+      x-owner: survey-service
+      x-basis: "U86, U85, F30"
+      required: [questionnaires]
+      properties:
+        questionnaires: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionnaireSummary" }, description: "문진표 요약들" }
+    SubjectRef: { type: string, minLength: 1, maxLength: 200, description: "문진 대상자를 가리키는 불투명 참조값. 환자 식별 정보(이름·생년월일 등)가 아니다. 병원 시스템이 같은 값으로 결과를 당겨 간다", x-owner: survey-service, x-basis: "G-SUBJ-1, D85(1), 사용자 결정 2026-11-10 C20, 길이 규칙 L2" }
+    StartCodeValue: { type: string, pattern: "^[0-9]{8}$", maxLength: 8, description: "직원이 발급한 일회용 시작 코드(8자리 숫자, QR 에도 같은 값을 담는다)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10 C20(직원 발급 일회용 시작 코드), NIST SP 800-63B 5.1.4 (일회용 비밀은 6자리 이상), 8자리는 근거 없음(측정 안 함)" }
+    StartCodeIssueRequest:
+      type: object
+      additionalProperties: false
+      description: "직원이 시작 코드 발급을 요청하는 본문"
+      x-owner: survey-service
+      x-basis: "사용자 결정 2026-11-10 C20, F25"
+      required: [subject_ref]
+      properties:
+        subject_ref: { $ref: "#/components/schemas/SubjectRef", description: "이 코드로 시작할 문진 대상자의 참조값" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "미리 정할 문진표. 없으면 기기 배치나 환자 선택을 따른다" }
+    StartCode:
+      type: object
+      additionalProperties: false
+      description: "발급된 일회용 시작 코드와 유효 기한"
+      x-owner: survey-service
+      x-basis: "사용자 결정 2026-11-10 C20"
+      required: [code, issued_at, expires_at]
+      properties:
+        code: { $ref: "#/components/schemas/StartCodeValue", description: "환자가 키오스크에 입력하거나 QR 로 읽힐 코드" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "코드에 묶인 문진표(요청에서 정했을 때만)" }
+        issued_at: { $ref: "#/components/schemas/Timestamp", description: "코드를 발급한 때" }
+        expires_at: { $ref: "#/components/schemas/Timestamp", description: "이 때가 지나면 코드를 쓸 수 없다" }
+    SessionId: { type: string, format: uuid, description: "문진 세션 하나의 식별자. 서버가 발급한다", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D110(서버 발급 session_id)" }
+    TurnId: { type: string, format: uuid, description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
+    UtteranceText: { type: string, minLength: 1, maxLength: 300, description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배), D88 U3(음성은 기기 안 처리)" }
+    ResponseSentence: { type: string, minLength: 1, maxLength: 1000, description: "환자에게 보여 주고 읽어 줄 응답 문장", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), 길이 규칙 L3(응답 문장의 최대 길이는 데이터셋 확인 요청 대상)" }
+    QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_]+$", maxLength: 64, description: "문항 하나의 식별자(예를 들어 Q8_1)", x-owner: question-authoring, x-basis: "D74(문항 번호로 질문 문장을 찾는다), D76, 길이 규칙 L1" }
+    SessionStatus:
+      type: string
+      enum: [ACTIVE, PAUSED, ENDED_COMPLETE, ENDED_PARTIAL, EXPIRED]
+      x-enum-descriptions:
+        ACTIVE: "진행 중"
+        PAUSED: "멈춤. 직원이 풀어야 한다(까닭은 PauseReason)"
+        ENDED_COMPLETE: "문진표의 순서가 끝나 정상 종료"
+        ENDED_PARTIAL: "환자나 직원이 끝까지 가지 않고 끝냄(부분 결과가 남는다)"
+        EXPIRED: "오래 말이 없어 유휴 만료(멈춘 세션은 만료하지 않는다)"
+      description: "세션의 상태"
+      x-owner: survey-service
+      x-basis: "D95·D79(ENDED_COMPLETE, 정지), D66(5)(정지 중은 유휴 만료 없음), D85(1)(부분 결과도 상태와 함께 조회)"
+    PauseReason:
+      type: string
+      enum: [RISK_SIGNAL, STAFF_CALL, REASK_LIMIT_EXCEEDED]
+      x-enum-descriptions:
+        RISK_SIGNAL: "위험 신호가 들어와 멈춤"
+        STAFF_CALL: "환자나 키오스크가 직원을 불러 멈춤"
+        REASK_LIMIT_EXCEEDED: "같은 문항을 되묻기 한도까지 물어도 정해지지 않아 직원을 부름"
+      description: "세션이 멈춘 까닭. 직원 화면과 지표가 구분한다"
+      x-owner: survey-service
+      x-basis: "L28(정지 사유 구분), D95(되묻기 초과는 직원 호출), D64"
+    TurnFailureReason:
+      type: string
+      enum: [EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED]
+      x-enum-descriptions:
+        EXTRACTION_UNAVAILABLE: "LoRA-A 추출을 받지 못했다(출력 보증 실패 포함)"
+        RESPONSE_UNAVAILABLE: "LoRA-B 응답 문장을 받지 못했다"
+        DEADLINE_EXCEEDED: "턴 전체 마감을 넘겼다"
+      description: "턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다"
+      x-owner: survey-service
+      x-basis: "D75(1)(실패 신호는 세션 상태를 바꾸지 않는다), D125(시간 상한)"
+    StaffHelpNotice: { type: boolean, description: "이 응답이 직원 도움을 안내하는 문장을 담고 있는지(설명 요청이 한 문항에서 3번 이어졌을 때 참)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청만 3번 이어지면 직원 도움 안내)" }
+    SessionStartRequest:
+      type: object
+      additionalProperties: false
+      description: "키오스크가 세션을 시작하는 본문"
+      x-owner: survey-service
+      x-basis: "F29, 사용자 결정 2026-11-10 C20, U86"
+      required: [start_code]
+      properties:
+        start_code: { $ref: "#/components/schemas/StartCodeValue", description: "환자가 입력하거나 읽힌 일회용 시작 코드" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다" }
+    SessionStarted:
+      type: object
+      additionalProperties: false
+      description: "세션 시작 결과. 첫 인사 문장과 첫 문항을 담는다"
+      x-owner: survey-service
+      x-basis: "F29, F30, D74(시작은 LoRA-B 만 부른다)"
+      required: [session_id, status, questionnaire_id, response_text]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "새 세션의 식별자" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "세션 상태(시작 직후는 ACTIVE)" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "이 세션이 쓰는 문진표" }
+        questionnaire_title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "이 세션이 쓰는 문진표의 제목" }
+        response_text: { $ref: "#/components/schemas/ResponseSentence", description: "화면에 보일 첫 문장" }
+        current_item_id: { $ref: "#/components/schemas/QuestionItemId", description: "지금 묻는 문항" }
+    TurnRequest:
+      type: object
+      additionalProperties: false
+      description: "환자 발화 한 턴을 서버에 보내는 본문"
+      x-owner: survey-service
+      x-basis: "F29, D55, D66(1)"
+      required: [turn_id, utterance]
+      properties:
+        turn_id: { $ref: "#/components/schemas/TurnId", description: "이 턴의 식별자(재전송 때 같은 값)" }
+        utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 발화" }
+    TurnResponse:
+      type: object
+      additionalProperties: false
+      description: "한 턴의 처리 결과. 다음에 보일 문장과 세션 상태를 담는다"
+      x-owner: survey-service
+      x-basis: "F30, D55, D75(1)"
+      required: [turn_id, status]
+      properties:
+        turn_id: { $ref: "#/components/schemas/TurnId", description: "응답이 가리키는 턴" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "턴 처리 뒤 세션 상태" }
+        pause_reason: { $ref: "#/components/schemas/PauseReason", description: "멈췄다면 그 까닭" }
+        response_text: { $ref: "#/components/schemas/ResponseSentence", description: "화면에 보일 문장(실패 신호일 때는 없다)" }
+        current_item_id: { $ref: "#/components/schemas/QuestionItemId", description: "다음에 묻는 문항(끝났으면 없다)" }
+        failure_signal: { $ref: "#/components/schemas/TurnFailureReason", description: "턴이 값을 만들지 못했을 때의 신호" }
+        staff_help_notice: { $ref: "#/components/schemas/StaffHelpNotice", description: "직원 도움 안내 문장이 들어 있는지" }
+    SessionEnded:
+      type: object
+      additionalProperties: false
+      description: "세션 종료 결과"
+      x-owner: survey-service
+      x-basis: "F29"
+      required: [session_id, status, ended_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "끝난 세션" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE)" }
+        ended_at: { $ref: "#/components/schemas/Timestamp", description: "끝난 때" }
+    SessionState:
+      type: object
+      additionalProperties: false
+      description: "키오스크가 2초마다 확인하는 세션 상태. 직원이 정지를 풀었는지 알리는 용도다"
+      x-owner: survey-service
+      x-basis: "F31, D66(6)(2초 폴링), L28"
+      required: [session_id, status]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "확인한 세션" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "지금 상태" }
+        pause_reason: { $ref: "#/components/schemas/PauseReason", description: "멈춘 세션이면 그 까닭" }
+        resume_text: { $ref: "#/components/schemas/ResponseSentence", description: "정지가 풀린 뒤 다음 발화 턴을 받기 전까지 환자에게 보일 문장" }
+
+    # ---- 직원 알림, 웹 푸시, 개입 ----
+    AlertId: { type: string, format: uuid, description: "직원 알림 하나의 식별자", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D64" }
+    AlertKind:
+      type: string
+      enum: [RISK, CALL_STAFF, REASK_EXCEEDED, RESULT_READY]
+      x-enum-descriptions:
+        RISK: "위험 신호로 세션이 멈췄다(직원이 와서 풀어야 한다)"
+        CALL_STAFF: "환자나 키오스크가 직원을 불렀다"
+        REASK_EXCEEDED: "되묻기 한도를 넘겨 직원을 부른다"
+        RESULT_READY: "문진이 끝나 의사가 볼 결과가 생겼다"
+      description: "알림의 종류"
+      x-owner: survey-service
+      x-basis: "F38(위험·직원 호출·되묻기 초과), F41·U92(결과 도착 알림)"
+    StaffAlert:
+      type: object
+      additionalProperties: false
+      description: "직원 또는 의사에게 가는 알림 하나"
+      x-owner: survey-service
+      x-basis: "D64, D66(3), F38, F41"
+      required: [alert_id, kind, session_id, raised_at]
+      properties:
+        alert_id: { $ref: "#/components/schemas/AlertId", description: "알림 식별자" }
+        kind: { $ref: "#/components/schemas/AlertKind", description: "알림 종류" }
+        session_id: { $ref: "#/components/schemas/SessionId", description: "알림이 가리키는 세션" }
+        device_id: { $ref: "#/components/schemas/DeviceId", description: "직원이 찾아가야 할 키오스크 기기(결과 알림에는 없다)" }
+        questionnaire_title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "세션의 문진표 제목" }
+        raised_at: { $ref: "#/components/schemas/Timestamp", description: "알림이 생긴 때" }
+        resolved_at: { $ref: "#/components/schemas/Timestamp", description: "직원이 풀거나 확인한 때(아직이면 없다)" }
+    StaffAlertPage:
+      type: object
+      additionalProperties: false
+      description: "직원 알림 목록 한 쪽"
+      x-owner: survey-service
+      x-basis: "D66(3), PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/StaffAlert" }, description: "알림들(최근 것이 먼저)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽을 받을 커서(마지막 쪽이면 없다)" }
+    AlertEventName:
+      type: string
+      enum: [alert, resolved, heartbeat, resync]
+      x-enum-descriptions:
+        alert: "새 알림이 생겼다"
+        resolved: "알림이 풀렸다"
+        heartbeat: "스트림이 살아 있음을 알린다(브라우저 EventSource 가 죽은 연결을 알아채게 한다)"
+        resync: "놓친 이벤트가 있을 수 있으니 목록을 다시 읽으라는 신호"
+      description: "알림 스트림(SSE)의 이벤트 이름"
+      x-owner: survey-service
+      x-basis: "D66(4), D87(heartbeat 와 resync), WHATWG HTML 9.2 Server-sent events"
+    EventSequence: { type: integer, minimum: 0, maximum: 9007199254740991, description: "알림 스트림 이벤트의 순번(SSE id). 재연결 때 Last-Event-ID 로 이어 받는다", x-owner: survey-service, x-basis: "D66(4)(id 는 순번), WHATWG HTML 9.2.4(Last-Event-ID), 상한은 RFC 7493 2.2 의 안전한 정수 최대" }
+    StaffAlertEvent:
+      type: object
+      additionalProperties: false
+      description: "알림 스트림이 보내는 이벤트 하나의 data 본문"
+      x-owner: survey-service
+      x-basis: "D66(4), D87"
+      required: [event, sequence]
+      properties:
+        event: { $ref: "#/components/schemas/AlertEventName", description: "이벤트 이름" }
+        sequence: { $ref: "#/components/schemas/EventSequence", description: "이벤트 순번" }
+        alert: { $ref: "#/components/schemas/StaffAlert", description: "alert 와 resolved 이벤트가 가리키는 알림" }
+    InterventionAction:
+      type: string
+      enum: [ACKNOWLEDGE, RESUME]
+      x-enum-descriptions: { ACKNOWLEDGE: "알림을 확인했다는 표시만 한다", RESUME: "멈춘 세션의 정지를 풀어 문진을 이어 가게 한다" }
+      description: "직원이 알림에 대해 내리는 결정"
+      x-owner: survey-service
+      x-basis: "F40, D58(4)(위험 정지 해제 개입)"
+    InterventionDecision:
+      type: object
+      additionalProperties: false
+      description: "직원이 멈춘 세션에 대해 내리는 개입 결정"
+      x-owner: survey-service
+      x-basis: "F39, F40, D58(4)"
+      required: [action]
+      properties:
+        action: { $ref: "#/components/schemas/InterventionAction", description: "직원의 결정" }
+    PushEndpoint: { type: string, format: uri, maxLength: 8000, description: "브라우저 푸시 서비스가 정한 구독 주소. 이 주소로 푸시 메시지를 보낸다", x-owner: survey-service, x-basis: "W3C Push API(PushSubscription.endpoint), RFC 8030 5, RFC 9110 4.1" }
+    PushPublicKey: { type: string, pattern: "^[A-Za-z0-9_-]{87}$", maxLength: 87, description: "P-256 비압축 공개키를 base64url(패딩 없음)로 쓴 값(65옥텟이 87자)", x-owner: survey-service, x-basis: "RFC 8291 3.1(수신자 공개키), RFC 8292 3.2(애플리케이션 서버 키), RFC 4648 5" }
+    PushAuthSecret: { type: string, pattern: "^[A-Za-z0-9_-]{22}$", maxLength: 22, description: "푸시 구독의 인증 비밀(16옥텟을 base64url 로 쓴 22자)", x-owner: survey-service, x-basis: "RFC 8291 3.2(auth secret 은 16옥텟), RFC 4648 5" }
+    PushKeys:
+      type: object
+      additionalProperties: false
+      description: "푸시 메시지를 암호화하는 데 쓰는 구독 키 한 쌍"
+      x-owner: survey-service
+      x-basis: "W3C Push API(PushSubscription.getKey), RFC 8291"
+      required: [p256dh, auth]
+      properties:
+        p256dh: { $ref: "#/components/schemas/PushPublicKey", description: "브라우저의 P-256 공개키" }
+        auth: { $ref: "#/components/schemas/PushAuthSecret", description: "구독 인증 비밀" }
+    PushSubscription:
+      type: object
+      additionalProperties: false
+      description: "브라우저가 만든 웹 푸시 구독. 구독한 사람의 계정에 묶어 저장한다"
+      x-owner: survey-service
+      x-basis: "C11, D64, D66(7), F39, RFC 8030, RFC 8291, RFC 8292, W3C Push API"
+      required: [endpoint, keys]
+      properties:
+        endpoint: { $ref: "#/components/schemas/PushEndpoint", description: "구독 주소" }
+        keys: { $ref: "#/components/schemas/PushKeys", description: "구독 키" }
+    PushSubscriptionId: { type: string, format: uuid, description: "저장한 푸시 구독 하나의 식별자", x-owner: survey-service, x-basis: "RFC 9562 (UUID)" }
+    PushSubscriptionRegistered:
+      type: object
+      additionalProperties: false
+      description: "푸시 구독을 저장한 결과"
+      x-owner: survey-service
+      x-basis: "F39"
+      required: [push_subscription_id, registered_at]
+      properties:
+        push_subscription_id: { $ref: "#/components/schemas/PushSubscriptionId", description: "저장한 구독의 식별자" }
+        registered_at: { $ref: "#/components/schemas/Timestamp", description: "저장한 때" }
+    PushConfig:
+      type: object
+      additionalProperties: false
+      description: "브라우저가 푸시를 구독할 때 쓰는 서버의 VAPID 공개키"
+      x-owner: survey-service
+      x-basis: "D66(7), RFC 8292"
+      required: [vapid_public_key]
+      properties:
+        vapid_public_key: { $ref: "#/components/schemas/PushPublicKey", description: "서버가 보유한 VAPID 공개키" }
+    WebPushPayload:
+      type: object
+      additionalProperties: false
+      description: "푸시 메시지 안에 암호화해 담는 알림 내용. 환자 정보는 담지 않는다"
+      x-owner: survey-service
+      x-basis: "C11, U92, RFC 8291(최대 4096옥텟 암호문), D88(최소 수집)"
+      required: [kind, alert_id, raised_at]
+      properties:
+        kind: { $ref: "#/components/schemas/AlertKind", description: "알림 종류" }
+        alert_id: { $ref: "#/components/schemas/AlertId", description: "알림 식별자(눌렀을 때 화면이 이 알림을 연다)" }
+        raised_at: { $ref: "#/components/schemas/Timestamp", description: "알림이 생긴 때" }
+
+    # ======================================================================
+    # 문항 정의(문진 스키마): 문항, 칸, 순서·건너뛰기 표, 문항 세트 버전
+    # ======================================================================
+    SlotKey: { type: string, pattern: "^[a-z][a-z0-9_]*$", maxLength: 64, description: "문항 안의 칸 하나의 이름(예를 들어 days, use_pattern, duration_minutes)", x-owner: question-authoring, x-basis: "D74(칸 키), U32(데이터셋 question_fields 의 칸), 길이 규칙 L1" }
+    SlotRefString: { type: string, pattern: "^[A-Za-z0-9_]+\\.[a-z][a-z0-9_]*$", maxLength: 129, description: "문항과 칸을 한 문자열로 가리키는 값(문항ID.칸키, 마지막 점에서 나눈다)", x-owner: question-authoring, x-basis: "D43(SlotRef 문자열은 마지막 .에서 나눈다), 길이는 QuestionItemId 64 + 점 + SlotKey 64" }
+    SlotDataType:
+      type: string
+      enum: [INTEGER, CHOICE, YES_NO]
+      x-enum-descriptions: { INTEGER: "정수 값(단위가 있다)", CHOICE: "선택지 코드 중 하나", YES_NO: "예 또는 아니오" }
+      description: "칸이 받는 값의 자료형"
+      x-owner: question-authoring
+      x-basis: "U32(question_fields 의 자료형), G13(선택지·단위·예/아니오 값 규칙)"
+    SlotUnit: { type: string, maxLength: 64, description: "정수 칸의 단위 이름(예를 들어 일, 분)", x-owner: question-authoring, x-basis: "U32(단위 있는 칸), 길이 규칙 L1" }
+    SlotInteger: { type: integer, minimum: -9007199254740991, maximum: 9007199254740991, description: "정수 칸의 값 또는 그 최소·최대 한계", x-owner: question-authoring, x-basis: "RFC 7493 2.2 (I-JSON 의 안전한 정수 범위), U32" }
+    ChoiceCode: { type: string, pattern: "^[A-Za-z0-9_]+$", maxLength: 64, description: "선택지 하나의 코드(예를 들어 days_10_29)", x-owner: question-authoring, x-basis: "U32(선택지 칸 Q6_1 의 days_10_29 형태), 길이 규칙 L1" }
+    ChoiceLabel: { type: string, minLength: 1, maxLength: 200, description: "선택지 하나의 환자용 이름", x-owner: question-authoring, x-basis: "길이 규칙 L2" }
+    QuestionChoice:
+      type: object
+      additionalProperties: false
+      description: "선택지 하나(코드와 환자용 이름)"
+      x-owner: question-authoring
+      x-basis: "U32, G13"
+      required: [code, label]
+      properties:
+        code: { $ref: "#/components/schemas/ChoiceCode", description: "저장되는 선택지 코드" }
+        label: { $ref: "#/components/schemas/ChoiceLabel", description: "환자에게 보이는 이름" }
+    QuestionChoices: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/QuestionChoice" }, description: "한 칸의 선택지들", x-owner: question-authoring, x-basis: "개수 규칙 N1" }
+    QuestionFieldSpec:
+      type: object
+      additionalProperties: false
+      description: "칸 하나의 규격(자료형, 단위, 허용 범위, 선택지). 추론 서버가 출력 값을 이 규격으로 보증한다"
+      x-owner: question-authoring
+      x-basis: "D115, U32(값은 데이터셋 question_fields 와 같게)"
+      required: [item_id, slot_key, data_type]
+      properties:
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "칸이 속한 문항" }
+        slot_key: { $ref: "#/components/schemas/SlotKey", description: "칸의 이름" }
+        data_type: { $ref: "#/components/schemas/SlotDataType", description: "칸이 받는 값의 자료형" }
+        unit: { $ref: "#/components/schemas/SlotUnit", description: "정수 칸의 단위" }
+        minimum: { $ref: "#/components/schemas/SlotInteger", description: "정수 칸이 받는 최솟값" }
+        maximum: { $ref: "#/components/schemas/SlotInteger", description: "정수 칸이 받는 최댓값" }
+        choices: { $ref: "#/components/schemas/QuestionChoices", description: "선택지 칸의 선택지들" }
+    QuestionFieldSpecs: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/QuestionFieldSpec" }, description: "칸 규격들", x-owner: question-authoring, x-basis: "개수 규칙 N3" }
+    QuestionText: { type: string, minLength: 1, maxLength: 1000, description: "문항 하나의 환자용 질문 문장", x-owner: question-authoring, x-basis: "D74(문항 번호로 질문 문장을 찾는 표), 길이 규칙 L3" }
+    QuestionItem:
+      type: object
+      additionalProperties: false
+      description: "문항 하나(식별자, 질문 문장, 받을 칸들)"
+      x-owner: question-authoring
+      x-basis: "D13(QuestionBank), D74"
+      required: [item_id, text, fields]
+      properties:
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "문항 식별자" }
+        text: { $ref: "#/components/schemas/QuestionText", description: "질문 문장" }
+        fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "이 문항이 받는 칸들의 규격" }
+    QuestionItems: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/QuestionItem" }, description: "문항들", x-owner: question-authoring, x-basis: "개수 규칙 N3" }
+    QuestionBank:
+      type: object
+      additionalProperties: false
+      description: "한 문진표의 문항 정의 전체(문항 은행)"
+      x-owner: question-authoring
+      x-basis: "D13, F15, F16"
+      required: [items]
+      properties:
+        items: { $ref: "#/components/schemas/QuestionItems", description: "문항들" }
+    FlowTarget: { type: string, pattern: "^(END|[A-Za-z0-9_]+)$", maxLength: 64, description: "순서표가 가리키는 다음 자리. 문항 식별자 또는 끝을 뜻하는 END", x-owner: question-authoring, x-basis: "D76(QuestionFlowTable), U100(END)" }
+    FlowComparison:
+      type: string
+      enum: [EQ, NE, LT, LE, GT, GE]
+      x-enum-descriptions: { EQ: "같다", NE: "다르다", LT: "작다", LE: "작거나 같다", GT: "크다", GE: "크거나 같다" }
+      description: "건너뛰기 조건의 비교 연산"
+      x-owner: question-authoring
+      x-basis: "D76(Q8_1.days == 0 같은 수 조건)"
+    ConditionValue:
+      oneOf:
+        - { $ref: "#/components/schemas/SlotInteger" }
+        - { $ref: "#/components/schemas/ChoiceCode" }
+      description: "건너뛰기 조건이 비교하는 값(정수 또는 선택지 코드)"
+      x-owner: question-authoring
+      x-basis: "D76"
+    FlowCondition:
+      type: object
+      additionalProperties: false
+      description: "분기가 선택되는 조건(칸 값과 비교)"
+      x-owner: question-authoring
+      x-basis: "D76"
+      required: [slot, operator, value]
+      properties:
+        slot: { $ref: "#/components/schemas/SlotRefString", description: "비교할 칸" }
+        operator: { $ref: "#/components/schemas/FlowComparison", description: "비교 연산" }
+        value: { $ref: "#/components/schemas/ConditionValue", description: "비교 대상 값" }
+    FlowBranch:
+      type: object
+      additionalProperties: false
+      description: "분기 하나. 조건이 맞으면 다음 자리로 간다. 조건이 없으면 앞 분기가 모두 맞지 않을 때의 기본 경로다"
+      x-owner: question-authoring
+      x-basis: "D76"
+      required: [next_item]
+      properties:
+        when: { $ref: "#/components/schemas/FlowCondition", description: "이 분기를 고르는 조건" }
+        next_item: { $ref: "#/components/schemas/FlowTarget", description: "조건이 맞을 때 가는 다음 자리" }
+    FlowRule:
+      type: object
+      additionalProperties: false
+      description: "문항 하나 다음에 어디로 가는지의 분기들. 앞에서부터 처음 맞는 분기를 쓴다"
+      x-owner: question-authoring
+      x-basis: "D76, D74(순서는 서비스 표가 정한다), U74"
+      required: [item_id, branches]
+      properties:
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "이 규칙이 다음을 정하는 문항" }
+        branches: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/FlowBranch" }, description: "분기들(순서가 의미를 가진다)" }
+    QuestionFlowTable:
+      type: object
+      additionalProperties: false
+      description: "문항 순서와 건너뛰기 규칙 표. 추론 서버가 출력의 다음 문항을 이 표로 보증하고 채운다"
+      x-owner: question-authoring
+      x-basis: "D76, D104(2), D108(1), U74"
+      required: [start_item, rules]
+      properties:
+        start_item: { $ref: "#/components/schemas/QuestionItemId", description: "첫 문항" }
+        rules: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/FlowRule" }, description: "문항별 다음 규칙" }
+    QuestionSetContent:
+      type: object
+      additionalProperties: false
+      description: "문진표 한 벌의 내용(제목, 문항 은행, 순서표)"
+      x-owner: question-authoring
+      x-basis: "D31, D76, U85"
+      required: [title, bank, flow]
+      properties:
+        title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "문진표 제목" }
+        bank: { $ref: "#/components/schemas/QuestionBank", description: "문항 정의" }
+        flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "순서와 건너뛰기" }
+    Sha256Digest: { type: string, pattern: "^[0-9a-f]{64}$", maxLength: 64, description: "내용의 SHA-256 해시(소문자 16진수 64자)", x-owner: head, x-basis: "FIPS 180-4 (SHA-256), D33(원본 자료 해시), D69(서버가 계산)" }
+    Int32Positive: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "1부터 시작하는 순번(32비트 정수 범위)", x-owner: head, x-basis: "OpenAPI 3.1 format int32, D75(2)(정수 버전)" }
+    RuntimeContractVersion: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "문항 은행과 칸 키의 정수 버전. 모델 패키지가 학습한 값과 다르면 적재와 승인을 거부한다", x-owner: question-authoring, x-basis: "D75(2), D79(1)(1 로 시작해 호환이 깨질 때만 올린다)" }
+    QuestionSetVersionId: { type: string, format: uuid, description: "문진표 한 벌의 확정된 버전 하나의 식별자", x-owner: question-authoring, x-basis: "RFC 9562 (UUID), D30(임상 승인은 정확한 버전에 묶인다)" }
+    ChangeClass:
+      type: string
+      enum: [WORDING, CHOICES_AND_UNITS, SLOT, BRANCHING]
+      x-enum-descriptions: { WORDING: "문구만 바뀜", CHOICES_AND_UNITS: "선택지나 단위가 바뀜", SLOT: "칸이 바뀜", BRANCHING: "분기가 바뀜" }
+      description: "이전 버전에 대한 문항 변경의 분류"
+      x-owner: question-authoring
+      x-basis: "D17(문구, 선택지·단위, 슬롯, 분기의 4종)"
+    ReviewRecord:
+      type: object
+      additionalProperties: false
+      description: "문항 세트 버전의 검수 기록(누가 언제 확인하고 임상 근거를 승인했는가)"
+      x-owner: question-authoring
+      x-basis: "D30, D92, L13(2인 승인 기본 꺼짐), F03, F04"
+      required: [author_id, author_confirmed_at]
+      properties:
+        author_id: { $ref: "#/components/schemas/UserId", description: "미리보기를 확인한 저자" }
+        author_confirmed_at: { $ref: "#/components/schemas/Timestamp", description: "저자가 확인한 때" }
+        clinical_reviewer_id: { $ref: "#/components/schemas/UserId", description: "임상 근거를 승인한 검수자(2인 승인을 켠 설치에서만)" }
+        clinical_approved_at: { $ref: "#/components/schemas/Timestamp", description: "검수자가 임상 근거를 승인한 때" }
+        source_sha256: { $ref: "#/components/schemas/Sha256Digest", description: "올린 원본 자료의 해시(출처). 화면 입력이면 없다" }
+    QuestionSetVersion:
+      type: object
+      additionalProperties: false
+      description: "확정된 문진표 한 벌의 한 버전. 한 번 확정하면 바뀌지 않는다"
+      x-owner: question-authoring
+      x-basis: "D31, D30, D17, U85, U87"
+      required: [question_set_version_id, questionnaire_id, version_number, runtime_contract_version, content, content_hash, review, created_at]
+      properties:
+        question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "이 버전의 식별자" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표 식별자" }
+        version_number: { $ref: "#/components/schemas/Int32Positive", description: "같은 문진표 안의 버전 순번" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+        content: { $ref: "#/components/schemas/QuestionSetContent", description: "문진표 내용" }
+        content_hash: { $ref: "#/components/schemas/Sha256Digest", description: "내용의 해시(릴리스가 이 값으로 고정한다)" }
+        change_class: { $ref: "#/components/schemas/ChangeClass", description: "이전 버전 대비 변경 분류(첫 버전이면 없다)" }
+        review: { $ref: "#/components/schemas/ReviewRecord", description: "검수 기록" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "버전을 확정한 때" }
+    QuestionSetRef:
+      type: object
+      additionalProperties: false
+      description: "릴리스나 제출이 문진표 한 벌의 한 버전을 가리키는 참조(내용 해시로 고정)"
+      x-owner: question-authoring
+      x-basis: "U85(QuestionSetRef: id·version·content_hash·title)"
+      required: [questionnaire_id, question_set_version_id, content_hash, title]
+      properties:
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표 식별자" }
+        question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "가리키는 버전" }
+        content_hash: { $ref: "#/components/schemas/Sha256Digest", description: "그 버전 내용의 해시" }
+        title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "문진표 제목" }
+    QuestionSetRefs: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionSetRef" }, description: "함께 운영하는 문진표들의 참조", x-owner: question-authoring, x-basis: "U85(문진표가 여럿), 개수 규칙 N2" }
+    QuestionSetCandidate:
+      type: object
+      additionalProperties: false
+      description: "게이트가 가져가는 후보 문항 세트 버전의 요약과 검수 기록"
+      x-owner: question-authoring
+      x-basis: "F05, D49, D17, U85"
+      required: [ref, review, published_at]
+      properties:
+        ref: { $ref: "#/components/schemas/QuestionSetRef", description: "후보 버전의 참조" }
+        review: { $ref: "#/components/schemas/ReviewRecord", description: "검수 기록" }
+        change_class: { $ref: "#/components/schemas/ChangeClass", description: "변경 분류" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+        published_at: { $ref: "#/components/schemas/Timestamp", description: "후보로 내놓은 때(확정되거나 2인 승인이 끝난 때)" }
+    QuestionSetCandidatePage:
+      type: object
+      additionalProperties: false
+      description: "후보 문항 세트 버전 목록 한 쪽"
+      x-owner: question-authoring
+      x-basis: "F05, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionSetCandidate" }, description: "후보들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+
+    # ---- 문항 자료 올리기, 초안, 미리보기, 확인 ----
+    MaterialFileContent: { type: string, format: binary, maxLength: 26214400, description: "저자가 가져온 문항 자료 파일의 내용", x-owner: question-authoring, x-basis: "D31, D33(형식은 미리 정하지 않는다), 길이 상한 25 MiB 는 근거 없음(측정 안 함)" }
+    MediaType: { type: string, pattern: "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$", maxLength: 255, description: "파일 내용의 미디어 유형(예를 들어 application/pdf)", x-owner: question-authoring, x-basis: "RFC 6838 4.2 (type 과 subtype 각 127자 이하), RFC 9110 8.3.1" }
+    MaterialUpload:
+      type: object
+      additionalProperties: false
+      description: "문항 자료 파일 올리기(multipart/form-data)의 본문"
+      x-owner: question-authoring
+      x-basis: "F01, D31, D33"
+      required: [file]
+      properties:
+        file: { $ref: "#/components/schemas/MaterialFileContent", description: "올리는 파일" }
+        media_type: { $ref: "#/components/schemas/MediaType", description: "저자가 밝힌 파일 유형(없으면 서버가 판단한다)" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "기존 문진표의 새 버전으로 올릴 때 그 문진표" }
+    DraftFormInput:
+      type: object
+      additionalProperties: false
+      description: "저자가 화면 양식으로 입력한 문항 초안의 본문(파싱할 수 없을 때도 등록이 가능하게 하는 길)"
+      x-owner: question-authoring
+      x-basis: "F01, D33(3)"
+      required: [content]
+      properties:
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "기존 문진표의 새 버전이면 그 문진표(없으면 새 문진표)" }
+        content: { $ref: "#/components/schemas/QuestionSetContent", description: "입력한 문진표 내용" }
+    DraftId: { type: string, format: uuid, description: "문항 초안 하나의 식별자", x-owner: question-authoring, x-basis: "RFC 9562 (UUID)" }
+    DraftStatus:
+      type: string
+      enum: [PARSED, PARSE_FAILED, CONFIRMED]
+      x-enum-descriptions: { PARSED: "초안으로 만들었고 저자의 확인을 기다린다", PARSE_FAILED: "자료를 읽지 못했다. 화면 입력으로 이어 간다", CONFIRMED: "저자가 확인해 문항 세트 버전이 되었다" }
+      description: "문항 초안의 상태"
+      x-owner: question-authoring
+      x-basis: "D31(저자 확인 없이 버전이 되지 않는다), D33(3)"
+    PreviewText: { type: string, maxLength: 20000, description: "초안을 사람이 읽는 형태로 보여 주는 미리보기 본문", x-owner: question-authoring, x-basis: "D31(사람이 읽는 형태의 미리보기), 길이 규칙 L5" }
+    PreviewWarning: { type: string, maxLength: 1000, description: "자료를 읽을 때 확신하지 못한 부분을 저자에게 알리는 문장", x-owner: question-authoring, x-basis: "D33(3)(확신하지 못하면 추정하지 않고 알린다), 길이 규칙 L3" }
+    DraftPreview:
+      type: object
+      additionalProperties: false
+      description: "문항 초안의 미리보기. 저자는 이것을 보고 확인한다"
+      x-owner: question-authoring
+      x-basis: "F02, D31, D33"
+      required: [draft_id, status, preview_hash]
+      properties:
+        draft_id: { $ref: "#/components/schemas/DraftId", description: "초안 식별자" }
+        status: { $ref: "#/components/schemas/DraftStatus", description: "초안 상태" }
+        preview_text: { $ref: "#/components/schemas/PreviewText", description: "사람이 읽는 미리보기(읽지 못했으면 없다)" }
+        content: { $ref: "#/components/schemas/QuestionSetContent", description: "초안의 구조화된 내용(읽지 못했으면 없다)" }
+        warnings: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/PreviewWarning" }, description: "저자가 살펴볼 경고들" }
+        preview_hash: { $ref: "#/components/schemas/Sha256Digest", description: "미리보기 내용의 해시. 저자는 이 해시를 돌려보내 본 내용 그대로 확인한다" }
+    DraftSummary:
+      type: object
+      additionalProperties: false
+      description: "문항 초안 목록의 한 줄"
+      x-owner: question-authoring
+      x-basis: "F02"
+      required: [draft_id, status, created_at]
+      properties:
+        draft_id: { $ref: "#/components/schemas/DraftId", description: "초안 식별자" }
+        status: { $ref: "#/components/schemas/DraftStatus", description: "초안 상태" }
+        title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "읽은 문진표 제목(읽지 못했으면 없다)" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "초안을 만든 때" }
+    DraftPage:
+      type: object
+      additionalProperties: false
+      description: "문항 초안 목록 한 쪽"
+      x-owner: question-authoring
+      x-basis: "F02, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/DraftSummary" }, description: "초안들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    DraftConfirmation:
+      type: object
+      additionalProperties: false
+      description: "저자가 미리보기를 보고 문항 세트 버전으로 확정하는 본문"
+      x-owner: question-authoring
+      x-basis: "F03, D31, D30(확인은 정확한 버전에 묶인다)"
+      required: [preview_hash]
+      properties:
+        preview_hash: { $ref: "#/components/schemas/Sha256Digest", description: "저자가 본 미리보기의 해시. 지금 초안과 다르면 확정하지 않는다" }
+
+    # ---- 개선 신호(문항별 실패율·혼동 사례) ----
+    FailureCount: { type: integer, minimum: 0, maximum: 2147483647, description: "세어 낸 횟수(턴 수 또는 실패 수)", x-owner: ops-feedback, x-basis: "OpenAPI int32, F21" }
+    FailureRate: { type: number, minimum: 0, maximum: 1, description: "실패한 턴의 비율(0 이상 1 이하)", x-owner: ops-feedback, x-basis: "D52(2)(문항별 실패율), 비율의 정의역" }
+    ConfusionSummary: { type: string, maxLength: 1000, description: "자주 혼동된 사례의 비식별 요약 문장", x-owner: ops-feedback, x-basis: "D52(2)(혼동 사례), D15(비식별), 길이 규칙 L3" }
+    ConfusionCase:
+      type: object
+      additionalProperties: false
+      description: "혼동 사례 하나와 그 횟수"
+      x-owner: ops-feedback
+      x-basis: "D52(2), F21"
+      required: [summary, count]
+      properties:
+        summary: { $ref: "#/components/schemas/ConfusionSummary", description: "혼동된 내용 요약" }
+        count: { $ref: "#/components/schemas/FailureCount", description: "이 혼동이 관찰된 횟수" }
+    FailureSignal:
+      type: object
+      additionalProperties: false
+      description: "문항 하나의 실패율과 혼동 사례(문항 개선 신호의 원자료)"
+      x-owner: ops-feedback
+      x-basis: "D52(2), D124, U68, F21"
+      required: [questionnaire_id, item_id, turn_count, failure_count, failure_rate]
+      properties:
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표" }
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "문항" }
+        turn_count: { $ref: "#/components/schemas/FailureCount", description: "이 문항에서 관찰한 턴 수" }
+        failure_count: { $ref: "#/components/schemas/FailureCount", description: "그중 실패한 턴 수" }
+        failure_rate: { $ref: "#/components/schemas/FailureRate", description: "실패한 턴의 비율" }
+        confusions: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ConfusionCase" }, description: "혼동 사례들" }
+    FailureSignalPage:
+      type: object
+      additionalProperties: false
+      description: "문항별 실패 신호 목록 한 쪽"
+      x-owner: ops-feedback
+      x-basis: "F21, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FailureSignal" }, description: "문항별 실패 신호들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    ImprovementSignal:
+      type: object
+      additionalProperties: false
+      description: "저자가 읽는 개선 신호 하나. 문항 실패 신호에 받은 때를 붙인 것이다"
+      x-owner: question-authoring
+      x-basis: "F22, D124, U68"
+      required: [failure_signal, received_at]
+      properties:
+        failure_signal: { $ref: "#/components/schemas/FailureSignal", description: "문항의 실패 신호" }
+        received_at: { $ref: "#/components/schemas/Timestamp", description: "question-authoring 이 이 신호를 받은 때" }
+    ImprovementSignalPage:
+      type: object
+      additionalProperties: false
+      description: "저자가 읽는 개선 신호 목록 한 쪽"
+      x-owner: question-authoring
+      x-basis: "F22, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ImprovementSignal" }, description: "개선 신호들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+
+    # ======================================================================
+    # LoRA-A 입력·출력과 LoRA-B 입력·출력(정본은 데이터셋 정의, D74)
+    # ======================================================================
+    SlotAnswer:
+      oneOf:
+        - { $ref: "#/components/schemas/SlotInteger" }
+        - { $ref: "#/components/schemas/ChoiceCode" }
+        - { $ref: "#/components/schemas/YesNoAnswer" }
+      description: "칸 하나에 담긴 값(정수, 선택지 코드, 예 또는 아니오 중 하나)"
+      x-owner: model-runtime
+      x-basis: "D74, U32, G13(선택지·단위·예/아니오 값 형식)"
+    YesNoAnswer: { type: boolean, description: "예 또는 아니오 칸의 값(예이면 참)", x-owner: model-runtime, x-basis: "G13(예/아니오 칸)" }
+    CollectedValue:
+      type: object
+      additionalProperties: false
+      description: "지금까지 모은 칸 값 하나(칸과 그 값)"
+      x-owner: model-runtime
+      x-basis: "D77(state 의 삽입 순서 보존), D74"
+      required: [key, value]
+      properties:
+        key: { $ref: "#/components/schemas/SlotRefString", description: "값이 담긴 칸" }
+        value: { $ref: "#/components/schemas/SlotAnswer", description: "그 칸의 값" }
+    CollectedValues: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/CollectedValue" }, description: "모은 칸 값들. 순서가 의미를 가진다(학습 데이터의 state 순서를 따른다)", x-owner: model-runtime, x-basis: "D77(state 안은 삽입 순서 보존), G13, 개수 규칙 N3" }
+    AskedText: { type: string, maxLength: 1000, description: "방금 화면에 보여 준 질문 문장. 환자의 말은 이 질문에 대한 답으로 읽는다", x-owner: model-runtime, x-basis: "사용자 결정 2026-11-10(사용자 말은 직전 화면 질문에 대한 답으로 읽는다), 길이 규칙 L3" }
+    ActionExtractionInput:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 의 입력. 환자의 이번 말을 해석하는 데 필요한 모든 것"
+      x-owner: model-runtime
+      x-basis: "D74(입출력은 데이터셋 정의가 정본), D77(글자 단위로 학습 입력과 같은 직렬화), 사용자 결정 2026-11-10(직전 질문과 확인 중 상태)"
+      required: [current_item_id, user_utterance, state]
+      properties:
+        current_item_id: { $ref: "#/components/schemas/QuestionItemId", description: "지금 묻고 있는 문항" }
+        asked_text: { $ref: "#/components/schemas/AskedText", description: "직전에 화면에 보인 질문 문장" }
+        state: { $ref: "#/components/schemas/CollectedValues", description: "지금까지 모은 칸 값들" }
+        confirming: { $ref: "#/components/schemas/CollectedValues", description: "환자에게 맞는지 확인 중인 칸 값들. 무엇과 무엇을 확인하는지를 모델이 알게 한다" }
+        user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말" }
+    ExtractionAction:
+      type: string
+      enum: [NEXT, CONFIRM, REASK, HOLD, SKIP]
+      x-enum-descriptions:
+        NEXT: "값을 저장하고 다음 문항으로 간다"
+        CONFIRM: "받아들인 값이 맞는지 환자에게 확인한다"
+        REASK: "같은 문항을 다시 묻는다(까닭은 reason)"
+        HOLD: "값을 정하지 않고 보류한다"
+        SKIP: "이 문항을 건너뛴다"
+      description: "LoRA-A 가 이번 말에 대해 고른 행동(절차)"
+      x-owner: model-runtime
+      x-basis: "D74(절차 action 은 LoRA-A 가 정한다), D75(3), D96(3), G14"
+    ActionReason:
+      type: string
+      enum: [UNCLEAR, OUT_OF_RANGE, OUT_OF_CURRENT_ITEM, COUNT_EXCEEDS_DAYS, UNKNOWN, REJECTED, MEANING_ASKED, REASK_LIMIT, REQUEST_SKIP]
+      x-enum-descriptions:
+        UNCLEAR: "말이 불분명해 값을 정할 수 없다"
+        OUT_OF_RANGE: "값이 칸의 허용 범위 밖이다"
+        OUT_OF_CURRENT_ITEM: "지금 문항에 대한 답이 아니다"
+        COUNT_EXCEEDS_DAYS: "횟수가 일수보다 크다"
+        UNKNOWN: "환자가 모른다고 했다"
+        REJECTED: "환자가 답하기를 거절하거나 보류했다"
+        MEANING_ASKED: "환자가 질문의 뜻이나 대상을 물었다(되묻기 한도에 세지 않는다)"
+        REASK_LIMIT: "되묻기 한도에 닿아 서비스가 건너뛰었다"
+        REQUEST_SKIP: "서비스가 건너뛰기를 합성해 요청했다(재질문 단계의 끝맺음)"
+      description: "행동의 사유. REASK 와 SKIP 과 HOLD 에 붙는다"
+      x-owner: model-runtime
+      x-basis: "U32, G13, U35, U100, 사용자 결정 2026-11-10(질문의 뜻·대상을 물음은 한도에 세지 않는 분류, 한도로 인한 건너뛰기 사유)"
+    ValueStatus:
+      type: string
+      enum: [GIVEN, UNKNOWN, REJECTED, UNCLEAR]
+      x-enum-descriptions: { GIVEN: "환자가 값을 말했다", UNKNOWN: "환자가 모른다고 했다", REJECTED: "환자가 거절하거나 보류했다", UNCLEAR: "불분명하거나 범위 밖이다" }
+      description: "추출한 값 하나의 상태"
+      x-owner: model-runtime
+      x-basis: "D96(1)(value_precision 은 key, value, status 일치로 센다), U35(UNKNOWN, REJECTED, UNCLEAR)"
+    ValuePrecision:
+      type: string
+      enum: [EXACT, APPROXIMATE]
+      x-enum-descriptions: { EXACT: "정확한 값", APPROXIMATE: "대략의 값(환자가 약이라고 말함)" }
+      description: "추출한 값이 정확한지 대략인지"
+      x-owner: model-runtime
+      x-basis: "D96(2)(precision 일치는 값과 따로 보고한다), D83(precision 규칙)"
+    ValueSave: { type: boolean, description: "이 값을 결과에 저장하는지(참이면 저장)", x-owner: model-runtime, x-basis: "D75(3)(save 규칙), D83, U32(걸리면 값 null, save false)" }
+    ExtractedValue:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 가 이번 말에서 뽑은 칸 값 하나"
+      x-owner: model-runtime
+      x-basis: "D74, D75(3), D83, D96"
+      required: [key, status, precision, save]
+      properties:
+        key: { $ref: "#/components/schemas/SlotRefString", description: "값이 들어갈 칸" }
+        value: { $ref: "#/components/schemas/SlotAnswer", description: "뽑은 값(값이 없는 상태이면 없다)" }
+        status: { $ref: "#/components/schemas/ValueStatus", description: "값의 상태" }
+        precision: { $ref: "#/components/schemas/ValuePrecision", description: "값의 정확도" }
+        save: { $ref: "#/components/schemas/ValueSave", description: "저장 여부" }
+    ExtractedValues: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/ExtractedValue" }, description: "뽑은 칸 값들", x-owner: model-runtime, x-basis: "개수 규칙 N1" }
+    SlotRefStrings: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/SlotRefString" }, description: "칸들의 목록", x-owner: model-runtime, x-basis: "개수 규칙 N1" }
+    ActionExtraction:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 의 출력(규칙 보증을 마친 값). 받는 쪽은 다시 검증하지 않는다"
+      x-owner: model-runtime
+      x-basis: "D74, D75, D104(3), D115, R7(컴포넌트가 낸 값은 받는 쪽이 다시 검증하지 않는다)"
+      required: [action, values, targets]
+      properties:
+        action: { $ref: "#/components/schemas/ExtractionAction", description: "고른 행동" }
+        reason: { $ref: "#/components/schemas/ActionReason", description: "행동의 사유(REASK, SKIP, HOLD 에 붙는다)" }
+        values: { $ref: "#/components/schemas/ExtractedValues", description: "뽑은 칸 값들" }
+        targets: { $ref: "#/components/schemas/SlotRefStrings", description: "이번 행동이 겨냥하는 칸들. values 의 부분집합이다" }
+        next_item: { $ref: "#/components/schemas/FlowTarget", description: "다음 문항. 추론 서버가 순서표로 보증해 채운다" }
+    ExtractionRequest:
+      type: object
+      additionalProperties: false
+      description: "추론 서버에 LoRA-A 추출을 요청하는 본문"
+      x-owner: model-runtime
+      x-basis: "F33, D108(1)(input 과 flow), D115(fields), D104(5)"
+      required: [input, flow, fields]
+      properties:
+        input: { $ref: "#/components/schemas/ActionExtractionInput", description: "모델에 들어가는 입력" }
+        flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "출력의 다음 문항을 보증하는 순서표" }
+        fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "출력 값을 보증하는 칸 규격들" }
+    ResponseAction:
+      type: string
+      enum: [START, NEXT, CONFIRM, REASK, HOLD, SKIP]
+      x-enum-descriptions: { START: "문진을 시작하는 인사와 첫 질문(LoRA-A 를 부르지 않는다)", NEXT: "다음 문항을 묻는다", CONFIRM: "값을 환자에게 확인한다", REASK: "같은 문항을 다시 묻는다", HOLD: "보류를 알린다", SKIP: "건너뛰었음을 알린다" }
+      description: "LoRA-B 가 문장을 만들 때의 행동"
+      x-owner: model-runtime
+      x-basis: "D74(시작은 LoRA-B 만 부른다), U100"
+    ResponseNextTarget: { type: string, pattern: "^(SAME|END|[A-Za-z0-9_]+)$", maxLength: 64, description: "응답 뒤에 가는 자리. 같은 문항을 뜻하는 SAME, 끝을 뜻하는 END, 또는 문항 식별자", x-owner: model-runtime, x-basis: "U100(REASK 는 next SAME 만 허용, SKIP 은 END 허용)" }
+    AskPhrase: { type: string, maxLength: 200, description: "되묻거나 새로 묻는 칸을 가리키는 문장 틀. 영문 칸 이름을 괄호로 포함할 수 있다", x-owner: model-runtime, x-basis: "D74(ask 문장 틀 표), D94(영문 괄호가 든 ask), 길이 규칙 L2" }
+    ResponseNext:
+      type: object
+      additionalProperties: false
+      description: "응답 뒤에 가는 자리와 그 질문 문장"
+      x-owner: model-runtime
+      x-basis: "D74, U74(B 입력은 서비스가 next 를 채운다), G13(next.text)"
+      required: [target]
+      properties:
+        target: { $ref: "#/components/schemas/ResponseNextTarget", description: "응답 뒤에 가는 자리" }
+        text: { $ref: "#/components/schemas/QuestionText", description: "다음에 물을 질문 문장" }
+    ResponseRequest:
+      type: object
+      additionalProperties: false
+      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
+      x-owner: model-runtime
+      x-basis: "F33, D74, D77, D94, U100, G13"
+      required: [action, known, next]
+      properties:
+        action: { $ref: "#/components/schemas/ResponseAction", description: "문장을 만들 행동" }
+        reason: { $ref: "#/components/schemas/ActionReason", description: "그 행동의 사유" }
+        topic: { $ref: "#/components/schemas/QuestionItemId", description: "지금 다루는 문항" }
+        ask: { $ref: "#/components/schemas/AskPhrase", description: "되묻는 칸을 가리키는 문장 틀" }
+        known: { $ref: "#/components/schemas/CollectedValues", description: "그 문항에서 이미 저장된 값들" }
+        next: { $ref: "#/components/schemas/ResponseNext", description: "응답 뒤에 가는 자리" }
+        user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말(되묻기와 확인 문장에 쓴다)" }
+    ResponseResult:
+      type: object
+      additionalProperties: false
+      description: "LoRA-B 가 만든 응답 문장"
+      x-owner: model-runtime
+      x-basis: "F34, D74"
+      required: [text]
+      properties:
+        text: { $ref: "#/components/schemas/ResponseSentence", description: "환자에게 보일 문장" }
+    ModelLoadState:
+      type: string
+      enum: [NOT_LOADED, LOADING, READY, FAILED]
+      x-enum-descriptions: { NOT_LOADED: "활성 릴리스를 아직 읽지 못했다", LOADING: "모델 패키지를 적재하는 중", READY: "적재를 마쳐 추론을 받을 수 있다", FAILED: "적재에 실패했다(이전 릴리스를 유지한다)" }
+      description: "추론 서버의 모델 적재 상태"
+      x-owner: model-runtime
+      x-basis: "F35, D46(적재 거부 시 이전 릴리스 유지), C05"
+    ModelStatus:
+      type: object
+      additionalProperties: false
+      description: "추론 서버가 지금 적재한 모델의 상태와 릴리스"
+      x-owner: model-runtime
+      x-basis: "F35, U45, D46, C05"
+      required: [state]
+      properties:
+        state: { $ref: "#/components/schemas/ModelLoadState", description: "적재 상태" }
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "적재한 릴리스(적재 전이면 없다)" }
+        loaded_at: { $ref: "#/components/schemas/Timestamp", description: "적재를 마친 때" }
+
+    # ======================================================================
+    # 문진 결과, FHIR 조회, 위험 신호
+    # ======================================================================
+    BlankReason:
+      type: string
+      enum: [UNKNOWN, REJECTED, UNCLEAR, REASK_LIMIT]
+      x-enum-descriptions: { UNKNOWN: "환자가 모른다고 했다", REJECTED: "환자가 거절하거나 보류했다", UNCLEAR: "불분명하거나 범위 밖이었다", REASK_LIMIT: "되묻기 한도(처음 질문 1회와 되묻기 2회)까지 물어도 정해지지 않아 건너뛰었다" }
+      description: "결과에서 칸이 비어 있는 원인"
+      x-owner: survey-service
+      x-basis: "U35(UNKNOWN, REJECTED, UNCLEAR), U100(REASK_LIMIT), 사용자 결정 2026-11-10(한도로 인한 건너뛰기 사유)"
+    ResultAnswer:
+      type: object
+      additionalProperties: false
+      description: "결과에 저장된 답 하나(칸, 값, 정확도)"
+      x-owner: survey-service
+      x-basis: "U83, U87, D96(2)"
+      required: [key, value, precision]
+      properties:
+        key: { $ref: "#/components/schemas/SlotRefString", description: "답이 담긴 칸" }
+        value: { $ref: "#/components/schemas/SlotAnswer", description: "저장된 값" }
+        precision: { $ref: "#/components/schemas/ValuePrecision", description: "값이 정확한지 대략인지" }
+    ResultBlank:
+      type: object
+      additionalProperties: false
+      description: "결과에서 비어 있는 칸 하나와 그 원인. 환자 발화 원문은 담지 않는다"
+      x-owner: survey-service
+      x-basis: "U35, 감사 C2(최소 수집)"
+      required: [item_id, reason]
+      properties:
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "비어 있는 문항" }
+        slot_key: { $ref: "#/components/schemas/SlotKey", description: "비어 있는 칸(문항 전체이면 없다)" }
+        reason: { $ref: "#/components/schemas/BlankReason", description: "비어 있는 원인" }
+    SessionResult:
+      type: object
+      additionalProperties: false
+      description: "한 세션의 문진 결과. 끝나지 않은 세션은 부분 결과로 상태와 함께 나온다"
+      x-owner: survey-service
+      x-basis: "F41, F44, U83, U87, U35, D85(1), D102"
+      required: [session_id, status, questionnaire_id, question_set_version_id, subject_ref, answers, blanks, started_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "결과가 속한 세션" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "세션 상태(끝나지 않았으면 부분 결과다)" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표" }
+        questionnaire_title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "문진표 제목" }
+        question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "답한 문진표의 버전" }
+        subject_ref: { $ref: "#/components/schemas/SubjectRef", description: "문진 대상자 참조값" }
+        device_id: { $ref: "#/components/schemas/DeviceId", description: "문진을 한 키오스크 기기" }
+        answers: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/ResultAnswer" }, description: "저장된 답들" }
+        blanks: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/ResultBlank" }, description: "비어 있는 칸들과 원인" }
+        started_at: { $ref: "#/components/schemas/Timestamp", description: "세션을 시작한 때" }
+        ended_at: { $ref: "#/components/schemas/Timestamp", description: "세션이 끝난 때(진행 중이면 없다)" }
+        acknowledged_by: { $ref: "#/components/schemas/UserId", description: "결과를 확인한 의사(아직이면 없다)" }
+        acknowledged_at: { $ref: "#/components/schemas/Timestamp", description: "의사가 확인한 때" }
+    ResultSummary:
+      type: object
+      additionalProperties: false
+      description: "결과 목록의 한 줄"
+      x-owner: survey-service
+      x-basis: "U83(목록), U87"
+      required: [session_id, status, questionnaire_id, subject_ref, started_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "세션" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "세션 상태" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표" }
+        questionnaire_title: { $ref: "#/components/schemas/QuestionnaireTitle", description: "문진표 제목" }
+        subject_ref: { $ref: "#/components/schemas/SubjectRef", description: "문진 대상자 참조값" }
+        started_at: { $ref: "#/components/schemas/Timestamp", description: "시작한 때" }
+        ended_at: { $ref: "#/components/schemas/Timestamp", description: "끝난 때" }
+        acknowledged_at: { $ref: "#/components/schemas/Timestamp", description: "의사가 확인한 때(아직이면 없다)" }
+    ResultPage:
+      type: object
+      additionalProperties: false
+      description: "결과 목록 한 쪽"
+      x-owner: survey-service
+      x-basis: "U83, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ResultSummary" }, description: "결과 요약들(최근 것이 먼저)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    ResultAcknowledgement:
+      type: object
+      additionalProperties: false
+      description: "의사가 결과를 확인했다는 기록"
+      x-owner: survey-service
+      x-basis: "F42, U83(접근 기록)"
+      required: [session_id, acknowledged_by, acknowledged_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "확인한 결과의 세션" }
+        acknowledged_by: { $ref: "#/components/schemas/UserId", description: "확인한 의사(요청의 인증된 사용자)" }
+        acknowledged_at: { $ref: "#/components/schemas/Timestamp", description: "확인한 때" }
+    FhirResourceType: { type: string, const: QuestionnaireResponse, description: "FHIR 리소스 유형 이름", x-owner: survey-service, x-basis: "HL7 FHIR R4 (4.0.1) QuestionnaireResponse" }
+    FhirQuestionnaireResponse:
+      required: [resourceType]
+      properties:
+        resourceType: { $ref: "#/components/schemas/FhirResourceType", description: "리소스 유형(항상 QuestionnaireResponse)" }
+      description: "문진 결과를 FHIR R4 QuestionnaireResponse 로 낸 것. 칸의 정의는 HL7 FHIR R4 사양(https://hl7.org/fhir/R4/questionnaireresponse.html)이 정본이라 이 계약은 다시 정의하지 않고 참조한다. questionnaire 는 문진표의 정본 URL 이며 item 은 문항, answer 는 저장된 답이다"
+      x-owner: survey-service
+      x-basis: "사용자 결정 2026-11-10 C10(결과는 FHIR 형식으로도 조회), U83, HL7 FHIR R4 (4.0.1)"
+      x-standard-schema: "https://hl7.org/fhir/R4/fhir.schema.json#/definitions/QuestionnaireResponse"
+    RiskCategory:
+      type: string
+      enum: [SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS]
+      x-enum-descriptions: { SELF_HARM: "자해·자살", CHEST_PAIN: "흉통", DYSPNEA: "호흡곤란", ALTERED_CONSCIOUSNESS: "의식저하", SEVERE_BLEEDING: "심한 출혈", PARALYSIS: "마비" }
+      description: "위험 신호의 분류(임상 검토 전의 보수적 임시 목록)"
+      x-owner: survey-service
+      x-basis: "D88 U2(널리 쓰는 레드플래그 임시 기본 목록, 임상 검토 전)"
+    RiskSourceName: { type: string, maxLength: 64, description: "위험 신호를 낸 감지기의 이름", x-owner: survey-service, x-basis: "D85(2)(입력원은 외부), 길이 규칙 L1" }
+    RiskSignal:
+      type: object
+      additionalProperties: false
+      description: "외부 위험 감지기가 보내는 위험 신호 하나"
+      x-owner: survey-service
+      x-basis: "F37, D85(2), D88 U1, L11(위험 감지는 기본 꺼짐)"
+      required: [session_id, category, detected_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "신호가 가리키는 세션" }
+        category: { $ref: "#/components/schemas/RiskCategory", description: "위험의 분류" }
+        detected_at: { $ref: "#/components/schemas/Timestamp", description: "감지한 때" }
+        source: { $ref: "#/components/schemas/RiskSourceName", description: "감지기의 이름" }
+
+    # ======================================================================
+    # 턴 기록(Trace)과 실패 사례(ops-feedback)
+    # ======================================================================
+    DurationMs: { type: integer, minimum: 0, maximum: 190000, description: "걸린 시간(밀리초)", x-owner: survey-service, x-basis: "D125(실패 판정 상한 중 가장 긴 사람 화면 190초), D79(extract_*, response_* 기록)" }
+    TurnTrace:
+      type: object
+      additionalProperties: false
+      description: "한 턴의 기록 원본. 환자 발화 원문과 모델 입출력을 담는다. 비식별은 받는 ops-feedback 이 한다"
+      x-owner: survey-service
+      x-basis: "F36, D15, D16, D79(extract_*, response_*), L12(원문 180일 유지)"
+      required: [session_id, turn_id, questionnaire_id, question_set_version_id, status_after, occurred_at]
+      properties:
+        session_id: { $ref: "#/components/schemas/SessionId", description: "세션(중복 제거 키의 앞부분)" }
+        turn_id: { $ref: "#/components/schemas/TurnId", description: "턴(중복 제거 키의 뒷부분)" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표" }
+        question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "쓴 문진표 버전" }
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "이 턴을 처리한 활성 릴리스" }
+        utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자 발화 원문" }
+        extract_input: { $ref: "#/components/schemas/ActionExtractionInput", description: "LoRA-A 에 넣은 입력" }
+        extract_output: { $ref: "#/components/schemas/ActionExtraction", description: "LoRA-A 의 출력" }
+        extract_duration_ms: { $ref: "#/components/schemas/DurationMs", description: "추출에 걸린 시간" }
+        response_input: { $ref: "#/components/schemas/ResponseRequest", description: "LoRA-B 에 넣은 입력" }
+        response_text: { $ref: "#/components/schemas/ResponseSentence", description: "LoRA-B 가 만든 문장" }
+        response_duration_ms: { $ref: "#/components/schemas/DurationMs", description: "응답 생성에 걸린 시간" }
+        failure_signal: { $ref: "#/components/schemas/TurnFailureReason", description: "턴이 값을 만들지 못했다면 그 신호" }
+        status_after: { $ref: "#/components/schemas/SessionStatus", description: "턴 뒤 세션 상태" }
+        pause_reason: { $ref: "#/components/schemas/PauseReason", description: "멈췄다면 그 까닭" }
+        occurred_at: { $ref: "#/components/schemas/Timestamp", description: "턴이 끝난 때" }
+    BusinessEventKind:
+      type: string
+      enum: [START_CODE_ISSUED, SESSION_STARTED, SESSION_ENDED, SESSION_PAUSED, SESSION_RESUMED, STAFF_ALERT_RAISED, RESULT_CREATED, RESULT_ACKNOWLEDGED]
+      x-enum-descriptions: { START_CODE_ISSUED: "직원이 시작 코드를 발급했다", SESSION_STARTED: "세션이 시작되었다", SESSION_ENDED: "세션이 끝났다", SESSION_PAUSED: "세션이 멈췄다", SESSION_RESUMED: "직원이 정지를 풀었다", STAFF_ALERT_RAISED: "직원 알림이 생겼다", RESULT_CREATED: "결과가 생겼다", RESULT_ACKNOWLEDGED: "의사가 결과를 확인했다" }
+      description: "업무 로그에 남기는 사건의 종류"
+      x-owner: survey-service
+      x-basis: "F36(업무 로그), U83(접근 기록)"
+    BusinessLogEntry:
+      type: object
+      additionalProperties: false
+      description: "업무 로그 한 줄(누가 언제 무엇을 했는가). 환자 발화는 담지 않는다"
+      x-owner: survey-service
+      x-basis: "F36, U83, D88(최소 수집)"
+      required: [kind, occurred_at]
+      properties:
+        kind: { $ref: "#/components/schemas/BusinessEventKind", description: "사건의 종류" }
+        session_id: { $ref: "#/components/schemas/SessionId", description: "관련 세션" }
+        actor: { $ref: "#/components/schemas/UserId", description: "행동한 사람(사람이 한 일일 때)" }
+        occurred_at: { $ref: "#/components/schemas/Timestamp", description: "사건이 일어난 때" }
+    TraceDelivery:
+      type: object
+      additionalProperties: false
+      description: "survey-service 가 ops-feedback 에 보내는 턴 기록과 업무 로그 묶음(최소 1회 전달)"
+      x-owner: survey-service
+      x-basis: "F36, D16(세션 ID 와 턴 ID 로 멱등), D62"
+      properties:
+        traces: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/TurnTrace" }, description: "턴 기록들" }
+        business_logs: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/BusinessLogEntry" }, description: "업무 로그들" }
+    DeliveryCount: { type: integer, minimum: 0, maximum: 100, description: "한 전달에서 센 항목 수", x-owner: ops-feedback, x-basis: "TraceDelivery 의 묶음 상한(개수 규칙 N2)" }
+    TraceDeliveryReceipt:
+      type: object
+      additionalProperties: false
+      description: "턴 기록 전달을 받은 결과. 이미 받은 턴은 중복으로 센다"
+      x-owner: ops-feedback
+      x-basis: "F36, D16(중복 제거는 ops-feedback)"
+      required: [accepted_count, duplicate_count]
+      properties:
+        accepted_count: { $ref: "#/components/schemas/DeliveryCount", description: "새로 받은 항목 수" }
+        duplicate_count: { $ref: "#/components/schemas/DeliveryCount", description: "이미 받아 건너뛴 항목 수" }
+    CaseId: { type: string, format: uuid, description: "실패 사례 하나의 식별자", x-owner: ops-feedback, x-basis: "RFC 9562 (UUID)" }
+    CaseVersion: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "같은 사례의 검토 버전 순번(검토 내용이 바뀔 때마다 오른다)", x-owner: ops-feedback, x-basis: "D71(3)(같은 검토는 멱등, 다르면 새 version)" }
+    FailureKind:
+      type: string
+      enum: [EXTRACT_FAILED, REASK_STREAK]
+      x-enum-descriptions: { EXTRACT_FAILED: "추출이 실패했다(형식 실패와 값 없는 보류·건너뛰기 포함)", REASK_STREAK: "같은 문항에서 되묻기가 연속됐다" }
+      description: "실패 사례를 찾아낸 탐지 규칙"
+      x-owner: ops-feedback
+      x-basis: "G14(탐지 규칙 REASK_STREAK 과 EXTRACT_FAILED)"
+    ReviewStatus:
+      type: string
+      enum: [UNREVIEWED, CONFIRMED, DISMISSED]
+      x-enum-descriptions: { UNREVIEWED: "아직 검토하지 않았다", CONFIRMED: "검토자가 실패로 확정했고 기대 답이 있다", DISMISSED: "검토자가 실패가 아니라고 판단했다" }
+      description: "실패 사례의 검토 상태"
+      x-owner: ops-feedback
+      x-basis: "D71, D52(2)(확정된 사례만 회귀 집합), L07(근거는 CONFIRMED 사례만)"
+    ReviewedInput: { type: string, maxLength: 1000, description: "검토자가 개인정보를 빼고 고쳐 쓴 환자 발화", x-owner: ops-feedback, x-basis: "D55, D57(B안 reviewed_input), 길이 규칙 L3" }
+    FailureCase:
+      type: object
+      additionalProperties: false
+      description: "실패 사례 하나. 비식별한 턴 기록에서 만들고 검토자가 확정한다"
+      x-owner: ops-feedback
+      x-basis: "F19, F20, F46, D15, D43, D71, D52, L12(검토용 원문 180일)"
+      required: [case_id, case_version, kind, review_status, questionnaire_id, item_id, created_at]
+      properties:
+        case_id: { $ref: "#/components/schemas/CaseId", description: "사례 식별자" }
+        case_version: { $ref: "#/components/schemas/CaseVersion", description: "검토 버전" }
+        kind: { $ref: "#/components/schemas/FailureKind", description: "찾아낸 규칙" }
+        review_status: { $ref: "#/components/schemas/ReviewStatus", description: "검토 상태" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표" }
+        item_id: { $ref: "#/components/schemas/QuestionItemId", description: "실패가 난 문항" }
+        utterance: { $ref: "#/components/schemas/UtteranceText", description: "검토용 환자 발화 원문(보존 180일)" }
+        model_output: { $ref: "#/components/schemas/ActionExtraction", description: "모델이 낸 출력" }
+        expected: { $ref: "#/components/schemas/ActionExtraction", description: "검토자가 확정한 기대 출력(CONFIRMED 일 때)" }
+        reviewed_input: { $ref: "#/components/schemas/ReviewedInput", description: "검토자가 고쳐 쓴 발화" }
+        reviewed_by: { $ref: "#/components/schemas/UserId", description: "검토한 사람" }
+        reviewed_at: { $ref: "#/components/schemas/Timestamp", description: "검토한 때" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "사례를 만든 때" }
+    FailureCasePage:
+      type: object
+      additionalProperties: false
+      description: "실패 사례 목록 한 쪽"
+      x-owner: ops-feedback
+      x-basis: "F46, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FailureCase" }, description: "사례들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    CaseReview:
+      type: object
+      additionalProperties: false
+      description: "검토자가 사례에 게시하는 검토 결과"
+      x-owner: ops-feedback
+      x-basis: "F45, D52(1), D71(3)"
+      required: [review_status]
+      properties:
+        review_status: { $ref: "#/components/schemas/ReviewStatus", description: "확정한 상태" }
+        expected: { $ref: "#/components/schemas/ActionExtraction", description: "확정한 기대 출력" }
+        reviewed_input: { $ref: "#/components/schemas/ReviewedInput", description: "고쳐 쓴 발화" }
+    DeidentifiedTrace:
+      type: object
+      additionalProperties: false
+      description: "비식별 처리를 마친 턴 기록(검토자가 읽는 것)"
+      x-owner: ops-feedback
+      x-basis: "F46, D15, D71"
+      required: [case_id, occurred_at]
+      properties:
+        case_id: { $ref: "#/components/schemas/CaseId", description: "이 기록이 속한 사례" }
+        utterance: { $ref: "#/components/schemas/ReviewedInput", description: "개인정보를 뺀 발화" }
+        extract_output: { $ref: "#/components/schemas/ActionExtraction", description: "LoRA-A 의 출력" }
+        response_text: { $ref: "#/components/schemas/ResponseSentence", description: "LoRA-B 가 만든 문장" }
+        failure_signal: { $ref: "#/components/schemas/TurnFailureReason", description: "턴이 값을 만들지 못했다면 그 신호" }
+        occurred_at: { $ref: "#/components/schemas/Timestamp", description: "턴이 끝난 때" }
+
+    # ======================================================================
+    # 모델 패키지, 평가 보고서, 학습 실행(model-lab)
+    # ======================================================================
+    SemanticVersion: { type: string, pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$", maxLength: 64, description: "의미 있는 버전 문자열(MAJOR.MINOR.PATCH)", x-owner: head, x-basis: "Semantic Versioning 2.0.0, D46(MAJOR.MINOR 가 다르면 적재 거부)" }
+    BaseModelName: { type: string, maxLength: 200, description: "기반 모델의 이름(모델 허브 식별자 형태, 예를 들어 Qwen/Qwen3-8B)", x-owner: model-lab, x-basis: "D74(3)(Qwen3 4B·8B·14B 기반), D81, 길이 규칙 L2" }
+    AdapterRole:
+      type: string
+      enum: [LORA_A, LORA_B]
+      x-enum-descriptions: { LORA_A: "환자 발화에서 값과 행동을 뽑는 어댑터", LORA_B: "응답 문장을 만드는 어댑터" }
+      description: "어댑터의 역할"
+      x-owner: model-lab
+      x-basis: "D74, D45(역할별 설정)"
+    ArtifactId: { type: string, format: uuid, description: "내려받는 파일(어댑터 가중치, 시스템 프롬프트, 실행 기록 등) 하나의 식별자", x-owner: head, x-basis: "RFC 9562 (UUID)" }
+    ByteSize: { type: integer, minimum: 0, maximum: 9007199254740991, description: "파일의 크기(바이트)", x-owner: head, x-basis: "RFC 7493 2.2 (안전한 정수 최대)" }
+    ArtifactRef:
+      type: object
+      additionalProperties: false
+      description: "파일 하나를 가리키는 참조(식별자, 해시, 크기). 받는 쪽은 내려받아 해시를 확인한다"
+      x-owner: head
+      x-basis: "D49(해시는 클라이언트가 재검증), D27"
+      required: [artifact_id, sha256, size_bytes]
+      properties:
+        artifact_id: { $ref: "#/components/schemas/ArtifactId", description: "파일 식별자" }
+        sha256: { $ref: "#/components/schemas/Sha256Digest", description: "파일 내용의 해시" }
+        size_bytes: { $ref: "#/components/schemas/ByteSize", description: "파일 크기" }
+    ArtifactContent: { type: string, format: binary, maxLength: 17179869184, description: "내려받거나 올리는 파일의 내용(바이트열)", x-owner: head, x-basis: "RFC 9110 8(콘텐츠), 길이 상한 16 GiB 는 근거 없음(어댑터 가중치 크기를 측정하지 않았다)" }
+    TokenLimit: { type: integer, minimum: 1, maximum: 32768, description: "한 번에 만들 수 있는 최대 토큰 수", x-owner: model-lab, x-basis: "Qwen3 의 기본 문맥 길이 32768" }
+    SamplingTemperature: { type: number, minimum: 0, maximum: 2, description: "응답을 만들 때 무작위성의 크기(0 이면 가장 확률 높은 것)", x-owner: model-lab, x-basis: "vLLM SamplingParams temperature, 상한 2 는 근거 없음(관행)" }
+    ConstrainedDecoding: { type: boolean, description: "출력을 스키마에 맞게 제약하며 만드는지(참이면 제약 디코딩)", x-owner: model-lab, x-basis: "D82, D83(제약 디코딩이 형식을 지킨다)" }
+    ServingConfig:
+      type: object
+      additionalProperties: false
+      description: "어댑터 하나를 서빙할 때의 설정(어댑터와 함께 패키지에 들어간다)"
+      x-owner: model-lab
+      x-basis: "D45(역할별 서빙 설정), D75(4), F12"
+      required: [max_new_tokens, temperature, constrained_decoding]
+      properties:
+        max_new_tokens: { $ref: "#/components/schemas/TokenLimit", description: "만들 수 있는 최대 토큰 수" }
+        temperature: { $ref: "#/components/schemas/SamplingTemperature", description: "무작위성" }
+        constrained_decoding: { $ref: "#/components/schemas/ConstrainedDecoding", description: "제약 디코딩 사용 여부" }
+    AdapterEntry:
+      type: object
+      additionalProperties: false
+      description: "패키지 안의 어댑터 하나(가중치, 짝이 되는 시스템 프롬프트, 서빙 설정)"
+      x-owner: model-lab
+      x-basis: "D75(4)(시스템 프롬프트는 패키지의 일부), D45"
+      required: [role, weights, system_prompt, serving_config]
+      properties:
+        role: { $ref: "#/components/schemas/AdapterRole", description: "어댑터의 역할" }
+        weights: { $ref: "#/components/schemas/ArtifactRef", description: "어댑터 가중치 파일" }
+        system_prompt: { $ref: "#/components/schemas/ArtifactRef", description: "이 어댑터와 짝이 되는 시스템 프롬프트 파일" }
+        serving_config: { $ref: "#/components/schemas/ServingConfig", description: "서빙 설정" }
+    MetricName: { type: string, maxLength: 64, description: "평가 지표의 이름(예를 들어 value_precision, next_item_accuracy, semantic_violation_rate)", x-owner: model-lab, x-basis: "D96(지표 이름은 자유 문자열), D97, 길이 규칙 L1" }
+    MetricGroupName: { type: string, maxLength: 64, description: "평가 지표의 묶음 이름(예를 들어 ACCURACY)", x-owner: model-lab, x-basis: "D97(그룹 ACCURACY), 길이 규칙 L1" }
+    MetricSlice: { type: string, maxLength: 200, description: "지표를 쪼갠 조각의 이름(문항 유형·단위·범위·위반 코드 등)", x-owner: model-lab, x-basis: "D13(문항 유형·단위·범위별 평가), D97(위반 코드별 slice), 길이 규칙 L2" }
+    MetricValue: { type: number, minimum: 0, maximum: 1000000000, description: "지표 값(비율 지표는 0 이상 1 이하, 시간 지표는 밀리초)", x-owner: model-lab, x-basis: "D96, 상한 10억은 근거 없음(측정 안 함)" }
+    SampleCount: { type: integer, minimum: 0, maximum: 2147483647, description: "지표를 계산한 표본의 수", x-owner: model-lab, x-basis: "D96(n=0 도 보고한다), OpenAPI int32" }
+    EvaluationMetric:
+      type: object
+      additionalProperties: false
+      description: "평가 지표 하나의 값(임계치 없이 보고한다)"
+      x-owner: model-lab
+      x-basis: "D53(임계치 없는 체계적 지표 보고서), D96, D97"
+      required: [name, value, sample_count]
+      properties:
+        name: { $ref: "#/components/schemas/MetricName", description: "지표 이름" }
+        group: { $ref: "#/components/schemas/MetricGroupName", description: "지표 묶음" }
+        slice: { $ref: "#/components/schemas/MetricSlice", description: "지표를 쪼갠 조각(전체이면 없다)" }
+        value: { $ref: "#/components/schemas/MetricValue", description: "지표 값" }
+        sample_count: { $ref: "#/components/schemas/SampleCount", description: "표본 수" }
+    DatasetVersionId: { type: string, format: uuid, description: "게시된 데이터셋 한 버전의 식별자", x-owner: synthetic-data, x-basis: "RFC 9562 (UUID), D100" }
+    EvaluationReport:
+      type: object
+      additionalProperties: false
+      description: "모델 패키지 하나의 평가 보고서. model-lab 이 만들어 패키지와 함께 낸다"
+      x-owner: model-lab
+      x-basis: "C06, D97, U11, D53"
+      required: [dataset_version_id, metrics, created_at]
+      properties:
+        dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "평가에 쓴 데이터셋 버전" }
+        metrics: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/EvaluationMetric" }, description: "지표들" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "보고서를 만든 때" }
+    ModelPackageId: { type: string, format: uuid, description: "모델 패키지 하나의 식별자", x-owner: model-lab, x-basis: "RFC 9562 (UUID), D49" }
+    TrainingRunId: { type: string, format: uuid, description: "학습 실행 하나의 식별자", x-owner: model-lab, x-basis: "RFC 9562 (UUID), D78" }
+    TrainingLineage:
+      type: object
+      additionalProperties: false
+      description: "모델 패키지의 계보(어느 데이터로 어느 기반 모델에서 학습했는가)"
+      x-owner: model-lab
+      x-basis: "F07, D75(4)(계보), D78"
+      required: [dataset_version_id, base_model, training_run_ids]
+      properties:
+        dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "학습에 쓴 데이터셋 버전" }
+        base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
+        training_run_ids: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/TrainingRunId" }, description: "어댑터를 만든 학습 실행들" }
+    ModelPackageManifest:
+      type: object
+      additionalProperties: false
+      description: "모델 패키지의 목록표. 어댑터, 짝이 되는 시스템 프롬프트, 계보, 평가 보고서를 묶는다"
+      x-owner: model-lab
+      x-basis: "F07, F12, D75(4), D53, C06"
+      required: [model_package_id, base_model, runtime_contract_version, model_runtime_version, adapters, lineage, evaluation, created_at]
+      properties:
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "패키지 식별자" }
+        base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "학습한 문항 은행과 칸 키의 정수 버전" }
+        model_runtime_version: { $ref: "#/components/schemas/SemanticVersion", description: "학습과 평가에 쓴 model-runtime 라이브러리 버전. 서빙 설치본과 MAJOR.MINOR 가 같아야 적재한다" }
+        adapters: { type: array, maxItems: 2, items: { $ref: "#/components/schemas/AdapterEntry" }, description: "역할마다 하나씩의 어댑터" }
+        lineage: { $ref: "#/components/schemas/TrainingLineage", description: "계보" }
+        evaluation: { $ref: "#/components/schemas/EvaluationReport", description: "평가 보고서" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "패키지를 만든 때" }
+    ModelPackageCandidate:
+      type: object
+      additionalProperties: false
+      description: "게이트가 가져가는 후보 모델 패키지의 요약"
+      x-owner: model-lab
+      x-basis: "F07, D49"
+      required: [model_package_id, base_model, runtime_contract_version, published_at]
+      properties:
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "패키지 식별자" }
+        base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "학습한 문항 은행과 칸 키의 정수 버전" }
+        published_at: { $ref: "#/components/schemas/Timestamp", description: "후보로 내놓은 때" }
+    ModelPackageCandidatePage:
+      type: object
+      additionalProperties: false
+      description: "후보 모델 패키지 목록 한 쪽"
+      x-owner: model-lab
+      x-basis: "F07, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ModelPackageCandidate" }, description: "후보들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    TrainingRunRequest:
+      type: object
+      additionalProperties: false
+      description: "model-lab 이 학습 서버에 시키는 학습 실행. 설정 파일의 내용은 학습 서버 코드가 정본이다"
+      x-owner: model-lab
+      x-basis: "F66, D78(학습 정본은 학습 서버 코드), D77, G06"
+      required: [training_run_id, dataset_version_id, adapter_role, base_model, config]
+      properties:
+        training_run_id: { $ref: "#/components/schemas/TrainingRunId", description: "이 실행의 식별자" }
+        dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "학습할 데이터셋 버전" }
+        adapter_role: { $ref: "#/components/schemas/AdapterRole", description: "학습할 어댑터의 역할" }
+        base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
+        config: { $ref: "#/components/schemas/ArtifactRef", description: "학습 서버 코드가 읽는 설정 파일" }
+    TrainingOutcome:
+      type: string
+      enum: [SUCCEEDED, FAILED]
+      x-enum-descriptions: { SUCCEEDED: "학습이 끝나 어댑터가 나왔다", FAILED: "학습이 실패했다" }
+      description: "학습 실행의 결과"
+      x-owner: model-lab
+      x-basis: "F67"
+    TrainingRunResult:
+      type: object
+      additionalProperties: false
+      description: "학습 서버가 모델 레지스트리에 게시하는 학습 결과(어댑터와 실행 기록)"
+      x-owner: model-lab
+      x-basis: "F67, C16(HTTPS 게시 API), D78, G06"
+      required: [training_run_id, outcome, finished_at]
+      properties:
+        training_run_id: { $ref: "#/components/schemas/TrainingRunId", description: "끝난 실행" }
+        outcome: { $ref: "#/components/schemas/TrainingOutcome", description: "결과" }
+        adapter: { $ref: "#/components/schemas/ArtifactRef", description: "만들어진 LoRA 어댑터 파일(성공일 때)" }
+        run_record: { $ref: "#/components/schemas/ArtifactRef", description: "실행 기록 파일" }
+        finished_at: { $ref: "#/components/schemas/Timestamp", description: "끝난 때" }
+    TrainingRunReceipt:
+      type: object
+      additionalProperties: false
+      description: "학습 결과 게시를 받은 응답. 아직 올려야 하는 파일을 알려 준다"
+      x-owner: model-lab
+      x-basis: "F67, C16"
+      required: [training_run_id, pending_artifact_ids]
+      properties:
+        training_run_id: { $ref: "#/components/schemas/TrainingRunId", description: "받은 실행" }
+        pending_artifact_ids: { type: array, maxItems: 2, items: { $ref: "#/components/schemas/ArtifactId" }, description: "아직 올라오지 않은 파일들" }
+
+    # ======================================================================
+    # 데이터셋(synthetic-data)
+    # ======================================================================
+    DatasetSplit:
+      type: string
+      enum: [TRAIN, VALIDATION, EVALUATION]
+      x-enum-descriptions: { TRAIN: "학습셋", VALIDATION: "검증셋", EVALUATION: "평가셋" }
+      description: "데이터셋 파일이 속한 갈래"
+      x-owner: synthetic-data
+      x-basis: "F18(학습·검증·평가셋)"
+    RowCount: { type: integer, minimum: 0, maximum: 2147483647, description: "파일에 든 행(JSON Lines 한 줄)의 수", x-owner: synthetic-data, x-basis: "F18, OpenAPI int32" }
+    DatasetFileDeclaration:
+      type: object
+      additionalProperties: false
+      description: "데이터셋 파일 하나의 선언(역할, 갈래, 해시, 크기, 행 수)"
+      x-owner: synthetic-data
+      x-basis: "F17, F18, G02"
+      required: [adapter_role, split, content, row_count]
+      properties:
+        adapter_role: { $ref: "#/components/schemas/AdapterRole", description: "이 파일이 학습시킬 어댑터의 역할" }
+        split: { $ref: "#/components/schemas/DatasetSplit", description: "학습·검증·평가 갈래" }
+        content: { $ref: "#/components/schemas/ArtifactRef", description: "파일 참조(해시와 크기)" }
+        row_count: { $ref: "#/components/schemas/RowCount", description: "행 수" }
+    DatasetFiles: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(어댑터 2개 곱하기 갈래 3개)", x-owner: synthetic-data, x-basis: "F18, 개수는 AdapterRole 2 곱하기 DatasetSplit 3" }
+    DatasetName: { type: string, minLength: 1, maxLength: 200, description: "데이터셋을 사람이 가리키는 이름", x-owner: synthetic-data, x-basis: "길이 규칙 L2" }
+    DatasetOrigin:
+      type: string
+      enum: [IMPORTED, SYNTHETIC]
+      x-enum-descriptions: { IMPORTED: "데이터셋 담당이 확정해 가져온 최종 데이터", SYNTHETIC: "합성 시험용 샘플(리포에 두는 시험 데이터)" }
+      description: "데이터셋이 어디서 왔는지"
+      x-owner: synthetic-data
+      x-basis: "G02(가져와 게시한다, 재생성 안 함), C25(리포에는 합성 시험 샘플만)"
+    DatasetManifest:
+      type: object
+      additionalProperties: false
+      description: "게시된 데이터셋 한 버전의 목록표"
+      x-owner: synthetic-data
+      x-basis: "F18, D100, D49"
+      required: [dataset_version_id, name, origin, runtime_contract_version, files, created_at]
+      properties:
+        dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "데이터셋 버전" }
+        name: { $ref: "#/components/schemas/DatasetName", description: "이름" }
+        origin: { $ref: "#/components/schemas/DatasetOrigin", description: "출처" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "데이터가 따르는 문항 은행과 칸 키의 정수 버전" }
+        files: { $ref: "#/components/schemas/DatasetFiles", description: "파일들" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "게시한 때" }
+    DatasetVersionPage:
+      type: object
+      additionalProperties: false
+      description: "게시된 데이터셋 버전 목록 한 쪽"
+      x-owner: synthetic-data
+      x-basis: "F18, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/DatasetManifest" }, description: "데이터셋 버전들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    DatasetImportId: { type: string, format: uuid, description: "데이터셋 가져오기 하나의 식별자", x-owner: synthetic-data, x-basis: "RFC 9562 (UUID)" }
+    DatasetImportRequest:
+      type: object
+      additionalProperties: false
+      description: "데이터셋 담당이 확정한 최종 데이터를 가져와 게시하겠다는 선언"
+      x-owner: synthetic-data
+      x-basis: "F17, G02, D107, C25"
+      required: [name, runtime_contract_version, files]
+      properties:
+        name: { $ref: "#/components/schemas/DatasetName", description: "게시할 이름" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "데이터가 따르는 문항 은행과 칸 키의 정수 버전" }
+        files: { $ref: "#/components/schemas/DatasetFiles", description: "올릴 파일들의 선언" }
+    DatasetImportStatus:
+      type: string
+      enum: [RECEIVING, PUBLISHED, REJECTED]
+      x-enum-descriptions: { RECEIVING: "파일을 받는 중", PUBLISHED: "검증을 마치고 게시했다", REJECTED: "검증에서 거절했다" }
+      description: "데이터셋 가져오기의 상태"
+      x-owner: synthetic-data
+      x-basis: "F17(가져와 검증·게시)"
+    DatasetImport:
+      type: object
+      additionalProperties: false
+      description: "데이터셋 가져오기의 진행 상태"
+      x-owner: synthetic-data
+      x-basis: "F17, G02"
+      required: [import_id, status, pending_artifact_ids]
+      properties:
+        import_id: { $ref: "#/components/schemas/DatasetImportId", description: "가져오기 식별자" }
+        status: { $ref: "#/components/schemas/DatasetImportStatus", description: "상태" }
+        pending_artifact_ids: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/ArtifactId" }, description: "아직 올라오지 않은 파일들" }
+        dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "게시되었다면 그 데이터셋 버전" }
+    DatasetRowA:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 학습·평가 데이터의 한 행(입력과 정답 출력). 파일에는 모델 입력 글자(D77)로 직렬화해 담는다"
+      x-owner: synthetic-data
+      x-basis: "D74, D77, F17"
+      required: [input, output]
+      properties:
+        input: { $ref: "#/components/schemas/ActionExtractionInput", description: "모델 입력" }
+        output: { $ref: "#/components/schemas/ActionExtraction", description: "정답 출력" }
+    DatasetRowB:
+      type: object
+      additionalProperties: false
+      description: "LoRA-B 학습·평가 데이터의 한 행(입력과 정답 문장)"
+      x-owner: synthetic-data
+      x-basis: "D74, D77, F17"
+      required: [input, output]
+      properties:
+        input: { $ref: "#/components/schemas/ResponseRequest", description: "모델 입력" }
+        output: { $ref: "#/components/schemas/ResponseResult", description: "정답 응답" }
+
+    # ======================================================================
+    # 출시 게이트(release-gate): 후보, 제출, 판정, 검토 보고서, 릴리스
+    # ======================================================================
+    ReleaseId: { type: string, format: uuid, description: "릴리스(함께 운영하는 문진표들과 모델 패키지의 묶음) 하나의 식별자", x-owner: release-gate, x-basis: "RFC 9562 (UUID), D27" }
+    SubmissionId: { type: string, format: uuid, description: "출고 제출 하나의 식별자", x-owner: release-gate, x-basis: "RFC 9562 (UUID), D53" }
+    CandidateKind:
+      type: string
+      enum: [QUESTION_SET, MODEL_PACKAGE]
+      x-enum-descriptions: { QUESTION_SET: "문항 세트 버전 후보", MODEL_PACKAGE: "모델 패키지 후보" }
+      description: "게이트가 가져온 후보의 종류"
+      x-owner: release-gate
+      x-basis: "F05, F07"
+    CandidateSubjectId: { type: string, format: uuid, description: "후보가 가리키는 문항 세트 버전 식별자 또는 모델 패키지 식별자", x-owner: release-gate, x-basis: "F05, F07, RFC 9562 (UUID)" }
+    CandidateLabel: { type: string, maxLength: 200, description: "후보를 사람이 알아보게 하는 이름(문진표 제목 또는 기반 모델 이름)", x-owner: release-gate, x-basis: "F06(승인자가 고른다), 길이 규칙 L2" }
+    Candidate:
+      type: object
+      additionalProperties: false
+      description: "게이트가 가져와 둔 후보 하나. 승인자가 제출을 만들 때 고른다"
+      x-owner: release-gate
+      x-basis: "F05, F07, F06"
+      required: [kind, subject_id, label, collected_at]
+      properties:
+        kind: { $ref: "#/components/schemas/CandidateKind", description: "후보의 종류" }
+        subject_id: { $ref: "#/components/schemas/CandidateSubjectId", description: "후보가 가리키는 버전 또는 패키지" }
+        label: { $ref: "#/components/schemas/CandidateLabel", description: "후보 이름" }
+        collected_at: { $ref: "#/components/schemas/Timestamp", description: "게이트가 가져온 때" }
+    CandidatePage:
+      type: object
+      additionalProperties: false
+      description: "게이트가 가져온 후보 목록 한 쪽"
+      x-owner: release-gate
+      x-basis: "F05, F07, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/Candidate" }, description: "후보들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    SubmissionRequest:
+      type: object
+      additionalProperties: false
+      description: "승인자가 함께 운영할 문진표 목록과 모델 패키지를 묶어 내는 제출"
+      x-owner: release-gate
+      x-basis: "F06, U85, U81"
+      required: [question_set_version_ids, model_package_id]
+      properties:
+        question_set_version_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/QuestionSetVersionId" }, description: "함께 운영할 문진표 버전들" }
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "함께 낼 모델 패키지" }
+    GateCheckName:
+      type: string
+      enum: [CONTRACT_COMPAT, QUESTION_MODEL_COMPAT, REPORT_FORMAT, CLINICAL_APPROVAL, HUMAN_APPROVAL]
+      x-enum-descriptions:
+        CONTRACT_COMPAT: "릴리스 구성의 버전(문항 은행 버전과 model-runtime 버전)이 서로 맞는가"
+        QUESTION_MODEL_COMPAT: "모든 문진표의 문항·칸 구조가 모델 패키지가 학습한 구조와 같은가"
+        REPORT_FORMAT: "평가 보고서가 형식을 지켰는가"
+        CLINICAL_APPROVAL: "문항 세트 버전에 저자 확인(2인 승인을 켰으면 검수자 승인)이 있는가"
+        HUMAN_APPROVAL: "승인자가 승인했는가"
+      description: "게이트가 하는 검사의 이름"
+      x-owner: release-gate
+      x-basis: "D53(기술 호환만 자동 검사), D27, D80, D46, U81, U85, D30, D92, D58(3)"
+    GateCheckResult:
+      type: string
+      enum: [PASS, FAIL]
+      x-enum-descriptions: { PASS: "통과", FAIL: "실패" }
+      description: "검사 하나의 결과"
+      x-owner: release-gate
+      x-basis: "D53, D58(3)"
+    CheckMessage: { type: string, maxLength: 1000, description: "검사가 실패한 까닭의 설명", x-owner: release-gate, x-basis: "길이 규칙 L3" }
+    GateCheck:
+      type: object
+      additionalProperties: false
+      description: "검사 하나의 이름과 결과"
+      x-owner: release-gate
+      x-basis: "D53"
+      required: [name, result]
+      properties:
+        name: { $ref: "#/components/schemas/GateCheckName", description: "검사 이름" }
+        result: { $ref: "#/components/schemas/GateCheckResult", description: "결과" }
+        message: { $ref: "#/components/schemas/CheckMessage", description: "실패했다면 까닭" }
+    GateChecks: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/GateCheck" }, description: "검사들의 결과", x-owner: release-gate, x-basis: "GateCheckName 값의 수 5 이하" }
+    SubmissionStatus:
+      type: string
+      enum: [CHECK_FAILED, AWAITING_APPROVAL, APPROVED, REJECTED]
+      x-enum-descriptions: { CHECK_FAILED: "자동 검사에서 반려되었다", AWAITING_APPROVAL: "검사를 통과해 사람의 승인을 기다린다", APPROVED: "승인자가 승인해 릴리스가 만들어졌다", REJECTED: "승인자가 사유와 함께 반려했다" }
+      description: "출고 제출의 상태"
+      x-owner: release-gate
+      x-basis: "D53(통과하면 AWAITING_APPROVAL 에서 멈춘다), D58(3)"
+    Submission:
+      type: object
+      additionalProperties: false
+      description: "출고 제출 하나와 지금까지의 검사·판정"
+      x-owner: release-gate
+      x-basis: "F06, F08, F09, D53, D68(SubmissionView)"
+      required: [submission_id, status, question_sets, model_package_id, checks, submitted_by, submitted_at]
+      properties:
+        submission_id: { $ref: "#/components/schemas/SubmissionId", description: "제출 식별자" }
+        status: { $ref: "#/components/schemas/SubmissionStatus", description: "제출 상태" }
+        question_sets: { $ref: "#/components/schemas/QuestionSetRefs", description: "제출한 문진표 버전들" }
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "제출한 모델 패키지" }
+        checks: { $ref: "#/components/schemas/GateChecks", description: "검사 결과들" }
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "승인으로 만들어진 릴리스(승인된 뒤에만 있다)" }
+        submitted_by: { $ref: "#/components/schemas/UserId", description: "제출한 승인자" }
+        submitted_at: { $ref: "#/components/schemas/Timestamp", description: "제출한 때" }
+    SubmissionPage:
+      type: object
+      additionalProperties: false
+      description: "출고 제출 목록 한 쪽"
+      x-owner: release-gate
+      x-basis: "D68, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/Submission" }, description: "제출들(최근 것이 먼저)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    ReleaseSummary:
+      type: object
+      additionalProperties: false
+      description: "검토 보고서가 맞대는 릴리스 한 쪽의 구성 요약"
+      x-owner: release-gate
+      x-basis: "F08, D53"
+      required: [question_sets, model_package_id, base_model, runtime_contract_version]
+      properties:
+        question_sets: { $ref: "#/components/schemas/QuestionSetRefs", description: "문진표 버전들" }
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "모델 패키지" }
+        base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+    MetricComparison:
+      type: object
+      additionalProperties: false
+      description: "같은 지표를 후보와 현재 활성 릴리스에서 나란히 놓은 한 줄"
+      x-owner: release-gate
+      x-basis: "D53(같은 지표끼리 맞댄 ReviewReport)"
+      required: [name, candidate_value]
+      properties:
+        name: { $ref: "#/components/schemas/MetricName", description: "지표 이름" }
+        slice: { $ref: "#/components/schemas/MetricSlice", description: "지표를 쪼갠 조각(전체이면 없다)" }
+        candidate_value: { $ref: "#/components/schemas/MetricValue", description: "후보의 값" }
+        active_value: { $ref: "#/components/schemas/MetricValue", description: "현재 활성 릴리스의 값(활성 릴리스가 없거나 지표가 없으면 없다)" }
+    ReviewReport:
+      type: object
+      additionalProperties: false
+      description: "승인자가 보는 검토 보고서. 후보와 현재 활성 릴리스를 같은 지표끼리 맞댄다"
+      x-owner: release-gate
+      x-basis: "F08, D53, D69(해시는 서버만 계산)"
+      required: [report_hash, submission_id, candidate, comparisons, checks, generated_at]
+      properties:
+        report_hash: { $ref: "#/components/schemas/Sha256Digest", description: "보고서 내용의 해시. 승인 요청이 이 값을 그대로 돌려보낸다" }
+        submission_id: { $ref: "#/components/schemas/SubmissionId", description: "보고서가 속한 제출" }
+        candidate: { $ref: "#/components/schemas/ReleaseSummary", description: "후보 구성" }
+        active: { $ref: "#/components/schemas/ReleaseSummary", description: "현재 활성 릴리스 구성(없으면 없다)" }
+        comparisons: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/MetricComparison" }, description: "지표 비교들" }
+        checks: { $ref: "#/components/schemas/GateChecks", description: "자동 검사 결과들" }
+        generated_at: { $ref: "#/components/schemas/Timestamp", description: "보고서를 만든 때" }
+    HumanDecision:
+      type: string
+      enum: [APPROVE, REJECT]
+      x-enum-descriptions: { APPROVE: "승인한다", REJECT: "반려한다(사유 필수)" }
+      description: "승인자의 결정"
+      x-owner: release-gate
+      x-basis: "D53, F09"
+    DecisionReason: { type: string, minLength: 1, maxLength: 4000, description: "사람이 결정한 까닭(반려, 활성화, 롤백의 사유)", x-owner: release-gate, x-basis: "D53(반려는 사유 필수), 길이 규칙 L4" }
+    ApprovalRequest:
+      type: object
+      additionalProperties: false
+      description: "승인자가 제출에 대해 내리는 결정. 승인자 신원은 본문이 아니라 인증된 사용자에서 얻는다"
+      x-owner: release-gate
+      x-basis: "F09, D53, D69(승인자 ID 는 인증이 본문보다 우선), D88 U7"
+      required: [decision, report_hash]
+      properties:
+        decision: { $ref: "#/components/schemas/HumanDecision", description: "승인 또는 반려" }
+        report_hash: { $ref: "#/components/schemas/Sha256Digest", description: "승인자가 본 검토 보고서의 해시. 지금 보고서와 다르면 409(STALE_REPORT)" }
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "반려 사유(반려일 때 필수)" }
+      if: { properties: { decision: { const: REJECT } }, required: [decision] }
+      then: { required: [reason] }
+    DecisionId: { type: string, format: uuid, description: "게이트 판정 기록 하나의 식별자", x-owner: release-gate, x-basis: "RFC 9562 (UUID), D27" }
+    GateVerdict:
+      type: string
+      enum: [PASS, FAIL]
+      x-enum-descriptions: { PASS: "자동 검사와 사람 승인을 모두 통과했다", FAIL: "자동 검사가 실패했거나 사람이 반려했다" }
+      description: "판정의 결과"
+      x-owner: release-gate
+      x-basis: "D53, D58(3)(PASS GateDecision 은 HUMAN_APPROVAL 검사가 PASS)"
+    GateDecision:
+      type: object
+      additionalProperties: false
+      description: "제출 하나에 대한 게이트 판정 기록. 재판정은 같은 제출에 새 판정을 더한다"
+      x-owner: release-gate
+      x-basis: "F09, C17, D53, D105(2)"
+      required: [decision_id, submission_id, verdict, checks, decided_at]
+      properties:
+        decision_id: { $ref: "#/components/schemas/DecisionId", description: "판정 식별자" }
+        submission_id: { $ref: "#/components/schemas/SubmissionId", description: "판정이 속한 제출" }
+        verdict: { $ref: "#/components/schemas/GateVerdict", description: "판정 결과" }
+        checks: { $ref: "#/components/schemas/GateChecks", description: "검사 결과들" }
+        decided_by: { $ref: "#/components/schemas/UserId", description: "사람이 결정했다면 그 승인자" }
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "반려 사유" }
+        decided_at: { $ref: "#/components/schemas/Timestamp", description: "판정한 때" }
+    GateDecisionPage:
+      type: object
+      additionalProperties: false
+      description: "게이트 판정 목록 한 쪽"
+      x-owner: release-gate
+      x-basis: "C17, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/GateDecision" }, description: "판정들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    ReleaseManifest:
+      type: object
+      additionalProperties: false
+      description: "릴리스의 목록표. 함께 운영하는 문진표 버전들과 모델 패키지를 해시로 고정한다"
+      x-owner: release-gate
+      x-basis: "F11, F12, D27, U85, D46"
+      required: [release_id, submission_id, question_sets, model_package_id, runtime_contract_version, model_runtime_version, approved_by, created_at]
+      properties:
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "릴리스 식별자" }
+        submission_id: { $ref: "#/components/schemas/SubmissionId", description: "이 릴리스를 만든 제출" }
+        question_sets: { $ref: "#/components/schemas/QuestionSetRefs", description: "함께 운영하는 문진표 버전들" }
+        model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "모델 패키지" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+        model_runtime_version: { $ref: "#/components/schemas/SemanticVersion", description: "서빙이 맞춰야 하는 model-runtime 버전(MAJOR.MINOR 가 같아야 적재한다)" }
+        approved_by: { $ref: "#/components/schemas/UserId", description: "승인한 승인자" }
+        created_at: { $ref: "#/components/schemas/Timestamp", description: "릴리스를 만든 때" }
+    ActiveRelease:
+      type: object
+      additionalProperties: false
+      description: "지금 활성인 릴리스와 활성화 기록"
+      x-owner: release-gate
+      x-basis: "F11, F12, F13, D27(ActivePointer), D85(3)"
+      required: [release, activated_by, activated_at]
+      properties:
+        release: { $ref: "#/components/schemas/ReleaseManifest", description: "활성 릴리스의 목록표" }
+        activated_by: { $ref: "#/components/schemas/UserId", description: "활성화한 운영자" }
+        activated_at: { $ref: "#/components/schemas/Timestamp", description: "활성화한 때" }
+        previous_release_id: { $ref: "#/components/schemas/ReleaseId", description: "바로 앞의 활성 릴리스(롤백 대상 후보)" }
+    ReleasePage:
+      type: object
+      additionalProperties: false
+      description: "릴리스 목록 한 쪽"
+      x-owner: release-gate
+      x-basis: "F10, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ReleaseManifest" }, description: "릴리스들(최근 것이 먼저)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    ActivationRequest:
+      type: object
+      additionalProperties: false
+      description: "운영자가 릴리스를 활성화하는 본문. 운영자 신원은 인증된 사용자에서 얻는다"
+      x-owner: release-gate
+      x-basis: "F10, D85(3), D88 U7, U7"
+      required: [reason]
+      properties:
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "활성화하는 까닭" }
+    RollbackRequestId: { type: string, format: uuid, description: "롤백 요청 하나의 식별자", x-owner: release-gate, x-basis: "RFC 9562 (UUID)" }
+    RollbackRequestCreate:
+      type: object
+      additionalProperties: false
+      description: "ops-feedback 이 롤백을 요청하는 본문. 근거는 사람이 CONFIRMED 로 검토한 사례만 쓴다"
+      x-owner: release-gate
+      x-basis: "F14, L07, D88 U11, C21(자동 제출은 끄고 사람이 확인한 사례를 근거로 사람이 요청)"
+      required: [target_release_id, reason, evidence_case_ids]
+      properties:
+        target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "롤백을 요청하는 까닭" }
+        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거가 되는 CONFIRMED 사례들" }
+    RollbackRequestStatus:
+      type: string
+      enum: [OPEN, EXECUTED]
+      x-enum-descriptions: { OPEN: "운영자의 결정을 기다린다", EXECUTED: "운영자가 롤백을 실행했다" }
+      description: "롤백 요청의 상태"
+      x-owner: release-gate
+      x-basis: "F14, F10"
+    RollbackRequest:
+      type: object
+      additionalProperties: false
+      description: "접수된 롤백 요청 하나"
+      x-owner: release-gate
+      x-basis: "F14, F10"
+      required: [rollback_request_id, status, target_release_id, reason, evidence_case_ids, requested_at]
+      properties:
+        rollback_request_id: { $ref: "#/components/schemas/RollbackRequestId", description: "요청 식별자" }
+        status: { $ref: "#/components/schemas/RollbackRequestStatus", description: "요청 상태" }
+        target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "요청한 까닭" }
+        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거 사례들" }
+        requested_at: { $ref: "#/components/schemas/Timestamp", description: "요청이 들어온 때" }
+    RollbackRequestPage:
+      type: object
+      additionalProperties: false
+      description: "롤백 요청 목록 한 쪽"
+      x-owner: release-gate
+      x-basis: "F10, PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/RollbackRequest" }, description: "요청들" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
+    RollbackCommand:
+      type: object
+      additionalProperties: false
+      description: "운영자가 활성 릴리스를 이전 릴리스로 되돌리는 결정"
+      x-owner: release-gate
+      x-basis: "F10, D85(3), C07(개별 계정으로 연다), U7"
+      required: [target_release_id, reason]
+      properties:
+        target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
+        reason: { $ref: "#/components/schemas/DecisionReason", description: "되돌리는 까닭" }
+        rollback_request_id: { $ref: "#/components/schemas/RollbackRequestId", description: "처리하는 롤백 요청(있으면)" }
