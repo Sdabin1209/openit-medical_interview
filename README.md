@@ -53,3 +53,4 @@ openit-v7/
 - [0016 이미지 검사 build checks trivy hadolint](docs/adr/0016-이미지-검사-build-checks-trivy-hadolint.md)
 - [0017 라이선스 원칙 의무가 생기는 사용 금지](docs/adr/0017-라이선스-원칙-의무가-생기는-사용-금지.md)
 - [0018 제3자 고지 THIRD_PARTY_NOTICES 자동 생성과 이미지 점검](docs/adr/0018-제3자-고지-THIRD_PARTY_NOTICES-자동-생성.md)
+- [0019 영역 구성 7개](docs/adr/0019-영역-구성-7개.md)

@@ -38,7 +38,7 @@ paths:
       operationId: issueStartCode
       tags: [start-codes]
       summary: 일회용 시작 코드 발급
-      description: 직원이 문진 대상자의 참조값으로 일회용 시작 코드(QR 이나 숫자)를 발급한다. 환자는 키오스크에서 이 코드로 세션을 시작한다. 설치처의 의료 정보 시스템은 같은 참조값으로 결과를 당겨 간다(C20, 사용자 결정 2026-11-10). 같은 Idempotency-Key 로 다시 보내면 앞서 발급한 코드를 돌려준다.
+      description: 직원이 문진 대상자의 참조값으로 일회용 시작 코드(6자리 숫자)를 발급한다. 환자는 키오스크에서 이 코드로 세션을 시작한다. 설치처의 의료 정보 시스템은 같은 참조값으로 결과를 당겨 간다(C20, 사용자 결정 2026-11-10). 같은 Idempotency-Key 로 다시 보내면 앞서 발급한 코드를 돌려준다.
       x-owner: survey-service
       security: [ { oidc: [staff] } ]
       parameters:
