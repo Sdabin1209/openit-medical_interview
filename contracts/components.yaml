@@ -1882,3 +1882,445 @@ components:
         target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
         reason: { $ref: "#/components/schemas/DecisionReason", description: "되돌리는 까닭" }
         rollback_request_id: { $ref: "#/components/schemas/RollbackRequestId", description: "처리하는 롤백 요청(있으면)" }
+
+    # ======================================================================
+    # HTTP 밖의 교환: 잡 입력·결과, 배포가 영역에 주는 환경 입력, 이미지 선언, 배치 설정
+    # ======================================================================
+    JobName:
+      type: string
+      enum: [COLLECT_CANDIDATES, DETECT_FAILURES, PURGE_EXPIRED, PUBLISH_SEEDS, BACKUP, RESTORE]
+      x-enum-descriptions:
+        COLLECT_CANDIDATES: "release-gate 가 문항 세트와 모델 패키지 후보를 가져온다"
+        DETECT_FAILURES: "ops-feedback 가 쌓인 턴 기록에서 실패 사례를 찾는다"
+        PURGE_EXPIRED: "보존 기간이 지난 자료를 지운다"
+        PUBLISH_SEEDS: "synthetic-data 가 검토된 실패 사례를 시드로 게시한다"
+        BACKUP: "데이터 주인 영역이 자기 저장소를 백업한다"
+        RESTORE: "데이터 주인 영역이 자기 저장소를 복구한다"
+      description: "deploy 의 스케줄러가 한 번 실행하는 잡의 이름"
+      x-owner: deploy
+      x-basis: "F55, F56, D39, D111, D130, C08"
+    JobTimeoutSeconds: { type: integer, minimum: 1, maximum: 86400, description: "잡 한 번이 끝나야 하는 시간 상한(초). deploy 가 이 값보다 큰 가장 작은 300초 배수를 주기로 정한다", x-owner: deploy, x-basis: "D131(주기는 선언된 시간 상한에서 deploy 가 만든다), C08, 상한 하루는 D85(5)(백업 매일)" }
+    JobDeclaration:
+      type: object
+      additionalProperties: false
+      description: "영역이 선언하는 잡 하나(이름과 시간 상한)"
+      x-owner: deploy
+      x-basis: "D131, F60"
+      required: [job, timeout_seconds]
+      properties:
+        job: { $ref: "#/components/schemas/JobName", description: "잡 이름" }
+        timeout_seconds: { $ref: "#/components/schemas/JobTimeoutSeconds", description: "이 잡의 시간 상한" }
+    JobsDeclaration:
+      type: object
+      additionalProperties: false
+      description: "이미지가 가진 잡들의 선언. 영역은 실행 일정을 모른다"
+      x-owner: deploy
+      x-basis: "D131, F60, 구조 규칙 4"
+      required: [jobs]
+      properties:
+        jobs: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/JobDeclaration" }, description: "잡들" }
+    JobRunInput:
+      type: object
+      additionalProperties: false
+      description: "잡 한 번을 실행할 때 인자로 주는 입력. 같은 입력은 같은 결과를 낸다"
+      x-owner: deploy
+      x-basis: "F55, D39(멱등), RUNTIME R9.1(같은 입력이면 같은 출력)"
+      required: [job, requested_at]
+      properties:
+        job: { $ref: "#/components/schemas/JobName", description: "실행할 잡" }
+        requested_at: { $ref: "#/components/schemas/Timestamp", description: "스케줄러가 실행을 요청한 때(잡이 시각을 스스로 읽지 않고 이 값을 쓴다)" }
+        snapshot_id: { $ref: "#/components/schemas/BackupSnapshotId", description: "RESTORE 일 때 복구할 스냅샷" }
+    BackupSnapshotId: { type: string, pattern: "^[0-9a-f]{8,64}$", maxLength: 64, description: "백업 스냅샷 하나의 식별자(restic 스냅샷 ID 의 16진수 표기)", x-owner: platform, x-basis: "restic 스냅샷 ID(SHA-256 의 16진수, 축약형 8자 이상 허용), D130" }
+    JobExitCode:
+      type: integer
+      enum: [0, 75, 1]
+      x-enum-descriptions: { "0": "성공", "75": "일시적 실패(다음 실행에서 다시 한다)", "1": "실패" }
+      minimum: 0
+      maximum: 75
+      description: "잡이 끝나며 내는 종료 코드"
+      x-owner: deploy
+      x-basis: "D130(종료 코드 0·75·1), sysexits.h EX_TEMPFAIL 75"
+    ProcessedCount: { type: integer, minimum: 0, maximum: 2147483647, description: "잡이 처리한 항목의 수", x-owner: deploy, x-basis: "OpenAPI int32" }
+    JobRunResult:
+      type: object
+      additionalProperties: false
+      description: "잡 한 번의 실행 결과(표준 출력에 JSON 한 줄로 낸다)"
+      x-owner: deploy
+      x-basis: "F55, F56, D130, RUNTIME R9"
+      required: [job, exit_code, started_at, finished_at]
+      properties:
+        job: { $ref: "#/components/schemas/JobName", description: "실행한 잡" }
+        exit_code: { $ref: "#/components/schemas/JobExitCode", description: "종료 코드" }
+        started_at: { $ref: "#/components/schemas/Timestamp", description: "시작한 때" }
+        finished_at: { $ref: "#/components/schemas/Timestamp", description: "끝난 때" }
+        processed_count: { $ref: "#/components/schemas/ProcessedCount", description: "처리한 항목 수" }
+        snapshot_id: { $ref: "#/components/schemas/BackupSnapshotId", description: "BACKUP 이 만든 스냅샷" }
+
+    ListenPort: { type: integer, minimum: 1, maximum: 65535, description: "서비스가 요청을 받는 TCP 포트 번호", x-owner: deploy, x-basis: "RFC 9293 3.1(포트는 16비트), 0 은 예약" }
+    SecretFilePath: { type: string, pattern: "^/", maxLength: 4096, description: "비밀 값이 든 파일의 절대 경로. 값은 환경 변수나 설정에 적지 않고 이 파일에서만 읽는다", x-owner: deploy, x-basis: "D84(비밀은 NAME_FILE 파일), POSIX PATH_MAX 4096" }
+    ConfigFilePath: { type: string, pattern: "^/", maxLength: 4096, description: "비밀이 아닌 설정 파일 또는 폴더의 절대 경로", x-owner: deploy, x-basis: "D133, POSIX PATH_MAX 4096" }
+    PeerBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, description: "이웃 서비스의 기준 주소(항상 TLS)", x-owner: deploy, x-basis: "C14·D127(영역 사이 모든 HTTP 는 TLS), D129(https://영역이름), RFC 9110 4.1" }
+    EgressProxyUrl: { type: string, format: uri, maxLength: 8000, description: "영역 게이트웨이의 나가는 CONNECT 터널 주소. Exposure.egress 에 선언한 상대에게만 닿는다", x-owner: platform, x-basis: "D128(OPENIT_EGRESS_PROXY, RFC 9110 9.3.6 CONNECT)" }
+    LogLevel:
+      type: string
+      enum: [DEBUG, INFO, WARNING, ERROR]
+      x-enum-descriptions: { DEBUG: "자세한 진단 기록", INFO: "보통 기록", WARNING: "경고 이상", ERROR: "오류만" }
+      description: "표준 출력으로 내는 로그의 최소 수준"
+      x-owner: deploy
+      x-basis: "ADR 0004(로그는 표준 출력), Python logging 수준 이름"
+    DatabaseUrl: { type: string, format: uri, pattern: "^postgresql(\\+asyncpg)?://", maxLength: 8000, description: "자기 영역 데이터베이스의 접속 주소(비밀번호는 넣지 않는다)", x-owner: deploy, x-basis: "ADR 0001(PostgreSQL 16, asyncpg), D126(DB 는 영역의 컴포넌트), D84" }
+    BackupRepositoryUrl: { type: string, pattern: "^rest:https://", maxLength: 8000, description: "백업을 보낼 저장소 주소(restic REST 저장소)", x-owner: platform, x-basis: "D130(restic rest-server), restic REST 백엔드 사양" }
+    OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: platform, x-basis: "C09(서버 밖 대상이 필수, 주소는 설정), U6" }
+    VapidSubject: { type: string, format: uri, maxLength: 1000, description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 길이 규칙 L3" }
+    StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 86400, description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "결정 대기: 유효 시간 값은 사용자 결정이 없다(C20 은 일회용 코드만 정했다), 상한 하루는 근거 없음" }
+    ReaskLimit: { type: integer, minimum: 2, maximum: 2, description: "한 문항에서 되묻는 횟수의 한도(처음 질문 1회에 되묻기 2회). 질문의 뜻·대상을 묻는 되물음은 세지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10, D95(한도를 넘으면 직원 호출), U100" }
+    ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, description: "한 문항에서 설명 요청만 이어질 수 있는 횟수. 이에 닿으면 직원 도움을 안내한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내)" }
+    RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
+    TwoPersonApprovalRequired: { type: boolean, default: false, description: "임상 근거 승인에 저자와 다른 검수자를 요구할지(참이면 요구한다). 기본은 꺼짐이다", x-owner: question-authoring, x-basis: "L13(사용자 결정 2026-11-03: 기본 꺼짐, 설정으로 켠다), C02, D92" }
+    RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: ops-feedback, x-basis: "L12(사용자 결정: 180일 유지), C03" }
+    ModelProfileName: { type: string, maxLength: 64, description: "추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 길이 규칙 L1" }
+    TrainingServerAddress: { type: string, format: hostname, maxLength: 253, description: "학습 서버의 호스트 이름 또는 주소", x-owner: model-lab, x-basis: "F66, RFC 1123 2.1(호스트 이름), 최대 길이 253 는 RFC 1035 2.3.4" }
+
+    SurveyServiceEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 survey-service 에 주는 환경 입력. 비밀은 NAME_FILE 경로로만 준다"
+      x-owner: survey-service
+      x-basis: "F54, D84, D133, D134, D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_RELEASE_GATE_URL, OPENIT_RELEASE_GATE_TOKEN_FILE, OPENIT_MODEL_RUNTIME_URL, OPENIT_MODEL_RUNTIME_TOKEN_FILE, OPENIT_OPS_FEEDBACK_URL, OPENIT_OPS_FEEDBACK_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_VAPID_PRIVATE_KEY_FILE, OPENIT_VAPID_SUBJECT, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "문진 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "문진 데이터베이스 비밀번호 파일" }
+        OPENIT_RELEASE_GATE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "활성 릴리스를 읽을 release-gate 주소" }
+        OPENIT_RELEASE_GATE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "release-gate 에 보일 기계 토큰 파일(권한 release-reader)" }
+        OPENIT_MODEL_RUNTIME_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "추론을 부를 model-runtime 주소" }
+        OPENIT_MODEL_RUNTIME_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-runtime 에 보일 기계 토큰 파일" }
+        OPENIT_OPS_FEEDBACK_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "턴 기록을 보낼 ops-feedback 주소" }
+        OPENIT_OPS_FEEDBACK_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "ops-feedback 에 보일 기계 토큰 파일(권한 trace-sender)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_VAPID_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "웹 푸시 VAPID 개인키 파일" }
+        OPENIT_VAPID_SUBJECT: { $ref: "#/components/schemas/VapidSubject", description: "VAPID 연락처" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        SURVEY_START_CODE_TTL_SECONDS: { $ref: "#/components/schemas/StartCodeTtlSeconds", description: "시작 코드 유효 시간" }
+        SURVEY_REASK_LIMIT: { $ref: "#/components/schemas/ReaskLimit", description: "되묻기 한도" }
+        SURVEY_EXPLAIN_STREAK_LIMIT: { $ref: "#/components/schemas/ExplainStreakLimit", description: "설명 요청 연속 한도" }
+        SURVEY_RISK_DETECTION_ENABLED: { $ref: "#/components/schemas/RiskDetectionEnabled", description: "위험 감지 사용 여부" }
+    ReleaseGateEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 release-gate 에 주는 환경 입력"
+      x-owner: release-gate
+      x-basis: "F54, D84, D133, D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_QUESTION_AUTHORING_URL, OPENIT_QUESTION_AUTHORING_TOKEN_FILE, OPENIT_MODEL_LAB_URL, OPENIT_MODEL_LAB_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "게이트 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "게이트 데이터베이스 비밀번호 파일" }
+        OPENIT_QUESTION_AUTHORING_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "후보 문항 세트를 가져갈 question-authoring 주소" }
+        OPENIT_QUESTION_AUTHORING_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "question-authoring 에 보일 기계 토큰 파일(권한 candidate-reader)" }
+        OPENIT_MODEL_LAB_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "후보 모델 패키지를 가져갈 model-lab 주소" }
+        OPENIT_MODEL_LAB_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-lab 에 보일 기계 토큰 파일(권한 candidate-reader)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+    QuestionAuthoringEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 question-authoring 에 주는 환경 입력"
+      x-owner: question-authoring
+      x-basis: "F54, D84, D133, D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_RELEASE_GATE_URL, OPENIT_RELEASE_GATE_TOKEN_FILE, OPENIT_OPS_FEEDBACK_URL, OPENIT_OPS_FEEDBACK_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "문항 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "문항 데이터베이스 비밀번호 파일" }
+        OPENIT_RELEASE_GATE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "자기 산출물의 게이트 판정을 읽을 release-gate 주소" }
+        OPENIT_RELEASE_GATE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "release-gate 에 보일 기계 토큰 파일(권한 decision-reader)" }
+        OPENIT_OPS_FEEDBACK_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "개선 신호를 읽을 ops-feedback 주소" }
+        OPENIT_OPS_FEEDBACK_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "ops-feedback 에 보일 기계 토큰 파일(권한 signal-reader)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        QA_REQUIRE_TWO_PERSON: { $ref: "#/components/schemas/TwoPersonApprovalRequired", description: "2인 임상 승인 사용 여부" }
+    OpsFeedbackEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 ops-feedback 에 주는 환경 입력"
+      x-owner: ops-feedback
+      x-basis: "F54, D84, D133, D135(잡 설정 release_reader), D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_RELEASE_GATE_URL, OPENIT_RELEASE_GATE_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "운영 관측 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "운영 관측 데이터베이스 비밀번호 파일" }
+        OPENIT_RELEASE_GATE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "활성 릴리스를 읽고 롤백을 요청할 release-gate 주소" }
+        OPENIT_RELEASE_GATE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "release-gate 에 보일 기계 토큰 파일(권한 release-reader 와 rollback-requester)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        OPSFEEDBACK_RAW_UTTERANCE_RETENTION_DAYS: { $ref: "#/components/schemas/RawUtteranceRetentionDays", description: "검토용 발화 원문 보존 일수" }
+    ModelRuntimeEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다)"
+      x-owner: model-runtime
+      x-basis: "F54, D72(위치 독립), D129(다른 서버는 hosts 표와 루트 인증서), D73(모델 캐시 볼륨), F65"
+      required: [OPENIT_LISTEN_PORT, OPENIT_RELEASE_GATE_URL, OPENIT_RELEASE_GATE_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_MODEL_PROFILE, OPENIT_MODEL_CACHE_DIR]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널(같은 서버에 있을 때)" }
+        OPENIT_RELEASE_GATE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "활성 릴리스를 스스로 읽을 release-gate 주소" }
+        OPENIT_RELEASE_GATE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "release-gate 에 보일 기계 토큰 파일(권한 model-serving)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_MODEL_PROFILE: { $ref: "#/components/schemas/ModelProfileName", description: "GPU 크기별 프로파일 이름" }
+        OPENIT_MODEL_CACHE_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "기반 모델 가중치를 받아 두는 유지되는 폴더(모델 허브에서 처음 시작할 때 받는다)" }
+        OPENIT_HOSTS_TABLE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "다른 서버에서 release-gate 를 찾는 이름 표 파일(다른 서버일 때만)" }
+        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "사설 CA 의 루트 인증서 파일(다른 서버일 때만)" }
+    ModelLabEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 model-lab 에 주는 환경 입력"
+      x-owner: model-lab
+      x-basis: "F54, D84, D133, D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_SYNTHETIC_DATA_URL, OPENIT_SYNTHETIC_DATA_TOKEN_FILE, OPENIT_OPS_FEEDBACK_URL, OPENIT_OPS_FEEDBACK_TOKEN_FILE, OPENIT_QUESTION_AUTHORING_URL, OPENIT_QUESTION_AUTHORING_TOKEN_FILE, OPENIT_RELEASE_GATE_URL, OPENIT_RELEASE_GATE_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "모델 레지스트리 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "모델 레지스트리 데이터베이스 비밀번호 파일" }
+        OPENIT_SYNTHETIC_DATA_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "데이터셋을 읽을 synthetic-data 주소" }
+        OPENIT_SYNTHETIC_DATA_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "synthetic-data 에 보일 기계 토큰 파일(권한 dataset-reader)" }
+        OPENIT_OPS_FEEDBACK_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "확정 실패 사례를 읽을 ops-feedback 주소" }
+        OPENIT_OPS_FEEDBACK_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "ops-feedback 에 보일 기계 토큰 파일(권한 case-reader)" }
+        OPENIT_QUESTION_AUTHORING_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "문항 정의를 읽을 question-authoring 주소" }
+        OPENIT_QUESTION_AUTHORING_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "question-authoring 에 보일 기계 토큰 파일(권한 question-reader)" }
+        OPENIT_RELEASE_GATE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "자기 산출물의 게이트 판정을 읽을 release-gate 주소" }
+        OPENIT_RELEASE_GATE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "release-gate 에 보일 기계 토큰 파일(권한 decision-reader)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        OPENIT_TRAINING_SERVER: { $ref: "#/components/schemas/TrainingServerAddress", description: "학습을 시킬 학습 서버" }
+    SyntheticDataEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 synthetic-data 에 주는 환경 입력"
+      x-owner: synthetic-data
+      x-basis: "F54, D84, D133, D128"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_QUESTION_AUTHORING_URL, OPENIT_QUESTION_AUTHORING_TOKEN_FILE, OPENIT_OPS_FEEDBACK_URL, OPENIT_OPS_FEEDBACK_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_EGRESS_PROXY]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "데이터셋 저장소 데이터베이스 접속 주소" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "데이터셋 저장소 데이터베이스 비밀번호 파일" }
+        OPENIT_QUESTION_AUTHORING_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "문항 정의를 읽을 question-authoring 주소" }
+        OPENIT_QUESTION_AUTHORING_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "question-authoring 에 보일 기계 토큰 파일(권한 question-reader)" }
+        OPENIT_OPS_FEEDBACK_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "시드 사례를 읽을 ops-feedback 주소" }
+        OPENIT_OPS_FEEDBACK_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "ops-feedback 에 보일 기계 토큰 파일(권한 case-reader)" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
+        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
+        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+    KioskDeviceSettings:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 키오스크 화면에 주는 기기 설정 파일의 내용. 기기 토큰은 없다(기기 인증은 인증서)"
+      x-owner: kiosk-frontend
+      x-basis: "F26, U86(기기에 배치된 문진표가 기본), D136"
+      properties:
+        default_questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "이 기기의 기본 문진표(배치가 없으면 없다)" }
+    KioskFrontendEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 키오스크 화면 이미지에 주는 환경 입력"
+      x-owner: kiosk-frontend
+      x-basis: "F54, F26, D133"
+      required: [OPENIT_LISTEN_PORT, OPENIT_DEVICE_SETTINGS_FILE]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_DEVICE_SETTINGS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 설정 파일(KioskDeviceSettings 모양)" }
+    AdminConsoleEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 업무 화면 이미지에 주는 환경 입력"
+      x-owner: admin-console
+      x-basis: "F54, D133, C01"
+      required: [OPENIT_LISTEN_PORT]
+      properties:
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+    DeviceAllowEntry:
+      type: object
+      additionalProperties: false
+      description: "공개 입구가 허용하는 키오스크 기기 인증서 하나"
+      x-owner: platform
+      x-basis: "D136(허용 목록은 기기 ID 와 일련번호), C13"
+      required: [device_id, serial_number]
+      properties:
+        device_id: { $ref: "#/components/schemas/DeviceId", description: "기기 식별자(인증서 주체 CN)" }
+        serial_number: { $ref: "#/components/schemas/DeviceSerialNumber", description: "허용하는 인증서의 일련번호" }
+    DeviceAllowlist:
+      type: object
+      additionalProperties: false
+      description: "공개 입구에 deploy 가 파일로 주는 키오스크 기기 허용 목록. 등록·회전·폐기는 이 목록을 바꾸는 것이다"
+      x-owner: platform
+      x-basis: "F54, C13, D113, D136"
+      required: [devices]
+      properties:
+        devices: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DeviceAllowEntry" }, description: "허용하는 기기 인증서들" }
+    PlatformEnv:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 platform 에 주는 환경 입력"
+      x-owner: platform
+      x-basis: "F54, C13, C09, D127, D133"
+      required: [OPENIT_DEVICE_ALLOWLIST_FILE, OPENIT_DEVICE_CA_CERTIFICATE_FILE, OPENIT_OFFSITE_BACKUP_URL]
+      properties:
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_DEVICE_ALLOWLIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 허용 목록 파일(DeviceAllowlist 모양)" }
+        OPENIT_DEVICE_CA_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 인증서를 발급하는 조직 PKI 의 루트 인증서 파일" }
+        OPENIT_OFFSITE_BACKUP_URL: { $ref: "#/components/schemas/OffsiteBackupUrl", description: "서버 밖 백업 대상 주소" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "공개 입구가 기계 토큰 경로를 가르는 호출자 표 파일(MachineTokenTable 모양)" }
+
+    # ---- 이미지 선언(이미지 라벨), 배치 설정 ----
+    ExposureAudience:
+      type: string
+      enum: [HUMAN_OIDC, DEVICE_MTLS, MACHINE_TOKEN, DENIED]
+      x-enum-descriptions: { HUMAN_OIDC: "공개 입구를 지나 사람 인증(OIDC) 뒤에서만 열린다", DEVICE_MTLS: "기기 인증서(mTLS)를 낸 키오스크에게만 열린다", MACHINE_TOKEN: "영역 사이 기계 토큰 호출에만 열린다(공개 입구로 내보내지 않는다)", DENIED: "열지 않는다" }
+      description: "경로를 누구에게 여는지"
+      x-owner: deploy
+      x-basis: "D129, D132, D128, C23"
+    HttpMethodName:
+      type: string
+      enum: [GET, POST, PUT, DELETE]
+      x-enum-descriptions: { GET: "읽기(안전하고 멱등)", POST: "만들기·처리 요청", PUT: "내용 올리기(멱등)", DELETE: "지우기(멱등)" }
+      description: "경로에 허용하는 HTTP 메서드"
+      x-owner: deploy
+      x-basis: "RFC 9110 9.3"
+    RoutePathPrefix: { type: string, pattern: "^/", maxLength: 1000, description: "노출하는 경로의 앞부분(항상 /로 시작)", x-owner: deploy, x-basis: "RFC 9110 4.2.3, 길이 규칙 L3" }
+    ExposureRoute:
+      type: object
+      additionalProperties: false
+      description: "영역이 노출하는 경로 하나와 그 대상"
+      x-owner: deploy
+      x-basis: "C23, D129, D132"
+      required: [path_prefix, methods, audience]
+      properties:
+        path_prefix: { $ref: "#/components/schemas/RoutePathPrefix", description: "노출하는 경로의 앞부분" }
+        methods: { type: array, minItems: 1, maxItems: 4, items: { $ref: "#/components/schemas/HttpMethodName" }, description: "허용하는 메서드들" }
+        audience: { $ref: "#/components/schemas/ExposureAudience", description: "이 경로를 여는 대상" }
+    Exposure:
+      type: object
+      additionalProperties: false
+      description: "영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다"
+      x-owner: deploy
+      x-basis: "C23, D128(허용 목록은 Exposure.egress), D129, D132"
+      required: [routes, egress]
+      properties:
+        routes: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들" }
+        egress: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/ServiceName" }, description: "나가는 호출이 닿을 수 있는 서비스들" }
+    ContainerPath: { type: string, pattern: "^/", maxLength: 4096, description: "컨테이너 안의 절대 경로", x-owner: deploy, x-basis: "D134, POSIX PATH_MAX 4096" }
+    EnvVarName: { type: string, pattern: "^[A-Z][A-Z0-9_]*$", maxLength: 128, description: "환경 변수의 이름", x-owner: deploy, x-basis: "POSIX 환경 변수 이름 규칙(대문자·숫자·밑줄), D134, 길이 규칙 L2 이하" }
+    EnvKind:
+      type: string
+      enum: [VALUE, SECRET_FILE, FILE_PATH]
+      x-enum-descriptions: { VALUE: "비밀이 아닌 값", SECRET_FILE: "비밀이 든 파일의 경로(NAME_FILE)", FILE_PATH: "비밀이 아닌 설정 파일 또는 폴더의 경로" }
+      description: "환경 입력의 종류"
+      x-owner: deploy
+      x-basis: "D84, D134"
+    EnvDeclaration:
+      type: object
+      additionalProperties: false
+      description: "이미지가 받는 환경 입력 하나의 선언"
+      x-owner: deploy
+      x-basis: "D134, F60"
+      required: [name, kind, required]
+      properties:
+        name: { $ref: "#/components/schemas/EnvVarName", description: "환경 변수 이름" }
+        kind: { $ref: "#/components/schemas/EnvKind", description: "입력의 종류" }
+        required: { $ref: "#/components/schemas/IsRequired", description: "없으면 시작하지 않는 입력인지" }
+    IsRequired: { type: boolean, description: "필수 여부(참이면 필수)", x-owner: deploy, x-basis: "D134" }
+    RunAsUid: { type: integer, minimum: 1, maximum: 4294967294, description: "이미지가 실행되는 숫자 사용자 ID(root 가 아니다)", x-owner: deploy, x-basis: "ADR 0004(root 가 아닌 사용자), POSIX uid 범위(0 은 root, 2^32-1 은 예약)" }
+    ContainerInputs:
+      type: object
+      additionalProperties: false
+      description: "영역 밖에서 컨테이너에 주입하는 것 전체의 선언(실행 사용자, 환경 입력, 쓰는 경로)"
+      x-owner: deploy
+      x-basis: "D134, F60"
+      required: [run_as_uid, env, writable_paths]
+      properties:
+        run_as_uid: { $ref: "#/components/schemas/RunAsUid", description: "실행 사용자" }
+        env: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/EnvDeclaration" }, description: "받는 환경 입력들" }
+        writable_paths: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/ContainerPath" }, description: "쓰는 경로들(루트 파일시스템은 읽기 전용이다)" }
+    DatabaseEngine: { type: string, const: POSTGRESQL, description: "영역 데이터베이스 엔진(PostgreSQL)", x-owner: deploy, x-basis: "ADR 0001(PostgreSQL 16), D133" }
+    DatabaseMajorVersion: { type: integer, minimum: 16, maximum: 16, description: "데이터베이스의 주 버전", x-owner: deploy, x-basis: "ADR 0001(PostgreSQL 16)" }
+    DatabaseDeclaration:
+      type: object
+      additionalProperties: false
+      description: "영역 데이터베이스 이미지의 선언"
+      x-owner: deploy
+      x-basis: "D133, D126"
+      required: [engine, major_version]
+      properties:
+        engine: { $ref: "#/components/schemas/DatabaseEngine", description: "엔진" }
+        major_version: { $ref: "#/components/schemas/DatabaseMajorVersion", description: "주 버전" }
+    ContractsVersionLabel: { type: string, pattern: "^7\\.[0-9]+\\.[0-9]+$", maxLength: 64, description: "이미지가 따르는 계약 버전(7.x.y)", x-owner: head, x-basis: "ADR 0004(io.openit.contracts 라벨), Semantic Versioning 2.0.0" }
+    ImageDeclaration:
+      type: object
+      additionalProperties: false
+      description: "영역이 이미지 라벨로 deploy 에 알리는 선언. deploy 는 이미지 안을 열지 않고 이 선언만 읽는다"
+      x-owner: deploy
+      x-basis: "F60, D134, D133, ADR 0004"
+      required: [service, revision, contracts_version, exposure, inputs]
+      properties:
+        service: { $ref: "#/components/schemas/ServiceName", description: "이미지의 서비스" }
+        revision: { $ref: "#/components/schemas/ImageRevision", description: "이미지를 만든 소스 커밋" }
+        contracts_version: { $ref: "#/components/schemas/ContractsVersionLabel", description: "이미지가 따르는 계약 버전" }
+        exposure: { $ref: "#/components/schemas/Exposure", description: "노출 경로와 나가는 호출 상대" }
+        inputs: { $ref: "#/components/schemas/ContainerInputs", description: "주입받는 것 전체" }
+        jobs: { $ref: "#/components/schemas/JobsDeclaration", description: "잡이 있다면 그 선언" }
+        database: { $ref: "#/components/schemas/DatabaseDeclaration", description: "영역 데이터베이스 이미지라면 그 선언" }
+    ServerName: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$", maxLength: 63, description: "배치 설정에서 서버를 가리키는 이름", x-owner: deploy, x-basis: "RFC 1035 2.3.1(레이블은 63자 이하)" }
+    ServerEntry:
+      type: object
+      additionalProperties: false
+      description: "서버 하나와 그 서버에서 띄울 서비스들"
+      x-owner: deploy
+      x-basis: "F64, U97, ADR 0002"
+      required: [name, address, services]
+      properties:
+        name: { $ref: "#/components/schemas/ServerName", description: "서버 이름" }
+        address: { $ref: "#/components/schemas/TrainingServerAddress", description: "서버의 호스트 이름 또는 주소" }
+        services: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/ServiceName" }, description: "이 서버에서 띄울 서비스들" }
+    DevicePlacement:
+      type: object
+      additionalProperties: false
+      description: "키오스크 기기 하나에 기본으로 배치하는 문진표"
+      x-owner: deploy
+      x-basis: "F64, U86"
+      required: [device_id, questionnaire_id]
+      properties:
+        device_id: { $ref: "#/components/schemas/DeviceId", description: "기기" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "그 기기의 기본 문진표" }
+    DeploymentLayout:
+      type: object
+      additionalProperties: false
+      description: "운영자가 deploy 에 주는 배치 설정(서버, 주소, 서비스 묶음, 기기별 문진표 배치)"
+      x-owner: deploy
+      x-basis: "F64, U97, U86"
+      required: [servers, device_placements]
+      properties:
+        servers: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" }
+        device_placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들" }
