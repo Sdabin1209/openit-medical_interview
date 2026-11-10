@@ -7,7 +7,7 @@ from enum import StrEnum
 from ipaddress import IPv4Address, IPv6Address
 from typing import Annotated, Literal
 
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class AccessTokenType(StrEnum):
@@ -45,8 +45,15 @@ class AlertHeartbeatInterval(RootModel[str]):
     """
 
 
-class AlertReceiverUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['mailto:alerts@example.org'])]
+class AlertReceiverUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['mailto:alerts@example.org'],
+            max_length=8000,
+            pattern='^(https://|mailto:)',
+        ),
+    ]
     """
     감시 경보를 받을 주소(https 웹훅 또는 mailto)
     """
@@ -388,6 +395,13 @@ class TokenId(RootModel[str]):
     """
 
 
+class UnprivilegedListenPort(RootModel[int]):
+    root: Annotated[int, Field(examples=[8443], ge=1024, le=65535)]
+    """
+    비 root 프로세스가 열 수 있는 TCP 포트 번호(1024 이상). 입구(Envoy)와 영역 게이트웨이(Caddy)는 비 root 로 돌아 낮은 포트를 열지 못한다
+    """
+
+
 class UserId(RootModel[str]):
     root: Annotated[
         str, Field(examples=['6f1c1c52-8e0e-4f1f-9a16-2b3d4c5e6f70'], max_length=255)
@@ -605,7 +619,7 @@ class PlatformEnv(BaseModel):
     """
     조직이 발급한 입구 인증서의 개인키 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway
     """
-    OPENIT_LISTEN_PORT: ListenPort
+    OPENIT_LISTEN_PORT: UnprivilegedListenPort
     """
     공개 입구가 요청을 받는 포트. 필요한 컴포넌트: gateway
     """
@@ -627,7 +641,7 @@ class PlatformEnv(BaseModel):
     """
     입구 인증서의 이름(SAN)이자 입구가 서비스하는 이름들. OPENIT_OIDC_ISSUER_URL 의 호스트가 이 안에 있어야 한다(선택). 필요한 컴포넌트: gateway, ca
     """
-    OPENIT_SERVICE_PORT: ListenPort | None = None
+    OPENIT_SERVICE_PORT: UnprivilegedListenPort | None = None
     """
     입구와 감시가 영역 서비스(https://<서비스 이름>)에 접속하는 포트(선택). 모든 영역 서비스가 같은 포트를 쓰며, 서비스 컨테이너가 영역 안 평문 HTTP 로 듣는 OPENIT_LISTEN_PORT 와는 별개다(요청은 영역 게이트웨이가 받는다). 필요한 컴포넌트: gateway, monitoring
     """
