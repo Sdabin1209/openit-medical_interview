@@ -291,14 +291,13 @@ components:
       x-basis: "D95·D79(ENDED_COMPLETE, 정지), D66(5)(정지 중은 유휴 만료 없음), D85(1)(부분 결과도 상태와 함께 조회)"
     PauseReason:
       type: string
-      enum: [RISK_SIGNAL, STAFF_CALL, REASK_LIMIT_EXCEEDED]
+      enum: [RISK_SIGNAL, STAFF_CALL]
       x-enum-descriptions:
         RISK_SIGNAL: "위험 신호가 들어와 멈춤"
         STAFF_CALL: "환자나 키오스크가 직원을 불러 멈춤"
-        REASK_LIMIT_EXCEEDED: "같은 문항을 되묻기 한도까지 물어도 정해지지 않아 직원을 부름"
       description: "세션이 멈춘 까닭. 직원 화면과 지표가 구분한다"
       x-owner: survey-service
-      x-basis: "L28(정지 사유 구분), D95(되묻기 초과는 직원 호출), D64"
+      x-basis: "L28(정지 사유 구분), D64. 되묻기 한도는 정지가 아니라 건너뛰기라서 사유에 없다(사용자 결정 U36 2026-11-10)"
     TurnFailureReason:
       type: string
       enum: [EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED]
@@ -309,7 +308,7 @@ components:
       description: "턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다"
       x-owner: survey-service
       x-basis: "D75(1)(실패 신호는 세션 상태를 바꾸지 않는다), D125(시간 상한)"
-    StaffHelpNotice: { type: boolean, description: "이 응답이 직원 도움을 안내하는 문장을 담고 있는지(설명 요청이 한 문항에서 3번 이어졌을 때 참)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청만 3번 이어지면 직원 도움 안내)" }
+    StaffHelpNotice: { type: boolean, description: "이 응답이 서비스의 고정 문장으로 직원 도움을 안내하는지(참이면 안내). 안전과 닿는 안내 문장은 모델이 아니라 서비스가 쓴다. 모델 입출력 v3 부터 쓰인다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내), 구조 규칙 11(안전과 닿는 고정 문장은 서비스가 쓴다)" }
     SessionStartRequest:
       type: object
       additionalProperties: false
@@ -387,15 +386,14 @@ components:
     AlertId: { type: string, format: uuid, description: "직원 알림 하나의 식별자", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D64" }
     AlertKind:
       type: string
-      enum: [RISK, CALL_STAFF, REASK_EXCEEDED, RESULT_READY]
+      enum: [RISK, CALL_STAFF, RESULT_READY]
       x-enum-descriptions:
         RISK: "위험 신호로 세션이 멈췄다(직원이 와서 풀어야 한다)"
         CALL_STAFF: "환자나 키오스크가 직원을 불렀다"
-        REASK_EXCEEDED: "되묻기 한도를 넘겨 직원을 부른다"
         RESULT_READY: "문진이 끝나 의사가 볼 결과가 생겼다"
       description: "알림의 종류"
       x-owner: survey-service
-      x-basis: "F38(위험·직원 호출·되묻기 초과), F41·U92(결과 도착 알림)"
+      x-basis: "F38(위험·직원 호출), F41·U92(결과 도착 알림), 되묻기 초과 알림은 사용자 결정 U36 2026-11-10 이 D95 를 대체해 없앴다"
     StaffAlert:
       type: object
       additionalProperties: false
@@ -910,19 +908,69 @@ components:
       x-owner: model-runtime
       x-basis: "데이터셋 labels.py a_state, D77(state 안은 삽입 순서 보존), 실측 학습 데이터 state 항목 수 최대 9, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)"
     CurrentQuestionText: { type: string, maxLength: 344, description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문). 환자의 말은 이 질문에 대한 답으로 읽는다", x-owner: model-runtime, x-basis: "데이터셋 A 입력 current_question(학습 데이터 36145행 최대 172자), 사용자 결정 2026-11-10(사용자 말은 직전 화면 질문에 대한 답으로 읽는다), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    ModelIoVersion:
+      type: string
+      enum: [model-io-v2]
+      x-enum-descriptions: { model-io-v2: "모델 입출력 v2. 학습 데이터셋 dataset_10_29(학습 서버 ~/dataset/docs/labels.py 와 학습 파일)가 정의한 LoRA-A·LoRA-B 의 입력과 출력. 지금 학습된 어댑터가 쓰는 형식이다" }
+      description: "모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 릴리스의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다"
+      x-owner: model-runtime
+      x-basis: "D74(입출력은 데이터셋 정의가 정본이고 바꿀 수 없다), D75(2)(모델 패키지가 학습한 버전), D77, 사용자 결정 2026-11-10(모델 입출력 버전 구조)"
     ActionExtractionInput:
       type: object
       additionalProperties: false
       description: "LoRA-A 의 입력. 지금 묻는 문항과 상담원이 한 말과 환자의 말과 저장된 값들"
       x-owner: model-runtime
-      x-basis: "D74(입출력은 데이터셋 정의가 정본), 데이터셋 labels.py a_input 과 실측 학습 데이터 A 입력 키 4개, D77(글자 단위로 학습 입력과 같은 직렬화), 확인 중 상태 칸은 사용자 결정 2026-11-10(contracts/dataset-change-requests.md DC-01)"
+      x-basis: "D74(입출력은 데이터셋 정의가 정본), 데이터셋 labels.py a_input 과 실측 학습 데이터 A 입력 키 4개, D77(글자 단위로 학습 입력과 같은 직렬화)"
       required: [question_id, current_question, user_utterance, state]
       properties:
         question_id: { $ref: "#/components/schemas/QuestionItemId", description: "지금 묻고 있는 문항" }
         current_question: { $ref: "#/components/schemas/CurrentQuestionText", description: "상담원이 방금 한 말" }
         user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말" }
         state: { $ref: "#/components/schemas/CollectedState", description: "지금 문항과 직전 문항과 참조 문항의 저장 값들" }
-        confirming: { $ref: "#/components/schemas/CollectedState", description: "환자에게 맞는지 확인 중인 칸과 그 값. 무엇과 무엇을 확인하는지를 모델이 알게 한다(v7 에서 새로 넣는 칸, 데이터셋에는 아직 없다)" }
+    NextItemRuleKind:
+      type: string
+      enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
+      x-enum-descriptions: { TARGET_ITEM: "다시 물을 칸(targets)의 문항", ASKED_ITEM: "지금 묻던 문항(question_id)", SEQUENCE_AFTER_SAVED: "이번 턴에 저장되는 값(save 가 참)이나 대상 칸의 문항 다음 문항. 건너뛰기를 반영하고 끝이면 END" }
+      description: "행동마다 next_item 을 정하는 규칙의 종류"
+      x-owner: model-runtime
+      x-basis: "데이터셋 labels.py a_target 의 next_item 규칙, D74, U74"
+    NextItemRule:
+      type: object
+      additionalProperties: false
+      description: "행동 하나의 next_item 규칙"
+      x-owner: model-runtime
+      x-basis: "데이터셋 labels.py a_target"
+      required: [action, rule]
+      properties:
+        action: { $ref: "#/components/schemas/ExtractionAction", description: "규칙이 적용되는 행동" }
+        rule: { $ref: "#/components/schemas/NextItemRuleKind", description: "next_item 을 정하는 규칙" }
+    ActionExtractionRules:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 출력의 합격 조건 명세(데이터). 추론 서버가 이 조건을 보증하고 받는 쪽은 다시 검증하지 않는다. 칸 값 범위와 자료형은 요청의 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-runtime 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다"
+      x-owner: model-runtime
+      x-basis: "D104(2)(합격 조건은 데이터 명세), D108(2), D75(3), D115, D97, U100, 실측 final 과 finaltest 의 A 출력 48747행이 모두 이 조건을 만족"
+      required: [saved_statuses, actions_without_reason, actions_with_targets, next_item_rules]
+      properties:
+        saved_statuses: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ValueStatus" }, description: "save 가 참인 상태들(ANSWERED, CORRECTION)이고 나머지 상태는 save 가 거짓이다", x-basis: "ValueStatus 값의 수 7" }
+        actions_without_reason: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ExtractionAction" }, description: "reason 과 targets 와 note 가 없는 행동들(NEXT, CORRECT)", x-basis: "ExtractionAction 값의 수 7" }
+        actions_with_targets: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ExtractionAction" }, description: "reason 과 targets 가 반드시 있고 targets 가 values 의 키의 부분집합인 행동들(REASK, CONFIRM, HOLD, SKIP)", x-basis: "ExtractionAction 값의 수 7" }
+        next_item_rules: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/NextItemRule" }, description: "행동마다 next_item 을 정하는 규칙", x-basis: "ExtractionAction 값의 수 7" }
+    AlphabeticalOrder: { type: string, const: alphabetical, description: "키를 문자 순(유니코드 코드 포인트 순)으로 정렬해 쓴다는 뜻", x-owner: model-runtime, x-basis: "D77(A 는 최상위 키 알파벳 순, B 는 모든 수준 정렬)" }
+    EnsureAscii: { type: boolean, const: false, description: "모델 입력 글자에서 비 ASCII 글자를 이스케이프하지 않는다는 뜻(항상 거짓)", x-owner: model-runtime, x-basis: "D77(json.dumps 의 ensure_ascii=False)" }
+    InsertionOrder: { type: string, const: insertion, description: "키를 요청이 정한 순서대로 쓴다는 뜻(state_key_order)", x-owner: model-runtime, x-basis: "D77(state 안은 삽입 순서 보존)" }
+    ModelInputSerialization:
+      type: object
+      additionalProperties: false
+      description: "모델 입력 글자의 직렬화 규칙(데이터). 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청의 state_key_order 가 정한다"
+      x-owner: model-runtime
+      x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4, 실측 학습 파일 A 와 B 의 user 메시지"
+      required: [ensure_ascii, a_top_level_key_order, a_nested_key_order, b_key_order]
+      properties:
+        ensure_ascii: { $ref: "#/components/schemas/EnsureAscii", description: "비 ASCII 글자를 이스케이프할지(항상 거짓)" }
+        a_top_level_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-A 입력의 최상위 키 순서" }
+        a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 키 순서(요청이 정한 순서)" }
+        b_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-B 입력의 모든 수준의 키 순서" }
     ExtractionAction:
       type: string
       enum: [NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT]
@@ -939,10 +987,11 @@ components:
       x-basis: "데이터셋 A 시스템 프롬프트의 action 정의와 labels.py ACTION, 실측 학습 데이터 action 7종"
     ActionReason:
       type: string
-      enum: [CONFLICT_WITH_PREVIOUS, CONFLICT_MAX_BELOW_USUAL, REQUEST_SKIP, REFUSED, OUT_OF_SCHEMA, ASK_PURPOSE, OFF_TOPIC, UNCERTAIN, MISSING, OUT_OF_RANGE, UNKNOWN_UNIT, VAGUE_QUANTITY, OTHER_BEVERAGE, BEVERAGE_MISSING, MISSING_NUMBER, RANGE_SPANS_OPTIONS, INVALID_OPTION, COUNT_EXCEEDS_DAYS, UNPARSED_VALUE, MEANING_ASKED, REASK_LIMIT]
+      enum: [CONFLICT_WITH_PREVIOUS, CONFLICT_MAX_BELOW_USUAL, CONFLICT_DOES_NOT_DRINK, REQUEST_SKIP, REFUSED, OUT_OF_SCHEMA, ASK_PURPOSE, OFF_TOPIC, UNCERTAIN, MISSING, OUT_OF_RANGE, UNKNOWN_UNIT, VAGUE_QUANTITY, OTHER_BEVERAGE, BEVERAGE_MISSING, MISSING_NUMBER, RANGE_SPANS_OPTIONS, INVALID_OPTION, COUNT_EXCEEDS_DAYS, UNPARSED_VALUE]
       x-enum-descriptions:
         CONFLICT_WITH_PREVIOUS: "이번에 말한 값이 저장된 값과 다르다(CONFIRM)"
         CONFLICT_MAX_BELOW_USUAL: "가장 많이 마신 날의 양이 평소 양보다 적게 나왔다(CONFIRM)"
+        CONFLICT_DOES_NOT_DRINK: "술을 안 마신다는 저장 값과 이번 음주량이 충돌한다(CONFIRM)"
         REQUEST_SKIP: "환자가 넘어가자고 했다(SKIP)"
         REFUSED: "환자가 답하기를 거절했다(SKIP)"
         OUT_OF_SCHEMA: "문진표에 없는 건강 이야기다(REDIRECT, 내용은 note)"
@@ -960,11 +1009,9 @@ components:
         INVALID_OPTION: "선택지에 없는 답이다(REASK)"
         COUNT_EXCEEDS_DAYS: "횟수가 날수보다 크다(REASK)"
         UNPARSED_VALUE: "값을 읽어 내지 못했다(REASK)"
-        MEANING_ASKED: "환자가 질문의 뜻이나 대상을 물었다. 되묻기 한도에 세지 않는다(v7 에서 새로 넣는 사유, 데이터셋에는 아직 없다)"
-        REASK_LIMIT: "되묻기 한도에 닿아 건너뛴다(SKIP, v7 에서 새로 넣는 사유, 데이터셋에는 아직 없다)"
-      description: "절차의 사유. NEXT 와 CORRECT 에는 붙지 않는다"
+      description: "절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다"
       x-owner: model-runtime
-      x-basis: "실측 학습 데이터의 reason 19종과 action 별 조합, 데이터셋 labels.py reason_of, 새 두 사유는 사용자 결정 2026-11-10(contracts/dataset-change-requests.md DC-02 와 DC-03)"
+      x-basis: "데이터셋 labels.py reason_of 와 ask_text, 실측 학습 파일 A 출력 reason 20종(final 의 학습·검증·평가와 finaltest 전체 48747행), D74(입출력은 데이터셋이 정본)"
     ValueStatus:
       type: string
       enum: [ANSWERED, CORRECTION, MISSING, UNCLEAR, CONFLICT, UNKNOWN, REJECTED]
@@ -993,6 +1040,13 @@ components:
         precision: { $ref: "#/components/schemas/ValuePrecision", description: "값의 정확도" }
         status: { $ref: "#/components/schemas/ValueStatus", description: "값의 상태" }
         save: { $ref: "#/components/schemas/ValueSave", description: "저장 여부" }
+      allOf:
+        - if: { properties: { status: { enum: [ANSWERED, CORRECTION] } }, required: [status] }
+          then: { properties: { save: { const: true } } }
+          else: { properties: { save: { const: false } } }
+        - if: { properties: { value: { type: "null" } }, required: [value] }
+          then: { properties: { precision: { const: unspecified } } }
+          else: { properties: { precision: { enum: [exact, approximate] } } }
     ExtractedValues: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/ExtractedValue" }, description: "뽑은 칸 값들", x-owner: model-runtime, x-basis: "실측 학습 데이터 한 출력의 values 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SlotRefStrings: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/SlotRefString" }, description: "칸들의 목록", x-owner: model-runtime, x-basis: "실측 학습 데이터 한 출력의 targets 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     OutOfSchemaNote: { type: string, maxLength: 70, description: "문진표에 없는 건강 이야기를 요약한 짧은 말(예를 들어 손발이 저림)", x-owner: model-runtime, x-basis: "데이터셋 labels.py a_target 의 note, 실측 학습 데이터 note 최대 35자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
@@ -1010,24 +1064,47 @@ components:
         reason: { $ref: "#/components/schemas/ActionReason", description: "절차의 사유(NEXT 와 CORRECT 에는 없다)" }
         targets: { $ref: "#/components/schemas/SlotRefStrings", description: "REASK, CONFIRM, HOLD, SKIP 이 겨냥하는 칸들" }
         note: { $ref: "#/components/schemas/OutOfSchemaNote", description: "OUT_OF_SCHEMA 일 때 환자가 말한 문진표 밖 건강 이야기" }
+      allOf:
+        - if: { properties: { action: { enum: [NEXT, CORRECT] } }, required: [action] }
+          then: { not: { anyOf: [ { required: [reason] }, { required: [targets] }, { required: [note] } ] } }
+        - if: { properties: { action: { enum: [REASK, CONFIRM, HOLD, SKIP] } }, required: [action] }
+          then: { required: [reason, targets] }
+        - if: { properties: { action: { const: REDIRECT } }, required: [action] }
+          then: { required: [reason], not: { required: [targets] } }
+        - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason] }
+          then: { required: [note] }
+          else: { not: { required: [note] } }
+    StateKeyOrder: { type: array, maxItems: 18, items: { $ref: "#/components/schemas/SlotRefString" }, description: "state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다", x-owner: model-runtime, x-basis: "D77(state 안은 삽입 순서 보존), RFC 8259 4, 실측 state 항목 수 최대 9, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ExtractionRequest:
       type: object
       additionalProperties: false
       description: "추론 서버에 LoRA-A 추출을 요청하는 본문"
       x-owner: model-runtime
-      x-basis: "F33, D108(1)(input 과 flow), D115(fields), D104(5)"
-      required: [input, flow, fields]
+      x-basis: "F33, D108(1)(input 과 flow), D115(fields), D104(5), D77, D46"
+      required: [release_id, input, state_key_order, flow, fields]
       properties:
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "요청하는 쪽이 기대하는 활성 릴리스. 추론 서버가 적재한 릴리스와 다르면 RELEASE_MISMATCH 로 거절한다" }
         input: { $ref: "#/components/schemas/ActionExtractionInput", description: "모델에 들어가는 입력" }
+        state_key_order: { $ref: "#/components/schemas/StateKeyOrder", description: "input.state 의 칸 키를 모델 입력 글자에서 놓을 순서" }
         flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "출력의 다음 문항을 보증하는 순서표" }
         fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "출력 값을 보증하는 칸 규격들" }
+    ExtractionResult:
+      type: object
+      additionalProperties: false
+      description: "LoRA-A 추출 응답. 처리한 릴리스와 보증을 마친 출력"
+      x-owner: model-runtime
+      x-basis: "F34, D46, D19(처리한 릴리스를 기록한다)"
+      required: [release_id, output]
+      properties:
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "이 출력을 만든 모델이 속한 릴리스" }
+        output: { $ref: "#/components/schemas/ActionExtraction", description: "보증을 마친 LoRA-A 출력" }
     ResponseAction:
       type: string
       enum: [START, NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT]
       x-enum-descriptions: { START: "문진을 시작하는 인사와 첫 질문(LoRA-A 를 부르지 않는다)", NEXT: "다음 문항을 묻는다", CORRECT: "고친 값을 알리고 다음 문항을 묻는다", REASK: "같은 문항을 다시 묻는다", CONFIRM: "이전 값과 이번 값을 보여 주며 확인한다", HOLD: "모름이라 비워 두고 넘어간다고 알린다", SKIP: "넘어간다고 알린다", REDIRECT: "문진과 상관없는 말이라 지금 질문으로 돌아온다" }
       description: "LoRA-B 가 문장을 만들 때의 절차"
       x-owner: model-runtime
-      x-basis: "데이터셋 B 시스템 프롬프트와 labels.py start_b_input, 실측 학습 데이터 B 입력 action 8종(START 94)"
+      x-basis: "데이터셋 B 시스템 프롬프트와 labels.py start_b_input, 실측 학습 파일 B 입력 action 8종(START 은 final 과 finaltest 전체에서 119행)"
     ResponseNextType:
       type: string
       enum: [NEXT, SAME, END]
@@ -1052,10 +1129,13 @@ components:
         type: { $ref: "#/components/schemas/ResponseNextType", description: "자리의 종류" }
         question_id: { $ref: "#/components/schemas/QuestionItemId", description: "가는 문항(END 에는 없다)" }
         text: { $ref: "#/components/schemas/QuestionText", description: "그 문항의 질문 문장(END 에는 없다)" }
+      if: { properties: { type: { const: END } }, required: [type] }
+      then: { not: { anyOf: [ { required: [question_id] }, { required: [text] } ] } }
+      else: { required: [question_id, text] }
     ResponseRequest:
       type: object
       additionalProperties: false
-      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
+      description: "LoRA-B 의 입력(모델 입출력 v2). 어떤 절차로 어떤 문장을 만들지와 다음에 갈 자리를 알려 주는 모든 것"
       x-owner: model-runtime
       x-basis: "F33, D74, D77, 데이터셋 labels.py b_input 과 start_b_input, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
       required: [action, topic, next]
@@ -1071,14 +1151,41 @@ components:
         hold: { $ref: "#/components/schemas/HoldText", description: "HOLD 와 SKIP 에서 비워 두는 부분" }
         note: { $ref: "#/components/schemas/OutOfSchemaNote", description: "REDIRECT 의 OUT_OF_SCHEMA 에서 환자가 말한 문진표 밖 건강 이야기" }
         next: { $ref: "#/components/schemas/ResponseNext", description: "응답 뒤에 가는 자리" }
+      allOf:
+        - if: { properties: { action: { const: START } }, required: [action] }
+          then: { not: { anyOf: [ { required: [reason] }, { required: [user_utterance] }, { required: [known] }, { required: [ask] }, { required: [previous] }, { required: [current] }, { required: [hold] }, { required: [note] } ] } }
+        - if: { properties: { action: { enum: [NEXT, CORRECT] } }, required: [action] }
+          then: { required: [user_utterance, known], not: { required: [reason] } }
+        - if: { properties: { action: { const: REASK } }, required: [action] }
+          then: { required: [reason, ask] }
+        - if: { properties: { action: { const: CONFIRM } }, required: [action] }
+          then: { required: [reason, ask, previous, current] }
+        - if: { properties: { action: { enum: [HOLD, SKIP] } }, required: [action] }
+          then: { required: [reason, hold] }
+        - if: { properties: { action: { const: REDIRECT } }, required: [action] }
+          then: { required: [reason] }
+        - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason] }
+          then: { required: [note] }
+          else: { not: { required: [note] } }
+    ResponseGenerationRequest:
+      type: object
+      additionalProperties: false
+      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
+      x-owner: model-runtime
+      x-basis: "F33, D46, D77"
+      required: [release_id, input]
+      properties:
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "요청하는 쪽이 기대하는 활성 릴리스. 추론 서버가 적재한 릴리스와 다르면 RELEASE_MISMATCH 로 거절한다" }
+        input: { $ref: "#/components/schemas/ResponseRequest", description: "모델에 들어가는 입력" }
     ResponseResult:
       type: object
       additionalProperties: false
-      description: "LoRA-B 가 만든 응답 문장"
+      description: "LoRA-B 가 만든 응답 문장과 처리한 릴리스"
       x-owner: model-runtime
-      x-basis: "F34, D74, 데이터셋 B 학습 데이터의 assistant 메시지(응답 문장만 출력)"
-      required: [text]
+      x-basis: "F34, D74, D46, 데이터셋 B 학습 데이터의 assistant 메시지(응답 문장만 출력)"
+      required: [release_id, text]
       properties:
+        release_id: { $ref: "#/components/schemas/ReleaseId", description: "이 문장을 만든 모델이 속한 릴리스" }
         text: { $ref: "#/components/schemas/ResponseSentence", description: "환자에게 보일 문장" }
     ModelLoadState:
       type: string
@@ -1097,6 +1204,7 @@ components:
       properties:
         state: { $ref: "#/components/schemas/ModelLoadState", description: "적재 상태" }
         release_id: { $ref: "#/components/schemas/ReleaseId", description: "적재한 릴리스(적재 전이면 없다)" }
+        model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "적재한 모델 패키지의 모델 입출력 형식 버전(적재 전이면 없다)" }
         loaded_at: { $ref: "#/components/schemas/Timestamp", description: "적재를 마친 때" }
 
     # ======================================================================
@@ -1249,8 +1357,8 @@ components:
         occurred_at: { $ref: "#/components/schemas/Timestamp", description: "턴이 끝난 때" }
     BusinessEventKind:
       type: string
-      enum: [START_CODE_ISSUED, SESSION_STARTED, SESSION_ENDED, SESSION_PAUSED, SESSION_RESUMED, STAFF_ALERT_RAISED, RESULT_CREATED, RESULT_ACKNOWLEDGED]
-      x-enum-descriptions: { START_CODE_ISSUED: "직원이 시작 코드를 발급했다", SESSION_STARTED: "세션이 시작되었다", SESSION_ENDED: "세션이 끝났다", SESSION_PAUSED: "세션이 멈췄다", SESSION_RESUMED: "직원이 정지를 풀었다", STAFF_ALERT_RAISED: "직원 알림이 생겼다", RESULT_CREATED: "결과가 생겼다", RESULT_ACKNOWLEDGED: "의사가 결과를 확인했다" }
+      enum: [START_CODE_ISSUED, SESSION_STARTED, SESSION_ENDED, SESSION_PAUSED, SESSION_RESUMED, STAFF_ALERT_RAISED, RESULT_CREATED, RESULT_VIEWED, RESULT_PULLED, RESULT_ACKNOWLEDGED]
+      x-enum-descriptions: { START_CODE_ISSUED: "직원이 시작 코드를 발급했다", SESSION_STARTED: "세션이 시작되었다", SESSION_ENDED: "세션이 끝났다", SESSION_PAUSED: "세션이 멈췄다", SESSION_RESUMED: "직원이 정지를 풀었다", STAFF_ALERT_RAISED: "직원 알림이 생겼다", RESULT_CREATED: "결과가 생겼다", RESULT_VIEWED: "의사가 결과를 열어 보았다", RESULT_PULLED: "설치처 시스템이 결과를 당겨 갔다", RESULT_ACKNOWLEDGED: "의사가 결과를 확인했다" }
       description: "업무 로그에 남기는 사건의 종류"
       x-owner: survey-service
       x-basis: "F36(업무 로그), U83(접근 기록)"
@@ -1265,10 +1373,12 @@ components:
         kind: { $ref: "#/components/schemas/BusinessEventKind", description: "사건의 종류" }
         session_id: { $ref: "#/components/schemas/SessionId", description: "관련 세션" }
         actor: { $ref: "#/components/schemas/UserId", description: "행동한 사람(사람이 한 일일 때)" }
+        actor_client: { $ref: "#/components/schemas/MachineClientName", description: "행동한 기계 호출자(설치처 시스템이 결과를 당겨 간 때 등 기계가 한 일일 때)" }
         occurred_at: { $ref: "#/components/schemas/Timestamp", description: "사건이 일어난 때" }
     TraceDelivery:
       type: object
       additionalProperties: false
+      minProperties: 1
       description: "survey-service 가 ops-feedback 에 보내는 턴 기록과 업무 로그 묶음(최소 1회 전달)"
       x-owner: survey-service
       x-basis: "F36, D16(세션 ID 와 턴 ID 로 멱등), D62"
@@ -1345,6 +1455,8 @@ components:
         review_status: { $ref: "#/components/schemas/ReviewStatus", description: "확정한 상태" }
         expected: { $ref: "#/components/schemas/ActionExtraction", description: "확정한 기대 출력" }
         reviewed_input: { $ref: "#/components/schemas/ReviewedInput", description: "고쳐 쓴 발화" }
+      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status] }
+      then: { required: [expected] }
     DeidentifiedTrace:
       type: object
       additionalProperties: false
@@ -1461,11 +1573,12 @@ components:
       description: "모델 패키지의 목록표. 어댑터, 짝이 되는 시스템 프롬프트, 계보, 평가 보고서를 묶는다"
       x-owner: model-lab
       x-basis: "F07, F12, D75(4), D53, C06"
-      required: [model_package_id, base_model, runtime_contract_version, model_runtime_version, adapters, lineage, evaluation, created_at]
+      required: [model_package_id, base_model, runtime_contract_version, model_io_version, model_runtime_version, adapters, lineage, evaluation, created_at]
       properties:
         model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "패키지 식별자" }
         base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "학습한 문항 은행과 칸 키의 정수 버전" }
+        model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "어댑터가 학습한 모델 입출력 형식의 버전" }
         model_runtime_version: { $ref: "#/components/schemas/SemanticVersion", description: "학습과 평가에 쓴 model-runtime 라이브러리 버전. 서빙 설치본과 MAJOR.MINOR 가 같아야 적재한다" }
         adapters: { type: array, maxItems: 2, items: { $ref: "#/components/schemas/AdapterEntry" }, description: "역할마다 하나씩의 어댑터" , x-basis: "AdapterRole 값의 수 2(역할마다 하나)" }
         lineage: { $ref: "#/components/schemas/TrainingLineage", description: "계보" }
@@ -1548,19 +1661,27 @@ components:
       x-owner: synthetic-data
       x-basis: "데이터셋 학습 파일의 split 값과 파일 이름(lora_a_train, lora_a_val, lora_a_test), F18"
     RowCount: { type: integer, minimum: 0, maximum: 2147483647, description: "파일에 든 행(JSON Lines 한 줄)의 수", x-owner: synthetic-data, x-basis: "F18, OpenAPI int32" }
+    DatasetFileSet:
+      type: string
+      enum: [final, finaltest]
+      x-enum-descriptions: { final: "최종 학습·검증·평가 파일(학습 서버 ~/dataset/final)", finaltest: "별도의 최종 평가 파일(학습 서버 ~/dataset/finaltest, split 값은 test 다)" }
+      description: "데이터셋 파일이 속한 묶음. 같은 역할과 갈래의 파일이 둘이 될 수 있어 구분한다"
+      x-owner: synthetic-data
+      x-basis: "실측 학습 서버의 final 6개 파일과 finaltest 2개 파일(둘 다 split 값 test), 묶음 이름 확인은 dataset-change-requests.md DC-08"
     DatasetFileDeclaration:
       type: object
       additionalProperties: false
       description: "데이터셋 파일 하나의 선언(역할, 갈래, 해시, 크기, 행 수)"
       x-owner: synthetic-data
       x-basis: "F17, F18, G02"
-      required: [adapter_role, split, content, row_count]
+      required: [adapter_role, file_set, split, content, row_count]
       properties:
+        file_set: { $ref: "#/components/schemas/DatasetFileSet", description: "파일이 속한 묶음" }
         adapter_role: { $ref: "#/components/schemas/AdapterRole", description: "이 파일이 학습시킬 어댑터의 역할" }
         split: { $ref: "#/components/schemas/DatasetSplit", description: "학습·검증·평가 갈래" }
         content: { $ref: "#/components/schemas/ArtifactRef", description: "파일 참조(해시와 크기)" }
         row_count: { $ref: "#/components/schemas/RowCount", description: "행 수" }
-    DatasetFiles: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(어댑터 2개 곱하기 갈래 3개)", x-owner: synthetic-data, x-basis: "F18, 개수는 AdapterRole 2 곱하기 DatasetSplit 3" }
+    DatasetFiles: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(어댑터 2개 곱하기 갈래 3개)", x-owner: synthetic-data, x-basis: "실측 학습 서버의 final 6개(어댑터 2 곱하기 갈래 3)와 finaltest 2개, 합계 8" }
     DatasetName: { type: string, minLength: 1, maxLength: 200, description: "데이터셋을 사람이 가리키는 이름", x-owner: synthetic-data, x-basis: "F17, 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     DatasetOrigin:
       type: string
@@ -1630,7 +1751,7 @@ components:
       x-enum-descriptions: { auto_only: "사람의 검토 없이 자동으로 만든 행" }
       description: "행을 사람이 검토했는지의 표시"
       x-owner: synthetic-data
-      x-basis: "실측 데이터셋 최종 파일 8개(A·B 각각 학습·검증·평가) 모든 행이 auto_only"
+      x-basis: "실측 학습 서버 final 6개와 finaltest 2개, 모두 8개 파일의 모든 행이 auto_only"
     ChatRole:
       type: string
       enum: [system, user, assistant]
@@ -1780,12 +1901,13 @@ components:
       description: "검토 보고서가 맞대는 릴리스 한 쪽의 구성 요약"
       x-owner: release-gate
       x-basis: "F08, D53"
-      required: [question_sets, model_package_id, base_model, runtime_contract_version]
+      required: [question_sets, model_package_id, base_model, runtime_contract_version, model_io_version]
       properties:
         question_sets: { $ref: "#/components/schemas/QuestionSetRefs", description: "문진표 버전들" }
         model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "모델 패키지" }
         base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+        model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "모델 입출력 형식의 버전" }
     MetricComparison:
       type: object
       additionalProperties: false
@@ -1873,13 +1995,14 @@ components:
       description: "릴리스의 목록표. 함께 운영하는 문진표 버전들과 모델 패키지를 해시로 고정한다"
       x-owner: release-gate
       x-basis: "F11, F12, D27, U85, D46"
-      required: [release_id, submission_id, question_sets, model_package_id, runtime_contract_version, model_runtime_version, approved_by, created_at]
+      required: [release_id, submission_id, question_sets, model_package_id, runtime_contract_version, model_io_version, model_runtime_version, approved_by, created_at]
       properties:
         release_id: { $ref: "#/components/schemas/ReleaseId", description: "릴리스 식별자" }
         submission_id: { $ref: "#/components/schemas/SubmissionId", description: "이 릴리스를 만든 제출" }
         question_sets: { $ref: "#/components/schemas/QuestionSetRefs", description: "함께 운영하는 문진표 버전들" }
         model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "모델 패키지" }
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "문항 은행과 칸 키의 정수 버전" }
+        model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "릴리스의 모델 패키지가 학습한 모델 입출력 형식의 버전. 서비스는 이 버전을 아는 모델 통신 컴포넌트가 없으면 적재를 거부한다" }
         model_runtime_version: { $ref: "#/components/schemas/SemanticVersion", description: "서빙이 맞춰야 하는 model-runtime 버전(MAJOR.MINOR 가 같아야 적재한다)" }
         approved_by: { $ref: "#/components/schemas/UserId", description: "승인한 승인자" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "릴리스를 만든 때" }
@@ -2060,14 +2183,23 @@ components:
     OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: platform, x-basis: "C09(서버 밖 대상이 필수, 주소는 설정), U6" }
     VapidSubject: { type: string, format: uri, maxLength: 8000, description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), RFC 9110 4.1(URI 8000옥텟 지원 권고)" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B 5.1.3.1 (대역 외 일회용 비밀의 유효 시간은 최대 10분). 실제 유효 시간은 user-decisions-needed UD-04" }
-    ReaskLimit: { type: integer, minimum: 2, maximum: 2, description: "한 문항에서 되묻는 횟수의 한도(처음 질문 1회에 되묻기 2회). 질문의 뜻·대상을 묻는 되물음은 세지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10, D95(한도를 넘으면 직원 호출), U100" }
-    ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, description: "한 문항에서 설명 요청만 이어질 수 있는 횟수. 이에 닿으면 직원 도움을 안내한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내)" }
+    ReaskLimit: { type: integer, minimum: 2, maximum: 2, description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "사용자 결정 U36 2026-11-10(처음 질문 1회와 되묻기 2회 뒤 건너뛰고 빈칸 사유를 남긴다)이 D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
+    ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     TwoPersonApprovalRequired: { type: boolean, default: false, description: "임상 근거 승인에 저자와 다른 검수자를 요구할지(참이면 요구한다). 기본은 꺼짐이다", x-owner: question-authoring, x-basis: "L13(사용자 결정 2026-11-03: 기본 꺼짐, 설정으로 켠다), C02, D92" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: ops-feedback, x-basis: "L12(사용자 결정: 180일 유지), C03" }
     ModelProfileName: { type: string, maxLength: 63, description: "추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 식별 이름은 RFC 1035 2.3.4 의 레이블 최대 길이 63 을 따른다" }
     TrainingServerAddress: { type: string, format: hostname, maxLength: 253, description: "학습 서버의 호스트 이름 또는 주소", x-owner: model-lab, x-basis: "F66, RFC 1123 2.1(호스트 이름), 최대 길이 253 는 RFC 1035 2.3.4" }
 
+    DevicePlacementTable:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 survey-service 에 파일로 주는 기기별 기본 문진표 배치표. 서버는 mTLS 로 확인된 기기 ID 로 기본 문진표를 고른다"
+      x-owner: survey-service
+      x-basis: "U86(사용자 결정: 기기에 배치된 문진표가 기본), F26, F64"
+      required: [placements]
+      properties:
+        placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "목록 크기 값은 user-decisions-needed UD-08 의 권고값" }
     SurveyServiceEnv:
       type: object
       additionalProperties: false
@@ -2092,6 +2224,7 @@ components:
         OPENIT_VAPID_SUBJECT: { $ref: "#/components/schemas/VapidSubject", description: "VAPID 연락처" }
         OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
         OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        SURVEY_DEVICE_PLACEMENTS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기별 기본 문진표 배치표 파일(DevicePlacementTable 모양)" }
         SURVEY_START_CODE_TTL_SECONDS: { $ref: "#/components/schemas/StartCodeTtlSeconds", description: "시작 코드 유효 시간" }
         SURVEY_REASK_LIMIT: { $ref: "#/components/schemas/ReaskLimit", description: "되묻기 한도" }
         SURVEY_EXPLAIN_STREAK_LIMIT: { $ref: "#/components/schemas/ExplainStreakLimit", description: "설명 요청 연속 한도" }
@@ -2219,25 +2352,16 @@ components:
         OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
         OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
         OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
-    KioskDeviceSettings:
-      type: object
-      additionalProperties: false
-      description: "deploy 가 키오스크 화면에 주는 기기 설정 파일의 내용. 기기 토큰은 없다(기기 인증은 인증서)"
-      x-owner: kiosk-frontend
-      x-basis: "F26, U86(기기에 배치된 문진표가 기본), D136"
-      properties:
-        default_questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "이 기기의 기본 문진표(배치가 없으면 없다)" }
     KioskFrontendEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 키오스크 화면 이미지에 주는 환경 입력"
       x-owner: kiosk-frontend
-      x-basis: "F54, F26, D133"
-      required: [OPENIT_LISTEN_PORT, OPENIT_DEVICE_SETTINGS_FILE]
+      x-basis: "F54, D133, D136(기기 토큰 없음). 기기별 문진표 배치는 survey-service 가 받는다(U86)"
+      required: [OPENIT_LISTEN_PORT]
       properties:
         OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트" }
         OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
-        OPENIT_DEVICE_SETTINGS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 설정 파일(KioskDeviceSettings 모양)" }
     AdminConsoleEnv:
       type: object
       additionalProperties: false

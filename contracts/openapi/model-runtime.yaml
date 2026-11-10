@@ -25,7 +25,7 @@ paths:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionRequest" } } }
       responses:
-        "200": { description: 보증을 마친 추출 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActionExtraction" } } } }
+        "200": { description: 보증을 마친 추출 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionResult" } } } }
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
@@ -40,7 +40,7 @@ paths:
       security: [ { area_mtls: [], machine_token: [inference-caller] } ]
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseRequest" } } }
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseGenerationRequest" } } }
       responses:
         "200": { description: 응답 문장, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseResult" } } } }
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
