@@ -33,6 +33,7 @@ openit-v7/
 | 중립 어댑터 만들기(B 행렬 0) | `uv run --project tools/neutral-adapter neutral-adapter --profile gpu-12g --out <폴더>` |
 | 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
 | 서버 두 대 배치 시험(샌드박스, ADR 0026) | `tools/layout-sandbox` |
+| 백업·복구와 기기별 문진표 배치 시험(샌드박스, 서버 한 대와 두 대, ADR 0027) | `tools/backup-sandbox` |
 | 설치 안내서(운영자, 처음부터) | [deploy/docs/INSTALL.md](deploy/docs/INSTALL.md) |
 | 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
