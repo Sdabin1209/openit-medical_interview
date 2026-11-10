@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import gzip
 import json
+import re
 import secrets as pysecrets
 import shutil
 import subprocess
@@ -152,16 +154,22 @@ def secrets_init() -> None:
     for name, size in SECRET_NAMES.items():
         path = SECRETS_DIR / name
         if path.exists():
+            path.chmod(0o644)
             typer.echo(f"있음: {name}")
             continue
         # 왜 token_hex: PyPA/파이썬 문서가 비밀 생성에 권하는 secrets 모듈(CSPRNG). 16바이트면 oauth2-proxy 쿠키 비밀 길이 조건을 맞춘다
         path.write_text(pysecrets.token_hex(size // 2 if name == "oauth2_proxy_cookie_secret" else size), encoding="utf-8")
-        path.chmod(0o600)
+        # 왜 0644: compose 파일 비밀은 bind mount 라 호스트 권한이 그대로 보인다. 컨테이너 사용자(postgres 999, keycloak 1000 등)가
+        # 읽으려면 읽기 가능해야 하고, 호스트 쪽 접근은 0700 폴더가 막는다(ADR 0008)
+        path.chmod(0o644)
         typer.echo(f"만듦: {name}")
 
 
 @app.command()
-def build(service: Annotated[str | None, typer.Argument(help="빌드할 대상(없으면 전부)")] = None) -> None:
+def build(
+    service: Annotated[str | None, typer.Argument(help="빌드할 대상(없으면 전부)")] = None,
+    check: Annotated[bool, typer.Option("--check", help="빌드하지 않고 Dockerfile 을 검사한다(docker buildx bake --check)")] = False,
+) -> None:
     """이미지를 빌드하고 images.lock 을 갱신한다."""
     targets = area_targets()
     if not targets:
@@ -178,12 +186,16 @@ def build(service: Annotated[str | None, typer.Argument(help="빌드할 대상(�
     env = dockerenv.docker_env()
     # 왜 git describe: 이미지 버전을 사람이 정한 숫자가 아니라 커밋(태그가 있으면 태그)에서 얻는다
     env.update(VERSION=git("describe", "--tags", "--always"), REVISION=revision, CONTRACTS_VERSION=contracts, SOURCE_URL=git("remote", "get-url", "origin"))
+    mode = ["--check"] if check else ["--load", "--metadata-file", str(meta)]
     result = subprocess.run(  # noqa: S603, S607
-        ["docker", "buildx", "bake", "-f", str(ROOT / "docker-bake.hcl"), "--load", "--metadata-file", str(meta), *names],
+        ["docker", "buildx", "bake", "-f", str(ROOT / "docker-bake.hcl"), *mode, *names],
         env=env, cwd=ROOT, text=True, check=False,
     )
     if result.returncode != 0:
-        fail(f"빌드 실패(rc={result.returncode})")
+        fail(f"{'검사' if check else '빌드'} 실패(rc={result.returncode})")
+    if check:
+        typer.echo("Dockerfile 검사 통과")
+        return
     built = json.loads(meta.read_text(encoding="utf-8"))
     lock: dict[str, str] = {}
     if LOCK_FILE.exists():
@@ -253,38 +265,78 @@ def job(name: Annotated[str, typer.Argument(help="잡 이름(jobs/<이름>)")]) 
         fail(f"잡 {name} 실패(rc={result.returncode})", result.returncode)
 
 
+DB_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def psql(sql: str, database: str = "template1", stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    args = ["exec", "-T", "postgres", "psql", "--username", "postgres", "--dbname", database, "--no-psqlrc", "--quiet"]
+    if stdin is None:
+        args += ["--tuples-only", "--no-align", "--set", "ON_ERROR_STOP=1", "--command", sql]
+    return compose(args, input=stdin, capture_output=True)
+
+
 @app.command()
 def backup() -> None:
-    """PostgreSQL 전체를 deploy/backups/ 에 gzip SQL 로 저장한다."""
-    BACKUP_DIR.mkdir(exist_ok=True)
-    target = BACKUP_DIR / f"postgres-{time.strftime('%Y%m%dT%H%M%S')}.sql.gz"
-    dump = compose(["exec", "-T", "postgres", "pg_dumpall", "--username", "postgres", "--clean", "--if-exists"],
-                   capture_output=True)
-    if dump.returncode != 0:
-        fail(f"백업 실패(rc={dump.returncode}). postgres 가 떠 있는지 ./deploy status")
-    import gzip
-    with gzip.open(target, "wt", encoding="utf-8") as handle:
-        handle.write(dump.stdout)
-    typer.echo(f"백업: {target.relative_to(ROOT)}")
+    """PostgreSQL 을 deploy/backups/postgres-<시각>/ 에 저장한다(역할 globals.sql + 데이터베이스마다 <이름>.sql.gz).
+
+    왜 pg_dumpall 한 파일이 아닌가: --clean 덤프는 쓰는 중인 데이터베이스와 현재 사용자를 지우려다 복원이 실패한다(시험에서 확인).
+    """
+    listing = psql("select datname || '|' || pg_get_userbyid(datdba) from pg_database where not datistemplate")
+    if listing.returncode != 0:
+        fail(f"백업 실패(rc={listing.returncode}). postgres 가 떠 있는지 ./deploy status")
+    target = BACKUP_DIR / f"postgres-{time.strftime('%Y%m%dT%H%M%S')}"
+    target.mkdir(parents=True)
+    target.chmod(0o700)
+    globals_dump = compose(["exec", "-T", "postgres", "pg_dumpall", "--username", "postgres", "--globals-only"], capture_output=True)
+    if globals_dump.returncode != 0:
+        fail(f"역할 백업 실패(rc={globals_dump.returncode})")
+    (target / "globals.sql").write_text(globals_dump.stdout, encoding="utf-8")
+    owners: dict[str, str] = {}
+    for line in listing.stdout.split():
+        name, _, owner = line.partition("|")
+        if not DB_NAME_RE.match(name) or not DB_NAME_RE.match(owner):
+            fail("데이터베이스·소유자 이름이 [A-Za-z0-9_] 가 아니라 백업할 수 없다")
+        dump = compose(["exec", "-T", "postgres", "pg_dump", "--username", "postgres", "--dbname", name, "--format=plain"],
+                       capture_output=True)
+        if dump.returncode != 0:
+            fail(f"{name} 백업 실패(rc={dump.returncode})")
+        with gzip.open(target / f"{name}.sql.gz", "wt", encoding="utf-8") as handle:
+            handle.write(dump.stdout)
+        owners[name] = owner
+    (target / "owners.json").write_text(json.dumps(owners, indent=2), encoding="utf-8")
+    typer.echo(f"백업: {target.relative_to(ROOT)} (데이터베이스 {len(owners)}개)")
 
 
 @app.command()
 def restore(
-    file: Annotated[Path, typer.Argument(help="backup 이 만든 .sql.gz")],
+    folder: Annotated[Path, typer.Argument(help="backup 이 만든 폴더")],
     yes: Annotated[bool, typer.Option("--yes", help="덮어쓰기를 확인했다")] = False,
 ) -> None:
-    """백업에서 PostgreSQL 을 복원한다(기존 데이터를 덮어쓴다)."""
-    import gzip
-    if not file.is_file():
-        fail(f"백업 파일이 없다: {file}")
+    """백업에서 PostgreSQL 을 복원한다(백업에 있는 데이터베이스를 지우고 다시 만든다)."""
+    if not (folder / "owners.json").is_file():
+        fail(f"백업 폴더가 아니다: {folder}")
     if not yes:
         fail("복원은 기존 데이터를 덮어쓴다. 확인했으면 --yes 를 붙인다", 2)
-    sql = gzip.open(file, "rt", encoding="utf-8").read()
-    result = compose(["exec", "-T", "postgres", "psql", "--username", "postgres", "--set", "ON_ERROR_STOP=1", "--quiet"],
-                     input=sql, capture_output=True)
-    if result.returncode != 0:
-        fail(f"복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
-    typer.echo("복원 완료")
+    owners: dict[str, str] = json.loads((folder / "owners.json").read_text(encoding="utf-8"))
+    # 왜 먼저 멈춘다: 서비스가 붙어 있으면 데이터가 복원 도중 바뀐다
+    others = [s for s in compose(["config", "--services"], capture_output=True).stdout.split() if s != "postgres"]
+    if others and compose(["stop", *others]).returncode != 0:
+        fail("postgres 를 쓰는 서비스를 멈추지 못했다")
+    # 역할은 이미 있으면 CREATE ROLE 이 실패하고 건너뛴다(ON_ERROR_STOP 없음). 같은 역할은 그대로 둔다
+    psql("", stdin=(folder / "globals.sql").read_text(encoding="utf-8"))
+    for name, owner in owners.items():
+        # 왜 WITH (FORCE): PostgreSQL 13+ 표준 옵션으로 남은 연결을 끊고 지운다
+        steps = [f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', f'CREATE DATABASE "{name}" OWNER "{owner}"']
+        for step in steps:
+            if (result := psql(step)).returncode != 0:
+                fail(f"{name} 복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
+        with gzip.open(folder / f"{name}.sql.gz", "rt", encoding="utf-8") as handle:
+            sql = handle.read()
+        result = compose(["exec", "-T", "postgres", "psql", "--username", "postgres", "--dbname", name, "--no-psqlrc", "--quiet",
+                          "--set", "ON_ERROR_STOP=1"], input=sql, capture_output=True)
+        if result.returncode != 0:
+            fail(f"{name} 복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
+    typer.echo("복원 완료. 멈춘 서비스는 ./deploy up 으로 다시 띄운다")
 
 
 @app.command()

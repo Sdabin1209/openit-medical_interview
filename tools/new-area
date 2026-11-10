@@ -54,7 +54,8 @@ def update_bake(bake: Path, var: str, name: str) -> None:
     match = pattern.search(text)
     if not match:
         sys.exit(f"오류: {bake} 에 '// BEGIN {var}' ~ '// END {var}' 표시가 없다")
-    names = set(re.findall(r'"([^"]+)"', match.group(2))) | {name}
+    current = re.search(r"default\s*=\s*\[(.*?)\]", match.group(2), re.S)
+    names = (set(re.findall(r'"([^"]+)"', current.group(1))) if current else set()) | {name}
     body = f'variable "{var}" {{\n  default = [{", ".join(chr(34) + n + chr(34) for n in sorted(names))}]\n}}\n'
     bake.write_text(text[: match.start(2)] + body + text[match.end(2) :], encoding="utf-8")
 

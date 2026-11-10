@@ -1,0 +1,132 @@
+# 영역과 무관한 기반 서비스(ADR 0004). 영역 서비스는 계약이 정해진 뒤 더한다.
+# 규칙: 이미지는 digest 고정, 비밀은 compose secrets(파일), 고정 호스트 포트 없음, 가능하면 읽기 전용 루트.
+name: openit
+
+services:
+  postgres:
+    image: postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /run/postgresql]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, keycloak_db_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  envoy:
+    image: envoyproxy/envoy:v1.35.3@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "${OPENIT_BIND_ADDRESS}::8080" # 호스트 포트는 Docker 가 배정한다
+    networks: [edge, backend]
+    healthcheck:
+      # 왜 /dev/tcp: envoy 이미지에 curl 이 없고 bash 는 있다. /healthz 는 Envoy 가 직접 200 으로 답한다
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.5@sha256:357829ec7c4693397533035092ad13b0644bcc95ded311f33a3738c4d9e9bdba
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    # 왜 bash -c: Keycloak 설정 값은 *_FILE 을 지원하지 않는다. 비밀 파일을 이 프로세스 안에서만 환경 변수로 읽고 compose 환경에는 두지 않는다(ADR 0008)
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export KC_DB_PASSWORD="$$(cat /run/secrets/keycloak_db_password)"
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/keycloak_admin_password)"
+        export OAUTH2_PROXY_CLIENT_SECRET="$$(cat /run/secrets/oauth2_proxy_client_secret)"
+        exec /opt/keycloak/bin/kc.sh "$$@"
+      - kc
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_HOSTNAME: ${OPENIT_KEYCLOAK_URL}
+      KC_HTTP_ENABLED: "true" # TLS 는 게이트웨이(Envoy)에서 끝낸다
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      OPENIT_OAUTH2_PROXY_REDIRECT_URL: ${OPENIT_OAUTH2_PROXY_REDIRECT_URL}
+    secrets: [keycloak_db_password, keycloak_admin_password, oauth2_proxy_client_secret]
+    volumes:
+      - ./keycloak/openit-realm.json:/opt/keycloak/data/import/openit-realm.json:ro
+    networks: [backend]
+    healthcheck:
+      # 관리 포트(9000)의 /health/ready. 이미지에 curl 이 없어 bash /dev/tcp 로 본다
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0@sha256:786bed0f000c0f8a7b31619244ebab02406a8856a4faf3f5fb1df61fbd6c30ed
+    restart: unless-stopped
+    read_only: true
+    depends_on:
+      keycloak: { condition: service_healthy }
+    command:
+      - --provider=keycloak-oidc
+      - --oidc-issuer-url=${OPENIT_KEYCLOAK_URL}/realms/openit
+      - --client-id=oauth2-proxy
+      - --client-secret-file=/run/secrets/oauth2_proxy_client_secret
+      - --cookie-secret-file=/run/secrets/oauth2_proxy_cookie_secret
+      - --redirect-url=${OPENIT_OAUTH2_PROXY_REDIRECT_URL}
+      - --email-domain=*
+      - --http-address=0.0.0.0:4180
+      - --upstream=static://202
+    secrets: [oauth2_proxy_client_secret, oauth2_proxy_cookie_secret]
+    networks: [backend, edge]
+    # healthcheck 없음: 이미지가 셸·HTTP 클라이언트 없는 distroless 라 컨테이너 안에서 점검할 수단이 없다(ADR 0008)
+
+  step-ca:
+    image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
+    restart: unless-stopped
+    environment:
+      DOCKER_STEPCA_INIT_NAME: ${OPENIT_CA_NAME}
+      DOCKER_STEPCA_INIT_DNS_NAMES: ${OPENIT_CA_DNS_NAMES}
+      DOCKER_STEPCA_INIT_PASSWORD_FILE: /run/secrets/step_ca_password
+    secrets: [step_ca_password]
+    volumes:
+      - step-ca-data:/home/step
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "step", "ca", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+networks:
+  edge: {}
+  backend:
+    internal: true # 왜: 기반 서비스끼리만 만나고 밖으로 나가는 길이 없다(외부 호출은 게이트웨이의 CONNECT 터널만, 워크스페이스 D128)
+
+secrets:
+  postgres_password: { file: ./secrets/postgres_password }
+  keycloak_db_password: { file: ./secrets/keycloak_db_password }
+  keycloak_admin_password: { file: ./secrets/keycloak_admin_password }
+  oauth2_proxy_client_secret: { file: ./secrets/oauth2_proxy_client_secret }
+  oauth2_proxy_cookie_secret: { file: ./secrets/oauth2_proxy_cookie_secret }
+  step_ca_password: { file: ./secrets/step_ca_password }
+
+volumes:
+  postgres-data: {}
+  step-ca-data: {}
