@@ -1,6 +1,6 @@
 # 영역 브리프
 
-영역 작업자가 처음 읽는 문서다. 영역 구성은 [ADR 0019](../adr/0019-영역-구성-7개.md), 컴포넌트는 [design.md](../design.md), 영역 사이 값은 `contracts/`(태그 `contracts-v7.0.0`, 동결)가 정본이다.
+영역 작업자가 처음 읽는 문서다. 영역 구성은 [ADR 0019](../adr/0019-영역-구성-7개.md), 컴포넌트는 [design.md](../design.md), 영역 사이 값은 `contracts/`(태그 `contracts-v8.0.0`, 동결)가 정본이다.
 
 ## 모든 영역 공통
 - 정본: `contracts/`(영역 사이 값), `docs/design.md`(맡는 일·컴포넌트·영역 사이 어휘 4절), `contracts/inputs/`(결정 기록, 데이터셋 정본 `labels.py`·`IO_SPEC.md`·`SQL.md`), `docs/adr/`. 이 밖의 옛 구현은 읽지 않고 근거로 쓰지 않는다.
