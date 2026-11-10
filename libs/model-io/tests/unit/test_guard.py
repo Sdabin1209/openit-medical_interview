@@ -140,8 +140,19 @@ def test_unknown_slot_and_repeat_key() -> None:
     assert ViolationCode.UNKNOWN_SLOT in codes(bad_repeat, context("Q7_1"))
     no_repeat_slot = out(next_item="Q8_1", values=[value("Q3.answer[x]", "yes")])
     assert ViolationCode.OUTPUT_SCHEMA in codes(no_repeat_slot, context("Q3"))
-    empty_repeat_not_allowed = out(next_item="Q4", values=[value("Q3[soju].answer", "yes")])
-    assert ViolationCode.UNKNOWN_SLOT in codes(empty_repeat_not_allowed, context("Q3"))
+    repeat_on_plain_slot = out(next_item="Q4", values=[value("Q3[soju].answer", "yes")])
+    assert ViolationCode.UNKNOWN_SLOT in codes(repeat_on_plain_slot, context("Q3"))
+
+
+def test_empty_repeat_key_is_only_for_values_that_are_not_saved() -> None:
+    """술 종류를 모르는 재질문의 칸은 키에 [술 종류]가 없고 저장하지 않는다. 저장하는 값에 키가 없으면 위반이다."""
+    reask = out(
+        action="REASK", next_item="Q7_1", reason="MISSING", targets=["Q7_1.amount"],
+        values=[gap("Q7_1.amount")],
+    )
+    assert check_extraction_output(reask, context("Q7_1")).valid
+    saved_without_key = out(next_item="Q7_2", values=[value("Q7_1.amount", 2)])
+    assert ViolationCode.UNKNOWN_SLOT in codes(saved_without_key, context("Q7_1"))
 
 
 @pytest.mark.parametrize(

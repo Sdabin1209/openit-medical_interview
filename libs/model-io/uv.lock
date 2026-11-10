@@ -165,10 +165,10 @@ requires-dist = [{ name = "pydantic" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter" },
-    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "jsonschema" },
     { name = "pyright" },
     { name = "pytest" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 

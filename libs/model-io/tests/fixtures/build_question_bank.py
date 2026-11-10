@@ -48,8 +48,9 @@ def build(db_path: Path) -> dict[str, Any]:
             spec["unit"] = unit
         for key, value in json.loads(constraints).items():
             spec[key] = value
-        keys = json.loads(repeat)
-        if keys != [""]:
+        # 왜 빈 키를 뺀다: 계약 RepeatKey 는 소문자 글자만 받고(빈 글자 없음), SQL.md 5.2 도 반복 키를 술 종류 다섯으로 적는다
+        keys = [key for key in json.loads(repeat) if key]
+        if keys:
             spec["repeat_keys"] = keys
         if field_id in options:
             spec["options"] = options[field_id]

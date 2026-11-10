@@ -21,4 +21,4 @@
 - 요청: `ModelInputSerialization` 에 항목 안 키 순서를 명시하고 평가 집합(finaltest)의 형식을 데이터셋 담당과 맞춘다.
 
 ## 3. 참고: 정렬되지 않은 B 입력 10행
-학습 파일 B 입력 46774행 중 10행(Q7 횟수 NEXT 의 `known` 이 "일주일 기준"인 행들)은 계약의 "B 는 모든 수준 정렬"을 따르지 않고 `action, topic, user_utterance, known, next` 순서로 들어 있다. 서빙은 계약대로 정렬한다. 요청이 아니라 알림이다.
+학습 파일 B 입력 46774행 중 10행(학습 4·3행과 시험 3행. 모두 action NEXT 이고 `known` 이 "1년 기준", "일주일 기준", "한 달 기준" 인 Q7 기준 기간 행)은 계약의 "B 는 모든 수준 정렬"을 따르지 않고 `action, topic, user_utterance, known, next` 순서로 들어 있다. 서빙은 계약대로 정렬한다. 요청이 아니라 알림이다.
