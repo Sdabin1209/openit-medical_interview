@@ -1,0 +1,731 @@
+{
+ "flow": {
+  "start_item": "Q1.D01",
+  "rules": [
+   {
+    "item_id": "Q1.D01",
+    "branches": [
+     {
+      "next_item": "Q1.D02"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D02",
+    "branches": [
+     {
+      "next_item": "Q1.D03"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D03",
+    "branches": [
+     {
+      "next_item": "Q1.D04"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D04",
+    "branches": [
+     {
+      "next_item": "Q1.D05"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D05",
+    "branches": [
+     {
+      "next_item": "Q1.D06"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D06",
+    "branches": [
+     {
+      "next_item": "Q1.D07"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D07",
+    "branches": [
+     {
+      "next_item": "Q1.D08"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D08",
+    "branches": [
+     {
+      "next_item": "Q1.D09"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D09",
+    "branches": [
+     {
+      "next_item": "Q1.D10"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D10",
+    "branches": [
+     {
+      "next_item": "Q1.D11"
+     }
+    ]
+   },
+   {
+    "item_id": "Q1.D11",
+    "branches": [
+     {
+      "next_item": "Q2.D01"
+     }
+    ]
+   },
+   {
+    "item_id": "Q2.D01",
+    "branches": [
+     {
+      "next_item": "Q2.D02"
+     }
+    ]
+   },
+   {
+    "item_id": "Q2.D02",
+    "branches": [
+     {
+      "next_item": "Q2.D03"
+     }
+    ]
+   },
+   {
+    "item_id": "Q2.D03",
+    "branches": [
+     {
+      "next_item": "Q2.D04"
+     }
+    ]
+   },
+   {
+    "item_id": "Q2.D04",
+    "branches": [
+     {
+      "next_item": "Q2.D05"
+     }
+    ]
+   },
+   {
+    "item_id": "Q2.D05",
+    "branches": [
+     {
+      "next_item": "Q3"
+     }
+    ]
+   },
+   {
+    "item_id": "Q3",
+    "branches": [
+     {
+      "next_item": "Q4"
+     }
+    ]
+   },
+   {
+    "item_id": "Q4",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q4.answer",
+       "operator": "EQ",
+       "value": false
+      },
+      "next_item": "Q5"
+     },
+     {
+      "next_item": "Q4_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q4_1",
+    "branches": [
+     {
+      "next_item": "Q5"
+     }
+    ]
+   },
+   {
+    "item_id": "Q5",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q5.answer",
+       "operator": "EQ",
+       "value": false
+      },
+      "next_item": "Q6"
+     },
+     {
+      "next_item": "Q5_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q5_1",
+    "branches": [
+     {
+      "next_item": "Q6"
+     }
+    ]
+   },
+   {
+    "item_id": "Q6",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q6.answer",
+       "operator": "EQ",
+       "value": false
+      },
+      "next_item": "Q7"
+     },
+     {
+      "next_item": "Q6_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q6_1",
+    "branches": [
+     {
+      "next_item": "Q7"
+     }
+    ]
+   },
+   {
+    "item_id": "Q7",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q7.does_not_drink",
+       "operator": "EQ",
+       "value": true
+      },
+      "next_item": "Q8_1"
+     },
+     {
+      "next_item": "Q7_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q7_1",
+    "branches": [
+     {
+      "next_item": "Q7_2"
+     }
+    ]
+   },
+   {
+    "item_id": "Q7_2",
+    "branches": [
+     {
+      "next_item": "Q8_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q8_1",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q8_1.days",
+       "operator": "EQ",
+       "value": 0
+      },
+      "next_item": "Q9_1"
+     },
+     {
+      "next_item": "Q8_2"
+     }
+    ]
+   },
+   {
+    "item_id": "Q8_2",
+    "branches": [
+     {
+      "next_item": "Q9_1"
+     }
+    ]
+   },
+   {
+    "item_id": "Q9_1",
+    "branches": [
+     {
+      "when": {
+       "slot": "Q9_1.days",
+       "operator": "EQ",
+       "value": 0
+      },
+      "next_item": "Q10"
+     },
+     {
+      "next_item": "Q9_2"
+     }
+    ]
+   },
+   {
+    "item_id": "Q9_2",
+    "branches": [
+     {
+      "next_item": "Q10"
+     }
+    ]
+   },
+   {
+    "item_id": "Q10",
+    "branches": [
+     {
+      "next_item": "END"
+     }
+    ]
+   }
+  ]
+ },
+ "fields": [
+  {
+   "item_id": "Q1.D01",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D01",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D02",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D02",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D03",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D03",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D04",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D04",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D05",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D05",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D06",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D06",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D07",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D07",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D08",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D08",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D09",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D09",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D10",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D10",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D11",
+   "field_name": "diagnosed",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q1.D11",
+   "field_name": "on_medication",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q2.D01",
+   "field_name": "family_history",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q2.D02",
+   "field_name": "family_history",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q2.D03",
+   "field_name": "family_history",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q2.D04",
+   "field_name": "family_history",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q2.D05",
+   "field_name": "family_history",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q3",
+   "field_name": "answer",
+   "data_type": "option",
+   "options": [
+    {
+     "option_code": "yes",
+     "label": "예"
+    },
+    {
+     "option_code": "no",
+     "label": "아니요"
+    },
+    {
+     "option_code": "unknown",
+     "label": "모름"
+    }
+   ]
+  },
+  {
+   "item_id": "Q4",
+   "field_name": "answer",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q4_1",
+   "field_name": "status",
+   "data_type": "option",
+   "options": [
+    {
+     "option_code": "current",
+     "label": "현재 피움"
+    },
+    {
+     "option_code": "former",
+     "label": "과거에는 피웠으나 현재 피우지 않음"
+    }
+   ]
+  },
+  {
+   "item_id": "Q4_1",
+   "field_name": "total_years",
+   "data_type": "integer",
+   "unit": "년",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q4_1",
+   "field_name": "daily_count",
+   "data_type": "number",
+   "unit": "개비",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q4_1",
+   "field_name": "years_since_quit",
+   "data_type": "number",
+   "unit": "년",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q5",
+   "field_name": "answer",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q5_1",
+   "field_name": "status",
+   "data_type": "option",
+   "options": [
+    {
+     "option_code": "current",
+     "label": "현재 피움"
+    },
+    {
+     "option_code": "former",
+     "label": "과거에는 피웠으나 현재 피우지 않음"
+    }
+   ]
+  },
+  {
+   "item_id": "Q5_1",
+   "field_name": "total_years",
+   "data_type": "integer",
+   "unit": "년",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q5_1",
+   "field_name": "daily_count",
+   "data_type": "number",
+   "unit": "개비",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q5_1",
+   "field_name": "years_since_quit",
+   "data_type": "number",
+   "unit": "년",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q6",
+   "field_name": "answer",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q6_1",
+   "field_name": "use_pattern",
+   "data_type": "option",
+   "options": [
+    {
+     "option_code": "no",
+     "label": "아니요"
+    },
+    {
+     "option_code": "days_1_2",
+     "label": "월 1-2일"
+    },
+    {
+     "option_code": "days_3_9",
+     "label": "월 3-9일"
+    },
+    {
+     "option_code": "days_10_29",
+     "label": "월 10-29일"
+    },
+    {
+     "option_code": "daily",
+     "label": "매일"
+    }
+   ]
+  },
+  {
+   "item_id": "Q7",
+   "field_name": "does_not_drink",
+   "data_type": "boolean"
+  },
+  {
+   "item_id": "Q7",
+   "field_name": "frequency",
+   "data_type": "number",
+   "exclusive_minimum": 0
+  },
+  {
+   "item_id": "Q7",
+   "field_name": "unit",
+   "data_type": "option",
+   "options": [
+    {
+     "option_code": "week",
+     "label": "주"
+    },
+    {
+     "option_code": "month",
+     "label": "월"
+    },
+    {
+     "option_code": "year",
+     "label": "년"
+    }
+   ]
+  },
+  {
+   "item_id": "Q7_1",
+   "field_name": "amount",
+   "data_type": "number",
+   "minimum": 0,
+   "repeat_keys": [
+    "soju",
+    "beer",
+    "spirits",
+    "makgeolli",
+    "wine",
+    ""
+   ]
+  },
+  {
+   "item_id": "Q7_1",
+   "field_name": "unit",
+   "data_type": "option",
+   "repeat_keys": [
+    "soju",
+    "beer",
+    "spirits",
+    "makgeolli",
+    "wine",
+    ""
+   ],
+   "options": [
+    {
+     "option_code": "glass",
+     "label": "잔"
+    },
+    {
+     "option_code": "bottle",
+     "label": "병"
+    },
+    {
+     "option_code": "can",
+     "label": "캔"
+    },
+    {
+     "option_code": "cc",
+     "label": "cc"
+    }
+   ]
+  },
+  {
+   "item_id": "Q7_2",
+   "field_name": "amount",
+   "data_type": "number",
+   "minimum": 0,
+   "repeat_keys": [
+    "soju",
+    "beer",
+    "spirits",
+    "makgeolli",
+    "wine",
+    ""
+   ]
+  },
+  {
+   "item_id": "Q7_2",
+   "field_name": "unit",
+   "data_type": "option",
+   "repeat_keys": [
+    "soju",
+    "beer",
+    "spirits",
+    "makgeolli",
+    "wine",
+    ""
+   ],
+   "options": [
+    {
+     "option_code": "glass",
+     "label": "잔"
+    },
+    {
+     "option_code": "bottle",
+     "label": "병"
+    },
+    {
+     "option_code": "can",
+     "label": "캔"
+    },
+    {
+     "option_code": "cc",
+     "label": "cc"
+    }
+   ]
+  },
+  {
+   "item_id": "Q8_1",
+   "field_name": "days",
+   "data_type": "integer",
+   "unit": "day/week",
+   "maximum": 7,
+   "minimum": 0
+  },
+  {
+   "item_id": "Q8_2",
+   "field_name": "duration_minutes",
+   "data_type": "integer",
+   "unit": "minute",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q9_1",
+   "field_name": "days",
+   "data_type": "integer",
+   "unit": "day/week",
+   "maximum": 7,
+   "minimum": 0
+  },
+  {
+   "item_id": "Q9_2",
+   "field_name": "duration_minutes",
+   "data_type": "integer",
+   "unit": "minute",
+   "minimum": 0
+  },
+  {
+   "item_id": "Q10",
+   "field_name": "days",
+   "data_type": "integer",
+   "unit": "day/week",
+   "maximum": 7,
+   "minimum": 0
+  }
+ ]
+}

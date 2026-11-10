@@ -17,11 +17,13 @@ dev = [
   "pyright",
   "ruff",
   "import-linter",
+  "jsonschema>=4.26.0",
+  "pyyaml>=6.0.3",
 ]
 
 # 계약에서 타입을 만드는 설정(ADR 0020). 다시 만들기: 리포 루트에서 `uv run --project tools/checks openit-gen-contract libs/model-io`
 [tool.openit.contract]
-schemas = ["ActionExtraction", "ActionExtractionRules", "ExtractionAction", "ExtractionRequest", "ModelInputSerialization", "ResponseSentence"]  # 모델 입력 직렬화·출력 검증이 쓰는 계약 스키마(docs/design.md 2절)
+schemas = ["ActionExtraction", "ActionExtractionInput", "ActionExtractionRules", "ExtractionAction", "ModelInputSerialization", "ResponseSentence", "ResponseRequest", "QuestionFlowTable", "QuestionFieldSpecs", "StateKeyOrder", "ViolationCode", "EvaluationReport"]  # 모델 입력 직렬화·출력 검증·평가 보고서가 쓰는 계약 스키마(docs/design.md 2절)
 
 [build-system]
 requires = ["hatchling"]  # 왜: PyPA 표준 백엔드(PEP 517), MIT
@@ -32,7 +34,10 @@ packages = ["src/model_io"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+pythonpath = ["tests"]  # 왜: 시험 공용 도구(tests/helpers.py)를 import 한다
+# 왜 dataset 은 기본에서 뺀다: 학습 서버에서 읽어 온 파일이 필요하다(README 4절의 명령으로 돌린다)
+addopts = "-ra --strict-markers -m 'not dataset'"
+markers = ["dataset: 학습 서버 학습 파일(MODEL_IO_DATASET_DIR)이 필요한 시험"]
 
 [tool.ruff]
 line-length = 120
