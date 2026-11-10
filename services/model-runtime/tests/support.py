@@ -75,6 +75,12 @@ class Identity:
     def idp_app(self) -> FastAPI:
         app = FastAPI()
         jwks_body = self.jwks()
+        # 왜 암호화용 키를 함께: 실제 Keycloak 의 JWKS 는 서명 키(sig)와 함께 RSA-OAEP 암호화 키(enc)를 낸다.
+        # 서명 키만 고르지 않으면 갱신 전체가 실패했다(통합 확인)
+        sig_key = jwks_body["keys"][0]
+        jwks_body = {
+            "keys": [*jwks_body["keys"], {**sig_key, "kid": "keycloak-enc-key", "use": "enc", "alg": "RSA-OAEP"}]
+        }
 
         @app.get("/realms/openit/.well-known/openid-configuration")
         async def discovery() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]

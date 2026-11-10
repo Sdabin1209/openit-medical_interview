@@ -102,7 +102,10 @@ class JwksCache:
     async def _refresh(self) -> None:
         response = await self._http.get(await self._resolve_url())
         response.raise_for_status()
-        self._keys = {jwk.key_id: jwk for jwk in (PyJWK(item) for item in response.json()["keys"]) if jwk.key_id}
+        # 왜 use 가 sig 인 키만: RFC 7517 4.2 의 use 는 키의 용도다. Keycloak 의 JWKS 는 암호화용(enc)
+        # 키도 내고 PyJWK 가 그 키를 못 만들어 갱신 전체가 실패했다(통합 확인). 서명 키만 쓴다
+        signing = [item for item in response.json()["keys"] if item.get("use", "sig") == "sig"]
+        self._keys = {jwk.key_id: jwk for jwk in (PyJWK(item) for item in signing) if jwk.key_id}
         self._fetched_at = time.monotonic()
 
     async def key_for(self, kid: str | None) -> PyJWK:
