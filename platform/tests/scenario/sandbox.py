@@ -2,7 +2,8 @@
 
 - 리포의 deploy/·platform/·contracts/ 를 임시 폴더로 복사하고 그 복사본의 ./deploy bootstrap 으로 설치한다(신뢰의 뿌리 -> 레지스트리 -> 기동).
 - 시험에 필요한 것은 설치 입력(노출 선언, 기기 허용 목록, 기계 호출자 표, 기기 CA)과 compose 에 더하는 시험 서비스뿐이다.
-  시험 서비스: 평문 에코 상류(가짜 영역 서비스), 영역마다 실제 영역 게이트웨이(platform/caddy/area-gateway.Caddyfile, platform ADR 0007), 클라이언트.
+  시험 서비스: 평문 에코 상류(가짜 영역 서비스. 영역 서비스 컨테이너의 자리에서 영역 전용 네트워크에 서비스 이름의 별칭으로 선다), 클라이언트.
+  영역 게이트웨이는 제품 compose 의 것(<영역>-gateway, platform ADR 0007)을 그대로 쓴다. 영역 서비스·영역 DB 는 이 시험의 대상이 아니라 사본에서 끈다(아래 DISABLED_AREA_SERVICES).
 - 끝나면 이 프로젝트(openit-int-pf-sbx-…)의 컨테이너·볼륨·네트워크를 내리고 남은 것이 0개인지 확인한다. 실패하면 로그를 먼저 남긴다.
 """
 
@@ -19,6 +20,7 @@ import time
 from pathlib import Path
 from types import ModuleType
 
+import yaml
 from cryptography.hazmat.primitives import serialization
 
 from openit_platform import area_gateway
@@ -89,42 +91,37 @@ http://:8080 {
 """
 
 
-def gateway_service(name: str) -> str:
-    """영역 게이트웨이 하나(제품의 deploy 가 영역마다 compose 에 두는 것과 같은 모양: platform/caddy/area-gateway.md)."""
-    healthcheck = area_gateway.healthcheck_command(name, ACME_URL)
-    return f"""  sandbox-gw-{name}:
-    image: {CADDY_IMAGE}
-    read_only: true
-    user: "10001:10001"
-    cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
-    security_opt: ["no-new-privileges:true"]
-    tmpfs:
-      - /data:uid=10001,gid=10001,mode=0700
-      - /config:uid=10001,gid=10001,mode=0700
-    environment:
-      OPENIT_AREA_NAME: {name}
-      OPENIT_AREA_UPSTREAM: sandbox-upstream:{UPSTREAM_PORT}
-      OPENIT_SERVICE_PORT: "8443"
-      OPENIT_INTERNAL_ACME_DIRECTORY_URL: {ACME_URL}
-    volumes:
-      - ../platform/caddy/{area_gateway.CADDYFILE}:/etc/caddy/Caddyfile:ro
-      - ${{OPENIT_TRUST_LIST_FILE}}:/etc/openit/trust-list.pem:ro
-      - sandbox-certs-{name}:{area_gateway.AREA_CERTS}
-    networks:
-      backend:
-        aliases: [{name}]
-    healthcheck:
-      test: ["CMD-SHELL", "{healthcheck}"]
-      interval: 3s
-      timeout: 3s
-      retries: 100
-"""
+# 왜 끄는가: platform 시험에는 영역 서비스 이미지가 없다(이미지 빌드는 영역의 일이다). 영역 서비스와 그 DB 는 시험용 프로필로 꺼 사본에서만 뺀다.
+# 제품 compose 는 바꾸지 않는다(D123). ./deploy 는 자기 compose 파일만 읽어 별도 조각을 합칠 수 없어서 사본을 고친다
+DISABLED_AREA_SERVICES = ("survey-db", "survey-service", "model-runtime", "admin-console", "kiosk-frontend")
+OFF_PROFILE = "sandbox-off"
+# 영역 서비스가 서 영역 전용 네트워크(제품 compose 의 이름)
+AREA_NETWORKS = {name: f"{name}-area" for name in SERVICES}
+
+
+def gateway_names() -> list[str]:
+    return [f"{name}-gateway" for name in SERVICES]
+
+
+def patched_compose(text: str) -> str:
+    """제품 compose 사본에서 영역 서비스를 끄고(프로필) oauth2-proxy 제공자를 일반 oidc 로 한다(platform ADR 0004: 반영된 뒤에는 치환이 아무것도 바꾸지 않는다)."""
+    document = yaml.safe_load(text.replace("--provider=keycloak-oidc", "--provider=oidc"))
+    for name in DISABLED_AREA_SERVICES:
+        document["services"][name]["profiles"] = [OFF_PROFILE]
+    for name in gateway_names():
+        # 왜 상류 이름을 바꾸나: 제품 compose 의 OPENIT_AREA_UPSTREAM(<서비스 이름>:8080)은 게이트웨이 자신의 backend 별칭(서비스 이름)과 같아서
+        # 샌드박스에서 게이트웨이가 자기 자신으로 풀렸다(getent: 게이트웨이의 backend IP, 연결 거절). 시험 상류의 고유한 이름으로 부른다(보고: 제품 쪽 변경 필요)
+        document["services"][name]["environment"]["OPENIT_AREA_UPSTREAM"] = f"sandbox-upstream:{UPSTREAM_PORT}"
+    return yaml.dump(document, Dumper=NoAliasDumper, sort_keys=False, allow_unicode=True)
+
+
+class NoAliasDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data: object) -> bool:  # 왜: 같은 목록이 YAML 앵커로 나가면 사람이 읽기 어렵다
+        return True
 
 
 def compose_text() -> str:
-    gateways = "".join(gateway_service(name) for name in SERVICES)
-    volumes = "".join(f'  sandbox-certs-{name}:\n    driver: local\n    driver_opts: {{ type: tmpfs, device: tmpfs, o: "uid=10001,gid=10001,mode=0700" }}\n' for name in SERVICES)
+    area_networks = "".join(f"      {AREA_NETWORKS[name]}:\n        aliases: [{name}]\n" for name in SERVICES)
     return f"""# 시험용 서비스(제품 compose 에는 없다). 제품 compose 와 합쳐 같은 프로젝트로 띄운다.
 services:
   sandbox-upstream:
@@ -138,8 +135,8 @@ services:
       - /config:uid=10001,gid=10001,mode=0700
     volumes:
       - ./sandbox/Caddyfile:/etc/caddy/Caddyfile:ro
-    networks: [backend]
-{gateways}  sandbox-client:
+    networks:
+{area_networks}  sandbox-client:
     image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
     read_only: true
     user: "10001:10001"
@@ -148,10 +145,9 @@ services:
     entrypoint: ["sleep", "infinity"]
     volumes:
       - ${{OPENIT_TRUST_LIST_FILE}}:/etc/openit/trust-list.pem:ro
-      - sandbox-certs-{CLIENT_CERT_AREA}:{area_gateway.AREA_CERTS}:ro
+      - {CLIENT_CERT_AREA}-certs:{area_gateway.AREA_CERTS}:ro
     networks: [backend]
-volumes:
-{volumes}"""
+"""
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -183,10 +179,8 @@ class Sandbox:
         contracts.mkdir()
         shutil.copy2(REPO / "contracts" / "components.yaml", contracts / "components.yaml")
         shutil.copytree(REPO / "contracts" / "openapi", contracts / "openapi")
-        # 왜 사본에서만 바꾸나: oauth2-proxy 의 제공자는 `--provider=oidc` 여야 groups 가 UserRole 뿐이다(platform ADR 0004). 제품 compose 의 반영은 헤드가 한다.
-        # 반영된 뒤에는 아래 치환이 아무것도 바꾸지 않는다
         compose = self.deploy_dir / "compose.yaml"
-        compose.write_text(compose.read_text(encoding="utf-8").replace("--provider=keycloak-oidc", "--provider=oidc"), encoding="utf-8")
+        compose.write_text(patched_compose(compose.read_text(encoding="utf-8")), encoding="utf-8")
         self.state.mkdir()
         (self.state / "exposures").mkdir()
         for service, exposure in EXPOSURES.items():
@@ -198,6 +192,7 @@ class Sandbox:
         (self.deploy_dir / "compose.sandbox.yaml").write_text(compose_text(), encoding="utf-8")
         env = {
             "OPENIT_PROJECT_NAME": self.project,
+            "OPENIT_INFERENCE_ENGINE_LOCAL": "false",  # 추론 엔진은 이 시험의 대상이 아니다(서빙 GPU 서버 배치)
             # 왜 5m: 리프의 자동 갱신(Caddy)과 입구의 인증서 재적재, 루트 교체 뒤 새 중간 CA 로의 갱신을 몇 분 안에 본다(ADR 0014 의 시험 방법)
             "OPENIT_LEAF_LIFETIME": "5m",
             "OPENIT_CA_WARN_LEAF": "1m",
@@ -264,6 +259,10 @@ class Sandbox:
             "--env-file",
             str(generated / "platform.env"),
             "--env-file",
+            str(generated / "images.env"),
+            "--env-file",
+            str(generated / "areas.env"),
+            "--env-file",
             str(self.deploy_dir / ".env"),
         ]
 
@@ -295,23 +294,21 @@ class Sandbox:
             time.sleep(interval)
         raise AssertionError(f"시간 안에 {what} 되지 않았다 {last}")
 
-    def gateway_services(self) -> list[str]:
-        return [f"sandbox-gw-{name}" for name in SERVICES]
-
     def start_test_services(self) -> None:
-        self.compose("up", "-d", "--no-deps", "sandbox-upstream", *self.gateway_services(), "sandbox-client")
+        # 영역 게이트웨이는 제품 compose 의 것이다(bootstrap 이 이미 띄웠다). 시험용 상류와 클라이언트를 더한다
+        self.compose("up", "-d", "--no-deps", "sandbox-upstream", "sandbox-client", *gateway_names())
 
         def gateways_ready() -> bool:
             """영역 게이트웨이마다 인증서와 키가 생겼다(제품 compose 의 healthcheck 와 같은 명령)."""
-            return all(self.exec(f"sandbox-gw-{name}", "sh", "-c", area_gateway.healthcheck_command(name, ACME_URL), check=False).returncode == 0 for name in SERVICES)
+            return all(self.exec(f"{name}-gateway", "sh", "-c", area_gateway.healthcheck_command(name, ACME_URL), check=False).returncode == 0 for name in SERVICES)
 
         self.wait("영역 게이트웨이가 사설 CA 에서 인증서를 받아 준비", gateways_ready)
 
     def recreate_gateways(self) -> None:
         """영역 게이트웨이와 그 인증서 볼륨(메모리)을 지우고 다시 만든다. 새 신뢰 목록으로 새 인증서를 받는다(서버를 다시 켠 것과 같다)."""
-        self.compose("rm", "-sf", "sandbox-client", *self.gateway_services())
+        self.compose("rm", "-sf", "sandbox-client", *gateway_names())
         for name in SERVICES:
-            self.docker(["volume", "rm", "-f", f"{self.project}_sandbox-certs-{name}"])
+            self.docker(["volume", "rm", "-f", f"{self.project}_{name}-certs"])
         self.start_test_services()
 
     def create_users(self) -> None:

@@ -204,6 +204,20 @@ def test_machine_token_claims_follow_rfc9068(box: Sandbox) -> None:
     assert claims["sub"] and claims["iss"] == f"{BASE}/realms/openit"
 
 
+def test_machine_tokens_carry_only_the_callers_contract_roles(box: Sandbox) -> None:
+    """model-runtime-006: 서비스 계정의 기계 토큰에도 Keycloak 기본 역할(default-roles-openit, offline_access, uma_authorization)이 실리지 않는다.
+    클라이언트 범위(Full Scope Allowed 끔, scopeMappings)가 서비스 계정에도 먹는다. 실제 Keycloak 의 토큰을 MachineIdentityClaims 로 검증한다."""
+    expected = {"hospital": ["result-reader"], "detector": ["risk-detector"], "lab": ["case-reader"]}
+    machine_roles = {"result-reader", "risk-detector", "inference-caller", "case-reader"}
+    for caller, roles in expected.items():
+        _, claims = decode_jwt(machine_token(box, caller))
+        contract_validator("MachineIdentityClaims").validate(claims)
+        assert claims["realm_access"]["roles"] == roles, caller
+        assert set(claims["realm_access"]["roles"]) <= machine_roles
+        assert not {"default-roles-openit", "offline_access", "uma_authorization"} & set(claims["realm_access"]["roles"])
+        assert "resource_access" not in claims or not claims["resource_access"].get("account")  # 계정 클라이언트 역할도 싣지 않는다
+
+
 def test_token_for_another_audience_is_not_accepted(box: Sandbox) -> None:
     hospital = bearer(machine_token(box, "hospital"))  # aud 는 survey-service 뿐이다
     status = client(box).get("/v1/model-status", headers=hospital).status
