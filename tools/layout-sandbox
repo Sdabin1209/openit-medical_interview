@@ -1,0 +1,504 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cryptography",
+#     "pyyaml",
+# ]
+# ///
+"""서버 두 대 배치 시험(샌드박스, D123, ADR 0026): 이 PC 의 도커 엔진 하나에 docker context 둘을 만들어 서버 두 대처럼 띄우고 서버를 넘는 길을 확인한다.
+
+- 제품을 사본(`.layout-sandbox/work/`)으로 복사해 그 사본의 `./deploy` 로 설치한다. 제품 compose 와 설정에 시험용 줄을 더하지 않는다. 시험이 더하는 것은
+  설치 입력(.env, layout.json, 기기 CA)과 docker context 둘뿐이다. context 는 사본의 격리 설정 폴더 안에 만들고 끝나면 사본과 함께 사라진다.
+- 서버 a(주소 A): platform, survey-service, admin-console, kiosk-frontend. 서버 b(주소 B): model-runtime. 두 주소는 이 PC 의 서로 다른 IPv4 주소 중
+  컨테이너에서 닿는 것 둘이다(시작할 때 컨테이너로 닿는지 확인해 고른다). 서버마다 같은 포트(443, 8443, 80 ...)를 게시하므로 주소가 달라야 한다.
+- 시간은 통제 가능한 것만: 기다림은 모두 조건이 되면 끝나고 상한이 있다(고정 대기 없음).
+- 컨테이너·볼륨·네트워크 이름에 `openit-lay` 가 들어간다. 끝나면 이 프로젝트의 것만 `down --volumes` 하고 남은 것이 0개인지 본다.
+
+`--single` 은 배치 설정 없이 서버 한 대(기존 동작)로 같은 설치(secrets init, doctor, bootstrap, status, up 다시, down)를 확인한다.
+
+사용: tools/layout-sandbox [--keep] [--single]    종료 코드: 0 통과, 1 실패, 3 두 주소를 고르지 못해 시험할 수 없음.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "deploy"))
+import dockerenv  # noqa: E402
+
+WORK = ROOT / ".layout-sandbox" / "work"
+LOGS = ROOT / ".layout-sandbox" / "logs"
+PROJECT = "openit-lay"
+SERVER_A, SERVER_B = "svc", "gpu"
+LISTEN_PORT = 9443  # 입구의 게시 포트. 기본값(8443)은 영역 가장자리의 포트와 같아 한 서버에 함께 둘 수 없다(doctor 가 알린다)
+ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "UV_CACHE_DIR", "XDG_CACHE_HOME", "DOCKER_HOST")
+SERVICES = ("survey-service", "model-runtime", "web-admin-console", "web-kiosk-frontend")
+WAIT_LIMIT = 150  # 초. Prometheus 가 새 대상을 처음 긁는 데 걸리는 시간의 상한(긁기 간격 15초의 열 배, 측정하지 않았다)
+
+
+class Failure(Exception):
+    pass
+
+
+def env() -> dict[str, str]:
+    return {key: os.environ[key] for key in ENV_KEYS if key in os.environ}
+
+
+def run(argv: list[str], *, check: bool = True, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(argv, text=True, capture_output=True, check=False, **kwargs)  # type: ignore[call-overload]  # noqa: S603
+    if check and result.returncode != 0:
+        raise Failure(f"{' '.join(argv[:6])} rc={result.returncode}\n{(result.stdout + result.stderr)[-1500:]}")
+    return result
+
+
+def docker(args: list[str], *, context: str | None = None, check: bool = True, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    """샌드박스 사본의 격리 설정으로 docker 를 부른다(사용자 ~/.docker 를 쓰지 않는다). context 가 있으면 그 서버의 엔진."""
+    environ = {**env(), "DOCKER_CONFIG": str(WORK / PROJECT / ".docker-config")}
+    if context:
+        environ["DOCKER_CONTEXT"] = context
+    resolved = dockerenv.docker_env(environ, WORK / PROJECT)
+    result = subprocess.run(["docker", *args], env=resolved, text=True, capture_output=True, check=False, **kwargs)  # type: ignore[call-overload]  # noqa: S603, S607
+    if check and result.returncode != 0:
+        raise Failure(f"docker {' '.join(args[:6])} rc={result.returncode}\n{(result.stdout + result.stderr)[-1500:]}")
+    return result  # type: ignore[no-any-return]
+
+
+def local_addresses() -> list[str]:
+    out = run(["ip", "-4", "-o", "addr"]).stdout
+    found = [m.group(1) for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/", out)]
+    return [a for a in found if not a.startswith("127.")]
+
+
+def caddy_image() -> str:
+    return str(yaml.safe_load((ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8"))["services"]["ingress-acme"]["image"])
+
+
+def reachable_addresses(probe_dir: Path) -> list[str]:
+    """이 PC 의 IPv4 주소 중, 그 주소에 게시한 포트에 다른 컨테이너가 닿는 것(서버 주소로 쓸 수 있는 것)."""
+    image = caddy_image()
+    good: list[str] = []
+    for address in local_addresses():
+        name = f"{PROJECT}-probe"
+        docker(["rm", "-f", name], check=False)
+        started = docker(["run", "-d", "--name", name, "-p", f"{address}::80", "--entrypoint", "caddy", image, "respond", "--listen", ":80", "ok"], check=False)
+        if started.returncode != 0:
+            continue
+        try:
+            port = docker(["port", name, "80"]).stdout.split()[0].rsplit(":", 1)[1]
+            got = docker(["run", "--rm", "--entrypoint", "wget", image, "-q", "-T", "3", "-O", "-", f"http://{address}:{port}/"], check=False)
+            if got.returncode == 0 and got.stdout.strip() == "ok":
+                good.append(address)
+        finally:
+            docker(["rm", "-f", name], check=False)
+    return good
+
+
+def prepare(address_a: str, address_b: str, *, single: bool = False) -> Path:
+    """제품의 사본과 설치 입력을 만든다(e2e 샌드박스와 같은 방식)."""
+    root = WORK / PROJECT
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    skip = ("secrets", "pki", "generated", ".env", "backups", ".build-meta", "images.lock", "__pycache__", "e2e", ".venv", "layout.json")
+    shutil.copytree(ROOT / "deploy", root / "deploy", ignore=shutil.ignore_patterns(*skip))
+    for name in ("src", "caddy", "monitoring"):
+        shutil.copytree(ROOT / "platform" / name, root / "platform" / name, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+    contracts = root / "contracts"
+    contracts.mkdir()
+    shutil.copy2(ROOT / "contracts" / "components.yaml", contracts / "components.yaml")
+    shutil.copytree(ROOT / "contracts" / "openapi", contracts / "openapi")
+    for base in ("services", "jobs", "web"):
+        for folder in sorted((ROOT / base).iterdir()):
+            if folder.is_dir() and (folder / "Dockerfile").is_file() and not folder.name.startswith("_"):
+                target = root / base / folder.name
+                target.mkdir(parents=True)
+                shutil.copy2(folder / "Dockerfile", target / "Dockerfile")
+    state = root / "state"
+    state.mkdir()
+    write_device_ca(state / "device-ca.pem")
+    (state / "device-allowlist.json").write_text('{"devices": []}\n', encoding="utf-8")
+    values = {
+        "OPENIT_PROJECT_NAME": PROJECT,
+        "OPENIT_INFERENCE_ENGINE_LOCAL": "false",  # 이 PC 에는 시험에 쓸 GPU 서버 배치가 없다. 엔진 없이 model-runtime 이 서는 것(readyz 503)을 본다
+        "OPENIT_LISTEN_PORT": str(LISTEN_PORT),
+        "OPENIT_OIDC_ISSUER_URL": f"https://openit.internal:{LISTEN_PORT}/realms/openit",
+        "OPENIT_DEVICE_CA_CERTIFICATE_FILE": str(state / "device-ca.pem"),
+        "OPENIT_DEVICE_ALLOWLIST_FILE": str(state / "device-allowlist.json"),
+    }
+    (root / "deploy" / ".env").write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    layout = {
+        "servers": [
+            {"name": SERVER_A, "address": address_a, "services": ["platform", "survey-service", "admin-console", "kiosk-frontend"]},
+            {"name": SERVER_B, "address": address_b, "services": ["model-runtime"]},
+        ],
+        "device_placements": [],
+        "backup": {
+            "repository_url": "rest:https://platform:8000/survey-service",
+            "password_file": "/run/secrets/backup_password",
+            "http_credentials_file": "/run/secrets/backup_http_credentials",
+            "encryption_key_file": "/run/secrets/backup_encryption_key",
+            "offsite_url": "https://backup.example.org/openit",
+            "offsite_credentials_file": "/run/secrets/offsite_credentials",
+        },
+    }
+    if single:
+        (root / "deploy" / ".env").write_text("".join(f"{k}={v}\n" for k, v in values.items() if k != "OPENIT_LISTEN_PORT" and k != "OPENIT_OIDC_ISSUER_URL"), encoding="utf-8")
+    else:
+        (root / "deploy" / "layout.json").write_text(json.dumps(layout, indent=2) + "\n", encoding="utf-8")
+    return root
+
+
+def write_device_ca(path: Path) -> None:
+    """입구가 기기 경로를 열려면 조직 PKI 의 루트 파일이 있어야 한다. 시험에서만 쓰는 사용 후 버릴 루트다(실제 키가 아니다)."""
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "layout sandbox device CA")])
+    now = datetime.now(UTC)
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=3650))  # 왜 10년: ca status 가 180일 미만이면 실패로 본다
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True).sign(key, hashes.SHA256())
+    )
+    path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+
+
+def deploy(root: Path, *args: str, log: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    LOGS.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run([str(root / "deploy" / "deploy"), *args], cwd=root, env=env(), text=True, capture_output=True, check=False, timeout=1800)  # noqa: S603
+    (LOGS / f"{log}.log").write_text(f"$ ./deploy {' '.join(args)}\nrc={result.returncode}\n{result.stdout}\n{result.stderr}", encoding="utf-8")
+    if check and result.returncode != 0:
+        raise Failure(f"./deploy {' '.join(args)} rc={result.returncode}\n{(result.stdout + result.stderr)[-2500:]}")
+    return result
+
+
+def wait_until(what: str, ready: Callable[[], bool], seconds: float = WAIT_LIMIT, interval: float = 3) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if ready():
+            return
+        time.sleep(interval)
+    raise Failure(f"{seconds:.0f}초 안에 {what} 되지 않았다")
+
+
+def containers(server: str) -> dict[str, dict[str, str]]:
+    """서버 엔진의 이 프로젝트 컨테이너(서비스 이름 -> 상태)."""
+    project = f"{PROJECT}-{server}"
+    out = docker(["ps", "-a", "--filter", f"label=com.docker.compose.project={project}", "--format", "{{json .}}"], context=server).stdout
+    found: dict[str, dict[str, str]] = {}
+    for line in out.splitlines():
+        row = json.loads(line)
+        labels = dict(item.split("=", 1) for item in row["Labels"].split(",") if "=" in item)
+        found[labels["com.docker.compose.service"]] = {"id": row["ID"], "status": row["Status"]}
+    return found
+
+
+def exec_python(server: str, service: str, code: str) -> str:
+    project = f"{PROJECT}-{server}"
+    container = containers(server)[service]["id"]
+    result = docker(["exec", "-i", container, "python", "-"], context=server, input=code, check=False)
+    if result.returncode != 0:
+        raise Failure(f"{project} {service} 안에서 실행 실패 rc={result.returncode}\n{(result.stdout + result.stderr)[-1500:]}")
+    return result.stdout
+
+
+TUNNEL_CLIENT = """
+import http.client, json, os, ssl, sys, urllib.parse
+proxy = urllib.parse.urlsplit(os.environ["OPENIT_EGRESS_PROXY"])
+def call(host, port, method, path, headers=None, body=None, client_cert=False):
+    context = ssl.create_default_context(cafile=os.environ["OPENIT_ROOT_CERTIFICATE_FILE"])
+    if client_cert:
+        context.load_cert_chain(os.environ["OPENIT_TLS_CERTIFICATE_FILE"], os.environ["OPENIT_TLS_PRIVATE_KEY_FILE"])
+    conn = http.client.HTTPSConnection(proxy.hostname, proxy.port, context=context, timeout=10)
+    conn.set_tunnel(host, port)
+    conn.request(method, path, body=body, headers=headers or {})
+    response = conn.getresponse()
+    return response.status, response.read().decode()
+"""
+
+
+def token_code() -> str:
+    return """
+issuer = urllib.parse.urlsplit(os.environ["OPENIT_OIDC_ISSUER_URL"])
+secret = open(os.environ["OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE"]).read().strip()
+form = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": "machine-survey-service", "client_secret": secret})
+status, text = call(issuer.hostname, issuer.port, "POST", issuer.path + "/protocol/openid-connect/token", {"Content-Type": "application/x-www-form-urlencoded"}, form)
+assert status == 200, ("token", status)
+token = json.loads(text)["access_token"]
+"""
+
+
+def check_a_to_b(address_b: str) -> str:
+    """서버 a 의 survey-service 가 자기 나가는 터널(입구)로 서버 b 의 model-runtime 을 mTLS 와 기계 토큰으로 부른다."""
+    code = TUNNEL_CLIENT + token_code() + """
+status, text = call("model-runtime", int(os.environ["OPENIT_MODEL_RUNTIME_URL"].rsplit(":", 1)[1]), "GET", "/v1/model-status",
+                    {"Authorization": "Bearer " + token}, client_cert=True)
+print(status, text)
+status_without, _ = call("model-runtime", int(os.environ["OPENIT_MODEL_RUNTIME_URL"].rsplit(":", 1)[1]), "GET", "/v1/model-status", client_cert=True)
+print(status_without)
+"""
+    lines = exec_python(SERVER_A, "survey-service", code).strip().splitlines()
+    if not lines[0].startswith("200 ") or "NOT_LOADED" not in lines[0]:
+        raise Failure(f"서버 a -> b 호출이 기대와 다르다: {lines}")
+    if lines[1].strip() != "401":
+        raise Failure(f"토큰 없는 호출이 401 이 아니다: {lines}")
+    return f"{lines[0]} (토큰 없이 {lines[1]})"
+
+
+def check_b_to_a() -> str:
+    """서버 b 의 model-runtime 이 자기 가장자리의 나가는 터널로 서버 a 의 레지스트리와 발급자(입구)에 닿는다."""
+    code = TUNNEL_CLIENT + """
+registry = urllib.parse.urlsplit(os.environ["OPENIT_REGISTRY_URL"])
+status_registry, _ = call(registry.hostname, registry.port or 443, "GET", "/v2/")
+issuer = urllib.parse.urlsplit(os.environ["OPENIT_OIDC_ISSUER_URL"])
+status_issuer, _ = call(issuer.hostname, issuer.port, "GET", issuer.path + "/.well-known/openid-configuration")
+print(status_registry, status_issuer)
+"""
+    out = exec_python(SERVER_B, "model-runtime", code).strip()
+    registry, issuer = out.split()
+    if registry not in ("200", "401") or issuer != "200":
+        raise Failure(f"서버 b -> a 호출이 기대와 다르다: registry={registry} issuer={issuer}")
+    return f"레지스트리 {registry}, 발급자 {issuer}"
+
+
+def check_prometheus() -> str:
+    """서버 a 의 감시가 서버 b 의 model-runtime 상태·지표를 긁는다(가장자리의 9100 번)."""
+    prometheus = containers(SERVER_A)["prometheus"]["id"]
+    state: dict[str, str] = {}
+
+    def up() -> bool:
+        out = docker(["exec", prometheus, "wget", "-q", "-O", "-", "http://127.0.0.1:9090/api/v1/targets"], context=SERVER_A, check=False)
+        if out.returncode != 0:
+            return False
+        for target in json.loads(out.stdout)["data"]["activeTargets"]:
+            if target["labels"].get("service") == "model-runtime":
+                state["health"] = target["health"]
+                state["error"] = target.get("lastError", "")
+                return target["health"] == "up"
+        return False
+
+    try:
+        wait_until("감시가 서버 b 의 model-runtime:9100 을 읽게", up, interval=5)
+    except Failure as error:
+        raise Failure(f"{error} (마지막 상태 {state})") from error
+    return "model-runtime:9100 up"
+
+
+def check_layout(address_a: str, address_b: str) -> list[str]:
+    """어느 서버에 무엇이 있는가, 어떤 포트를 게시했는가, 파일은 볼륨으로 올렸는가."""
+    notes: list[str] = []
+    on_a, on_b = containers(SERVER_A), containers(SERVER_B)
+    expect_b = {"model-runtime", "model-runtime-gateway", "area-edge"}
+    if set(on_b) != expect_b:
+        raise Failure(f"서버 b 의 서비스가 다르다: {sorted(on_b)} (기대 {sorted(expect_b)})")
+    for name in ("step-ca", "keycloak", "registry", "survey-service", "survey-db", "ingress-acme", "prometheus", "admin-console", "kiosk-frontend-gateway", "area-edge"):
+        if name not in on_a:
+            raise Failure(f"서버 a 에 {name} 가 없다: {sorted(on_a)}")
+    if "model-runtime" in on_a or "model-runtime-gateway" in on_a:
+        raise Failure("서버 a 에 model-runtime 이 있다(서버 b 에만 있어야 한다)")
+    for server, rows in ((SERVER_A, on_a), (SERVER_B, on_b)):
+        bad = {name: row["status"] for name, row in rows.items() if not row["status"].startswith("Up") or "unhealthy" in row["status"] or "starting" in row["status"]}
+        if bad:
+            raise Failure(f"서버 {server} 에 정상이 아닌 컨테이너: {bad}")
+    notes.append(f"서버 a {len(on_a)}개, 서버 b {len(on_b)}개 컨테이너가 Up")
+
+    def published(server: str, service: str) -> dict[str, str]:
+        ports = docker(["inspect", containers(server)[service]["id"], "--format", "{{json .NetworkSettings.Ports}}"], context=server).stdout
+        return {key: value[0]["HostIp"] + ":" + value[0]["HostPort"] for key, value in json.loads(ports).items() if value}
+
+    edge_b = published(SERVER_B, "area-edge")
+    if set(edge_b.values()) != {f"{address_b}:8443", f"{address_b}:80", f"{address_b}:9100"}:
+        raise Failure(f"서버 b 의 가장자리 게시 포트가 다르다: {edge_b}")
+    ca_a = published(SERVER_A, "step-ca")
+    if f"{address_a}:9000" not in ca_a.values():
+        raise Failure(f"서버 a 의 step-ca 게시 포트가 다르다: {ca_a}")
+    registry_a = published(SERVER_A, "registry")
+    if f"{address_a}:443" not in registry_a.values():
+        raise Failure(f"서버 a 의 레지스트리 게시 포트가 다르다: {registry_a}")
+    notes.append(f"게시: 서버 b 가장자리 {sorted(edge_b.values())}, 서버 a step-ca {address_a}:9000, 레지스트리 {address_a}:443")
+    # 파일은 서버의 스테이징 폴더로 올렸다(원격 엔진에는 관리 노드의 경로가 없다): bind 원본이 모두 서버의 스테이징 폴더 아래다
+    mounts = json.loads(docker(["inspect", containers(SERVER_B)["model-runtime-gateway"]["id"], "--format", "{{json .Mounts}}"], context=SERVER_B).stdout)
+    stage = f"/var/lib/openit/stage/{PROJECT}-{SERVER_B}/files/"
+    wrong = [m["Source"] for m in mounts if m["Type"] == "bind" and not m["Source"].startswith(stage)]
+    if wrong or not any(m["Type"] == "bind" for m in mounts):
+        raise Failure(f"서버 b 의 model-runtime-gateway 의 bind 원본이 스테이징 폴더가 아니다: {mounts}")
+    notes.append(f"서버 b model-runtime-gateway 의 bind 원본은 모두 {stage}…")
+    return notes
+
+
+def leftovers() -> list[str]:
+    left: list[str] = []
+    for server in (SERVER_A, SERVER_B):
+        label = f"label=com.docker.compose.project={PROJECT}-{server}"
+        for kind, listing in (("container", ["ps", "-aq"]), ("network", ["network", "ls", "-q"]), ("volume", ["volume", "ls", "-q"])):
+            for item in docker([*listing, "--filter", label], context=SERVER_A, check=False).stdout.split():
+                left.append(f"{kind}:{item}")
+    return left
+
+
+def force_clean() -> None:
+    """프로젝트 상표가 붙은 것만 ID 로 지운다(다른 프로젝트·볼륨은 건드리지 않는다)."""
+    for server in (SERVER_A, SERVER_B):
+        label = f"label=com.docker.compose.project={PROJECT}-{server}"
+        for listing, removal in ((["ps", "-aq"], ["rm", "-fv"]), (["network", "ls", "-q"], ["network", "rm"]), (["volume", "ls", "-q"], ["volume", "rm", "-f"])):
+            ids = docker([*listing, "--filter", label], context=SERVER_A, check=False).stdout.split()
+            if ids:
+                docker([*removal, *ids], context=SERVER_A, check=False)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
+    parser.add_argument("--single", action="store_true", help="배치 설정 없이 서버 한 대로 설치를 확인한다(기존 동작)")
+    args = parser.parse_args()
+    if LOGS.exists():
+        shutil.rmtree(LOGS)
+    missing = [name for name in SERVICES if docker_image_missing(name)]
+    if missing:
+        print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)
+        return 1
+    (WORK / PROJECT / ".docker-config").mkdir(parents=True, exist_ok=True)
+    if args.single:
+        return main_single(args.keep)
+    addresses = reachable_addresses(LOGS)
+    if len(addresses) < 2:
+        print(f"컨테이너가 닿는 서로 다른 IPv4 주소가 둘 필요하다(찾은 것: {addresses})", file=sys.stderr)
+        return 3
+    address_a, address_b = addresses[0], addresses[1]
+    print(f"서버 a={address_a} 서버 b={address_b}")
+    root = prepare(address_a, address_b)
+    endpoint = dockerenv.docker_env({**env()}, ROOT)["DOCKER_HOST"]  # 두 context 가 같은 엔진을 가리킨다(서버 두 대처럼)
+    results: list[tuple[str, str]] = []
+    try:
+        for server in (SERVER_A, SERVER_B):
+            docker(["context", "create", server, "--docker", f"host={endpoint}"])
+        steps: list[tuple[str, Callable[[], str]]] = [
+            ("secrets init", lambda: first_line(deploy(root, "secrets", "init", log="secrets"), "")),
+            ("doctor", lambda: first_line(deploy(root, "doctor", log="doctor"), "doctor 통과")),
+            ("bootstrap", lambda: first_line(deploy(root, "bootstrap", log="bootstrap"), "bootstrap 완료")),
+            ("status", lambda: first_line(deploy(root, "status", log="status"), "")),
+            ("up 다시(멱등)", lambda: first_line(deploy(root, "up", log="up-again"), "")),
+            ("배치와 게시 포트", lambda: "; ".join(check_layout(address_a, address_b))),
+            ("서버 a -> b(survey-service -> model-runtime)", lambda: check_a_to_b(address_b)),
+            ("서버 b -> a(model-runtime -> 레지스트리·발급자)", check_b_to_a),
+            ("감시가 서버 b 를 읽는다", check_prometheus),
+            ("status 가 서버 b 의 고장을 알린다", lambda: check_status_detects_failure(root)),
+        ]
+        for name, step in steps:
+            started = time.monotonic()
+            detail = step()
+            results.append((name, detail))
+            print(f"OK   {name} ({time.monotonic() - started:.0f}초) {detail}")
+        down = deploy(root, "down", "--volumes", "--yes", log="down")
+        left = leftovers()
+        if down.returncode != 0 or left:
+            raise Failure(f"down --volumes 뒤 남은 것: rc={down.returncode} {left}")
+        print("OK   down --volumes 뒤 남은 컨테이너·볼륨·네트워크 0개")
+        print("서버 두 대 샌드박스 통과")
+        return 0
+    except Failure as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        save_diagnostics()
+        return 1
+    finally:
+        if not args.keep:
+            force_clean()
+            left = leftovers()
+            if left:
+                print(f"경고: 정리하지 못한 것 {left}", file=sys.stderr)
+            shutil.rmtree(WORK / PROJECT, ignore_errors=True)
+
+
+def main_single(keep: bool) -> int:
+    """서버 한 대 배치(배치 설정 없음)의 설치: 기존 동작이 그대로인지(명령별 종료 코드와 컨테이너 수)."""
+    root = prepare("127.0.0.1", "127.0.0.1", single=True)
+    try:
+        for name, args in (("secrets init", ["secrets", "init"]), ("doctor", ["doctor"]), ("bootstrap", ["bootstrap"]), ("status", ["status"]), ("up 다시(멱등)", ["up"])):
+            started = time.monotonic()
+            result = deploy(root, *args, log=f"single-{args[0]}")
+            print(f"OK   {name} ({time.monotonic() - started:.0f}초) rc={result.returncode}")
+        label = f"label=com.docker.compose.project={PROJECT}"
+        count = len(docker(["ps", "-q", "--filter", label]).stdout.split())
+        if count < 15:
+            raise Failure(f"서버 한 대 배치의 컨테이너가 {count}개다(통합 확인은 20개 안팎)")
+        print(f"OK   컨테이너 {count}개(프로젝트 {PROJECT}, 서버 이름 접미어 없음)")
+        deploy(root, "down", "--volumes", "--yes", log="single-down")
+        left = [item for kind in (["ps", "-aq"], ["network", "ls", "-q"], ["volume", "ls", "-q"]) for item in docker([*kind, "--filter", label]).stdout.split()]
+        if left:
+            raise Failure(f"down --volumes 뒤 남은 것: {left}")
+        print("OK   down --volumes 뒤 남은 것 0개\n서버 한 대 배치 통과")
+        return 0
+    except Failure as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 1
+    finally:
+        if not keep:
+            label = f"label=com.docker.compose.project={PROJECT}"
+            for listing, removal in ((["ps", "-aq"], ["rm", "-fv"]), (["network", "ls", "-q"], ["network", "rm"]), (["volume", "ls", "-q"], ["volume", "rm", "-f"])):
+                ids = docker([*listing, "--filter", label], check=False).stdout.split()
+                if ids:
+                    docker([*removal, *ids], check=False)
+            shutil.rmtree(WORK / PROJECT, ignore_errors=True)
+
+
+def docker_image_missing(name: str) -> bool:
+    return subprocess.run(["docker", "image", "inspect", f"openit/{name}:local"], env=dockerenv.docker_env(env(), ROOT), capture_output=True, check=False).returncode != 0  # noqa: S603, S607
+
+
+def first_line(result: subprocess.CompletedProcess[str], contains: str) -> str:
+    text = result.stdout.strip()
+    if contains and contains not in text:
+        raise Failure(f"출력에 '{contains}' 가 없다: {text[-400:]}")
+    return f"rc={result.returncode}"
+
+
+def check_status_detects_failure(root: Path) -> str:
+    """서버 b 의 게이트웨이를 멈추면 status 가 rc=1 로 알리고, up 이 되살리면 다시 rc=0 이다."""
+    gateway = containers(SERVER_B)["model-runtime-gateway"]["id"]
+    docker(["stop", gateway], context=SERVER_B)
+    broken = deploy(root, "status", log="status-broken", check=False)
+    if broken.returncode != 1 or "gpu" not in broken.stdout:
+        raise Failure(f"서버 b 의 게이트웨이를 멈췄는데 status 가 rc=1 이 아니다: rc={broken.returncode}\n{broken.stdout[-600:]}")
+    deploy(root, "up", log="up-after-stop")
+    fixed = deploy(root, "status", log="status-fixed", check=False)
+    if fixed.returncode != 0:
+        raise Failure(f"up 뒤 status 가 rc=0 이 아니다: rc={fixed.returncode}\n{fixed.stdout[-600:]}")
+    return "멈춤 rc=1, 복구 rc=0"
+
+
+def save_diagnostics() -> None:
+    """실패하면 정리하기 전에 두 서버의 상태와 로그를 남긴다(진단 수단을 지우지 않는다)."""
+    LOGS.mkdir(parents=True, exist_ok=True)
+    for server in (SERVER_A, SERVER_B):
+        try:
+            rows = containers(server)
+            (LOGS / f"{server}-ps.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+            for service, row in rows.items():
+                logs = docker(["logs", "--tail", "200", row["id"]], context=server, check=False)
+                (LOGS / f"{server}-{service}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+        except (Failure, KeyError, OSError) as error:
+            (LOGS / f"{server}-diagnostics-error.txt").write_text(str(error), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    socket.setdefaulttimeout(30)
+    sys.exit(main())

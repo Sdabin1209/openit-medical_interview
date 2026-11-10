@@ -32,6 +32,8 @@ openit-v7/
 | 전체 시험 1회(샌드박스, ADR 0025, 결과는 [E2E_RESULTS](deploy/docs/E2E_RESULTS.md)) | `deploy/deploy e2e --mode pipeline` 또는 `--mode product --adapters-a <폴더> --adapters-b <폴더> --profile <프로파일>` |
 | 중립 어댑터 만들기(B 행렬 0) | `uv run --project tools/neutral-adapter neutral-adapter --profile gpu-12g --out <폴더>` |
 | 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
+| 서버 두 대 배치 시험(샌드박스, ADR 0026) | `tools/layout-sandbox` |
+| 설치 안내서(운영자, 처음부터) | [deploy/docs/INSTALL.md](deploy/docs/INSTALL.md) |
 | 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
 템플릿은 `templates/service`, `templates/job`, `templates/lib`, `templates/web`이고 `services/_example`, `jobs/_example-job`, `web/_example`은 템플릿 시험용으로 남겨 둔다(실제 영역이 아니다. `services/_example` 은 `libs/model-io` 를 경로 의존으로 쓰는 예다).
@@ -63,3 +65,4 @@ openit-v7/
 - [0023 통합 배치: 영역 네트워크와 추론 엔진 프로파일](docs/adr/0023-통합-배치-영역-네트워크와-추론-엔진-프로파일.md)
 - [0024 빌드는 설치 설정을 읽지 않는다](docs/adr/0024-빌드는-설치-설정을-읽지-않는다.md)
 - [0025 E2E 실행 규약과 두 모드](docs/adr/0025-E2E-실행-규약과-두-모드.md)
+- [0026 여러 서버 배치: 서버마다 compose 프로젝트, 가장자리 Envoy, 엔진 API 로 파일 올리기](docs/adr/0026-여러-서버-배치.md)

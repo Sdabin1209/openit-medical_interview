@@ -16,3 +16,5 @@ deploy/generated/
 .pytest-tmp/
 platform/.logs/
 .e2e/
+deploy/layout.json
+.layout-sandbox/

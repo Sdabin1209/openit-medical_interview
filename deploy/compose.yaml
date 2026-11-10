@@ -19,6 +19,8 @@ x-area-gateway: &area-gateway
 
 services:
   postgres:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74
     restart: unless-stopped
     read_only: true
@@ -39,6 +41,8 @@ services:
   # 입구 인증서 에이전트(ADR 0014, platform ADR 0002). ACME(RFC 8555) 클라이언트(Caddy)가 입구와 영역 사이 mTLS 의 인증서를 받고 스스로 갱신한다.
   # 입구(envoy)가 이 컨테이너의 네트워크 이름공간을 쓴다: 공인·사설 CA 의 http-01 검증이 입구의 이름으로 80 번에 접속하고, 입구는 8443 번에서 받는다.
   ingress-acme:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
     restart: unless-stopped
     read_only: true
@@ -75,6 +79,8 @@ services:
       start_period: 10s
 
   envoy:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: envoyproxy/envoy:v1.35.3@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
     restart: unless-stopped
     read_only: true
@@ -100,6 +106,8 @@ services:
       retries: 10
 
   keycloak:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: quay.io/keycloak/keycloak:26.3.5@sha256:357829ec7c4693397533035092ad13b0644bcc95ded311f33a3738c4d9e9bdba
     restart: unless-stopped
     depends_on:
@@ -145,6 +153,8 @@ services:
 
   # 화면 로그인 앞단(identity_proxy). 입구(envoy)가 사람 인증 경로의 세션을 이 서비스에 묻는다(ext_authz). 세션이 있으면 접근 토큰을 돌려준다.
   oauth2-proxy:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0@sha256:786bed0f000c0f8a7b31619244ebab02406a8856a4faf3f5fb1df61fbd6c30ed
     restart: unless-stopped
     read_only: true
@@ -185,6 +195,8 @@ services:
 
   # 사설 CA(ADR 0014). 루트·중간 CA 파일과 ca.json 은 `./deploy bootstrap` 이 deploy/pki/ 에 만든다. 루트 개인 키는 이 컨테이너에 주지 않는다.
   step-ca:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
     restart: unless-stopped
     read_only: true
@@ -212,6 +224,8 @@ services:
 
   # 이미지 레지스트리(ADR 0013). 저장소는 distribution/registry(Apache-2.0), TLS 는 앞단 Caddy 가 ACME 로 step-ca 에서 받는다(ADR 0014).
   registry-store:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     profiles: [local-registry] # OPENIT_REGISTRY_MODE=local 일 때만(./deploy 가 --profile 을 준다)
     image: registry:3.1.2@sha256:38907510915c3f1604c7e83d6ab602ab3020d092f73bdaed8696773693ff768c
     restart: unless-stopped
@@ -231,6 +245,8 @@ services:
       retries: 10
 
   registry:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     profiles: [local-registry]
     image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
     restart: unless-stopped
@@ -266,6 +282,8 @@ services:
 
   # 레지스트리 클라이언트(ADR 0013). `./deploy` 가 push·pull·존재 확인에만 일회용으로 돌린다(`compose run`). 상시 서비스가 아니다.
   registry-client:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     profiles: [tools]
     image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
     read_only: true
@@ -279,6 +297,8 @@ services:
 
   # 감시(ADR 0014). blackbox_exporter 가 TLS 로 접속해 인증서 만료 시각(probe_ssl_earliest_cert_expiry)을 재고, Prometheus 가 규칙으로 경보를 판정한다.
   blackbox:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
     restart: unless-stopped
     read_only: true
@@ -297,6 +317,8 @@ services:
 
   # 경보 수신(platform ADR 0005). 수신처는 설치 설정(OPENIT_ALERT_RECEIVER_URL)이고 ./deploy 가 설정을 만든다. 비어 있으면 경보를 어디로도 보내지 않는다.
   alertmanager:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     restart: unless-stopped
     read_only: true
@@ -317,6 +339,8 @@ services:
       retries: 10
 
   prometheus:
+    labels:
+      io.openit.service: platform # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     restart: unless-stopped
     read_only: true
@@ -345,6 +369,8 @@ services:
 
   # ---- survey-service(영역 서비스, ADR 0023). DB 는 영역이 가진다(공유 DB 없음, D126). 영역 네트워크에는 게이트웨이와 DB 만 있다 ----
   survey-db:
+    labels:
+      io.openit.service: survey-service # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74
     restart: unless-stopped
     read_only: true
@@ -364,6 +390,8 @@ services:
       retries: 10
 
   survey-service:
+    labels:
+      io.openit.service: survey-service # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: ${OPENIT_IMAGE_SURVEY_SERVICE}
     pull_policy: never # 왜: digest 로 이미 엔진에 있는 이미지다(./deploy build 또는 pull 이 만든다). 없으면 up 이 먼저 막는다
     restart: unless-stopped
@@ -401,6 +429,8 @@ services:
       survey-service-area: { aliases: [survey-service-app] }
 
   survey-service-gateway:
+    labels:
+      io.openit.service: survey-service # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     <<: *area-gateway
     depends_on:
       step-ca: { condition: service_healthy }
@@ -427,6 +457,8 @@ services:
 
   # ---- model-runtime(영역 서비스) + 추론 엔진(vLLM, 서빙 GPU 서버 배치, design.md 6절) ----
   model-runtime:
+    labels:
+      io.openit.service: model-runtime # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: ${OPENIT_IMAGE_MODEL_RUNTIME}
     pull_policy: never
     restart: unless-stopped
@@ -465,6 +497,8 @@ services:
       model-runtime-area: { aliases: [model-runtime-app] }
 
   model-runtime-gateway:
+    labels:
+      io.openit.service: model-runtime # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     <<: *area-gateway
     depends_on:
       step-ca: { condition: service_healthy }
@@ -491,7 +525,34 @@ services:
 
   # 추론 엔진(vLLM 공식 이미지, Apache-2.0). 서빙 GPU 서버에서만 띄운다(OPENIT_INFERENCE_ENGINE_LOCAL=true 일 때 ./deploy 가 프로파일을 켠다).
   # 어댑터 폴더는 model-runtime 과 같은 경로로 읽기 전용 마운트한다(vLLM 의 lora_path 가 엔진 컨테이너에서 보는 경로, 계약 ModelRuntimeEnv).
+  # 서버별 가장자리(ADR 0026): 서비스를 서버 여러 대에 나눌 때만 ./deploy 가 띄운다(프로파일 layout-edge, 서버 한 대 배치에서는 없다).
+  # 같은 서버의 영역 게이트웨이들을 한 주소·포트로 내보낸다(TLS 는 SNI, ACME 와 감시는 Host 로 가른다). 설정은 ./deploy 가 서버마다 만든다.
+  # 포트 게시와 네트워크, 이름 표(extra_hosts)는 ./deploy 가 서버마다 만드는 덮개(generated/layout/<서버>.yaml)가 더한다.
+  area-edge:
+    profiles: [layout-edge]
+    labels:
+      io.openit.service: layout
+    image: envoyproxy/envoy:v1.35.3@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0" # 왜: 80 번(ACME http-01)을 비 root 가 연다. 컨테이너 네트워크 이름공간의 설정이고 호스트에는 영향이 없다
+    tmpfs: [/tmp]
+    volumes:
+      - ${OPENIT_EDGE_CONFIG:-./generated/layout/edge.yaml}:/etc/envoy/envoy.yaml:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   inference-engine:
+    labels:
+      io.openit.service: model-runtime # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     profiles: [inference-engine]
     image: vllm/vllm-openai:v0.33.0@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e
     restart: unless-stopped
@@ -518,6 +579,8 @@ services:
 
   # ---- 화면 둘(정적 서버, ADR 0011). 입구가 경로 접두어(/console/, /kiosk/)로 나눠 보낸다 ----
   admin-console:
+    labels:
+      io.openit.service: admin-console # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: ${OPENIT_IMAGE_WEB_ADMIN_CONSOLE}
     pull_policy: never
     restart: unless-stopped
@@ -530,6 +593,8 @@ services:
       admin-console-area: { aliases: [admin-console-app] }
 
   admin-console-gateway:
+    labels:
+      io.openit.service: admin-console # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     <<: *area-gateway
     depends_on:
       step-ca: { condition: service_healthy }
@@ -555,6 +620,8 @@ services:
       start_period: 10s
 
   kiosk-frontend:
+    labels:
+      io.openit.service: kiosk-frontend # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     image: ${OPENIT_IMAGE_WEB_KIOSK_FRONTEND}
     pull_policy: never
     restart: unless-stopped
@@ -567,6 +634,8 @@ services:
       kiosk-frontend-area: { aliases: [kiosk-frontend-app] }
 
   kiosk-frontend-gateway:
+    labels:
+      io.openit.service: kiosk-frontend # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
     <<: *area-gateway
     depends_on:
       step-ca: { condition: service_healthy }

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import gzip
 import http.client
@@ -28,19 +29,23 @@ import ssl
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dockerenv  # noqa: E402
+import layout as dlayout  # noqa: E402  왜 따로 모듈: 배치 계산은 docker 를 부르지 않는 순수 함수라 따로 시험한다(ADR 0026)
 
 # 왜 platform/src: 기성품 구성(입구·사람 인증·감시·사설 CA)의 설정은 platform 영역이 갖고 이 명령은 그 생성기를 부른다(design.md 5절, platform ADR 0001)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "src"))
 from openit_platform import area_gateway as pf_area_gateway  # noqa: E402
+from openit_platform import edge as pf_edge  # noqa: E402
 from openit_platform import generate as pf_generate  # noqa: E402
 from openit_platform import identity as pf_identity  # noqa: E402
 from openit_platform import pki  # noqa: E402
@@ -49,6 +54,8 @@ ROOT = dockerenv.REPO_ROOT
 DEPLOY = ROOT / "deploy"
 PLATFORM = ROOT / "platform"
 GENERATED = DEPLOY / "generated"  # ./deploy 가 만드는 설정(git 제외)
+LAYOUT_DIR = GENERATED / "layout"  # 여러 서버일 때 서버마다 만드는 파일(가장자리 설정, compose 덮개, 이미지 참조)
+LAYOUT_DEFAULT = "./layout.json"  # OPENIT_LAYOUT_FILE 의 기본값. 이 이름의 파일이 없으면 서버 한 대 배치다
 COMPOSE_FILE = DEPLOY / "compose.yaml"
 TOOLS_COMPOSE_FILE = DEPLOY / "compose.tools.yaml"  # 빌드 단계 도구(Trivy). 설치 설정과 무관하다(12-Factor App V, ADR 0024)
 SECRETS_DIR = DEPLOY / "secrets"
@@ -106,11 +113,43 @@ def no_target(message: str) -> NoReturn:
     fail(f"대상 없음: {message}", EXIT_NO_TARGET)
 
 
+CURRENT_SERVER: dlayout.Server | None = None  # 이 서버의 엔진으로 docker 를 부른다. None 이면 관리 노드의 기본 엔진(빌드 엔진)이다
+
+
+def server_environ(server: dlayout.Server | None) -> dict[str, str] | None:
+    """여러 서버일 때 서버의 docker context 로 엔진을 고른다(ADR 0009 규칙 1: DOCKER_CONTEXT 가 DOCKER_HOST 보다 앞선다). 서버 이름이 context 이름이다."""
+    if server is None or not get_layout().multi:
+        return None
+    return {**os.environ, "DOCKER_CONTEXT": server.name}
+
+
+@contextlib.contextmanager
+def on_server(server: dlayout.Server | None):  # type: ignore[no-untyped-def]
+    global CURRENT_SERVER  # noqa: PLW0603
+    previous, CURRENT_SERVER = CURRENT_SERVER, server
+    try:
+        yield
+    finally:
+        CURRENT_SERVER = previous
+
+
 def docker(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    environ = server_environ(CURRENT_SERVER)
+    if environ is not None:
+        kwargs["environ"] = environ
     try:
         return dockerenv.run_docker(args, **kwargs)
     except dockerenv.DockerEnvError as error:
         fail(f"docker 환경을 정하지 못했다: {error}")
+
+
+def docker_bytes(args: list[str], data: bytes) -> subprocess.CompletedProcess[bytes]:
+    """표준 입력으로 바이트를 넘겨 docker 를 부른다(원격 엔진의 볼륨에 tar 를 올린다). 엔진 선택은 docker() 와 같다."""
+    try:
+        env = dockerenv.docker_env(server_environ(CURRENT_SERVER))
+    except dockerenv.DockerEnvError as error:
+        fail(f"docker 환경을 정하지 못했다: {error}")
+    return subprocess.run(["docker", *args], env=env, input=data, capture_output=True, check=False)  # noqa: S603, S607
 
 
 def env_values() -> dict[str, str]:
@@ -122,6 +161,40 @@ def env_values() -> dict[str, str]:
 
 def project_name() -> str:
     return env_values()["OPENIT_PROJECT_NAME"]
+
+
+@functools.cache
+def get_layout() -> dlayout.Layout:
+    """배치 설정(계약 DeploymentLayout). 기본 이름의 파일이 없으면 서버 한 대 배치(지금 동작), 다른 이름을 줬는데 없으면 멈춘다."""
+    value = env_values()["OPENIT_LAYOUT_FILE"]
+    path = pki.resolve_path(DEPLOY, value)
+    try:
+        if not path.is_file() and value == LAYOUT_DEFAULT:
+            return dlayout.load_layout(None)
+        return dlayout.load_layout(path)
+    except dlayout.LayoutError as error:
+        fail("배치 설정이 틀렸다:\n  " + "\n  ".join(error.problems))
+
+
+def active_server() -> dlayout.Server:
+    return CURRENT_SERVER or get_layout().platform
+
+
+def server_project(server: dlayout.Server) -> str:
+    return get_layout().project_name(project_name(), server)
+
+
+def endpoint_of(server: dlayout.Server | None) -> str:
+    """서버의 엔진 엔드포인트(DOCKER_HOST 로 풀린 값). server 가 None 이면 관리 노드의 기본 엔진."""
+    try:
+        return dockerenv.docker_env(server_environ(server))["DOCKER_HOST"]
+    except dockerenv.DockerEnvError as error:
+        fail(f"docker 환경을 정하지 못했다: {error}")
+
+
+def is_build_engine(server: dlayout.Server) -> bool:
+    """서버의 엔진이 이미지를 빌드한 관리 노드의 엔진과 같은가(같으면 이미지가 이미 있다)."""
+    return endpoint_of(server) == endpoint_of(None)
 
 
 @functools.cache
@@ -168,21 +241,31 @@ def local_image_digest(name: str) -> str | None:
     return digest if result.returncode == 0 and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) else None
 
 
-def sync_image_env() -> list[str]:
+def sync_image_env(server: dlayout.Server | None = None) -> list[str]:
     """영역 이미지 참조를 generated/images.env 에 쓴다: `openit/<대상>@<이 엔진에 있는 이미지의 digest>`(태그가 아니라 digest 로 띄운다, ADR 0004).
 
     왜 lock 이 아니라 엔진의 이미지: images.lock 의 digest 는 레지스트리에 올린 매니페스트의 digest 라 다른 서버가 내려받는 값이고(ADR 0013),
     같은 내용이어도 이 엔진에 있는 이미지의 digest 와 다를 수 있다(레지스트리가 푸시 때 매니페스트를 다시 쓴다). 띄우는 것은 이 엔진의 이미지이므로 그 digest 로 고정한다.
     `pull` 은 내려받은 이미지를 `openit/<대상>:local` 로 이름 붙여 같은 길을 쓴다. 엔진에 없는 대상은 0 으로 채운 자리를 두고(up 이 막는다) 이름을 돌려준다.
     """
+    server = server or active_server()
     lines, unbuilt = [], []
     for name, variable in deployed_images().items():
         digest = local_image_digest(name)
-        if digest is None:
-            unbuilt.append(name)
+        if digest is None and image_service(name) in server.services:
+            unbuilt.append(name)  # 왜 이 서버의 서비스만: 다른 서버의 이미지는 이 엔진에 없어도 된다
         lines.append(f"{variable}={local_image(name)}@{digest or UNBUILT_DIGEST}\n")
-    write_if_changed(GENERATED / "images.env", "# ./deploy 가 이 엔진의 이미지에서 만든다. 손으로 고치지 않는다.\n" + "".join(lines))
+    write_if_changed(images_env_file(server), "# ./deploy 가 이 엔진의 이미지에서 만든다. 손으로 고치지 않는다.\n" + "".join(lines))
     return unbuilt
+
+
+def image_service(name: str) -> str:
+    """이미지 대상 이름 -> 계약 ServiceName(화면은 web- 접두어)."""
+    return name.removeprefix("web-")
+
+
+def images_env_file(server: dlayout.Server) -> Path:
+    return LAYOUT_DIR / f"{server.name}.images.env" if get_layout().multi else GENERATED / "images.env"
 
 
 AREA_SERVICES = ("survey-service", "model-runtime", "admin-console", "kiosk-frontend")  # 영역 게이트웨이를 가진 서비스 영역(compose.yaml)
@@ -213,29 +296,178 @@ def sync_area_env() -> None:
         PENDING_CHANGES.add("areas.env")
 
 
-def compose_args() -> list[str]:
-    args = ["compose", "--project-name", project_name(), "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
+def compose_args(server: dlayout.Server | None = None, *, staged: bool = True) -> list[str]:
+    """이 서버의 compose 프로젝트에 줄 인자. 서버 한 대(기본)면 제품 compose 그대로, 여럿이면 서버마다 덮개와 이름 표를 더한다(ADR 0026)."""
+    server = server or active_server()
+    layout = get_layout()
+    env = env_values()
+    is_platform = server is layout.platform
+    args = ["compose", "--project-name", server_project(server), "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
             "--env-file", str(DEPLOY / "env.example")]
-    if env_values()["OPENIT_REGISTRY_MODE"] == "local":
-        args += ["--profile", "local-registry"]  # 왜: external 이면 레지스트리 서비스를 띄우지 않는다(ADR 0013)
+    if env["OPENIT_REGISTRY_MODE"] == "local" and is_platform:
+        args += ["--profile", "local-registry"]  # 왜: external 이면 레지스트리 서비스를 띄우지 않는다(ADR 0013). 레지스트리는 플랫폼 서버에 있다
     try:
         sync_generated()  # 왜 여기서: compose 는 생성된 파생 값(generated/platform.env)과 입구 에이전트 이름(compose.platform.yaml)을 읽는다
     except typer.Exit:
         if not LENIENT_GENERATION:
             raise
         typer.echo("경고: platform 설정을 새로 만들지 못해 이전에 만든 파일로 진행한다", err=True)
-    sync_image_env()
+    sync_image_env(server)
     sync_area_env()
-    args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env"), "--env-file", str(GENERATED / "images.env"), "--env-file", str(GENERATED / "areas.env")]
-    if env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true":
+    args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env"), "--env-file", str(images_env_file(server)),
+             "--env-file", str(GENERATED / "areas.env")]
+    if env["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true" and "model-runtime" in server.services:
         args += ["--profile", "inference-engine"]  # 왜: 추론 엔진(vLLM)은 서빙 GPU 서버 배치다. 이 서버에서 안 띄우면 false(design.md 6절)
+    if layout.multi:
+        files = prepare_layout(server)
+        args += ["--profile", "layout-edge", "-f", str(files["override"]), "--env-file", str(files["env"])]
+        if staged and files["stage"].is_file():
+            args += ["-f", str(files["stage"])]
     if (DEPLOY / ".env").exists():
         args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
     return args
 
 
-def compose(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-    return docker([*compose_args(), *args], **kwargs)
+def compose(args: list[str], server: dlayout.Server | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    """서버의 compose 프로젝트로 docker compose 를 부른다. 서버를 안 주면 지금 서버(없으면 플랫폼 서버)다."""
+    server = server or active_server()
+    with on_server(server):
+        return docker([*compose_args(server), *args], **kwargs)
+
+
+# ---------------------------------------------------------------- 여러 서버 배치(ADR 0026)
+
+
+def acme_name() -> str:
+    return dlayout.acme_host(env_values()["OPENIT_INTERNAL_ACME_DIRECTORY_URL"])
+
+
+def platform_names() -> list[str]:
+    """플랫폼 서버에 있는 이름들: 사설 CA, 레지스트리(local 일 때), 입구 이름(발급자 주소의 호스트 포함)."""
+    settings = platform_generated().settings
+    names = [acme_name(), settings.public_host, *settings.public_names]
+    if env_values()["OPENIT_REGISTRY_MODE"] == "local":
+        names += reg_cfg().names
+    return list(dict.fromkeys(names))
+
+
+def egress_targets() -> dict[str, list[tuple[str, int]]]:
+    return {spec.service: list(spec.targets) for spec in platform_generated().gateway.egress}
+
+
+def layout_flows() -> list[dlayout.Flow]:
+    settings = platform_generated().settings
+    return dlayout.flows(
+        get_layout(),
+        service_port=settings.service_port,
+        listen_port=settings.listen_port,
+        registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local",
+        egress=egress_targets(),
+        public_hosts=(settings.public_host, *settings.public_names),
+        registry_hosts=tuple(reg_cfg().names) if env_values()["OPENIT_REGISTRY_MODE"] == "local" else (),
+    )
+
+
+def prepare_layout(server: dlayout.Server) -> dict[str, Path]:
+    """서버의 가장자리 설정, compose 덮개, 환경 파일을 쓴다(같은 입력이면 같은 파일). 경로를 돌려준다."""
+    layout = get_layout()
+    settings = platform_generated().settings
+    generated = platform_generated()
+    try:
+        hosts = dlayout.hosts_for(layout, server, platform_names=platform_names())
+        step_ca = None if server is layout.platform else (acme_name(), dlayout.resolve_ip(layout.platform.address))
+    except dlayout.LayoutError as error:
+        fail("배치 설정이 틀렸다:\n  " + "\n  ".join(error.problems))
+    edge_yaml = LAYOUT_DIR / server.name / "edge.yaml"
+    write_if_changed(
+        edge_yaml,
+        pf_edge_render(settings, generated, server, layout),
+    )
+    override = dlayout.server_override(
+        layout, server, flow_list=layout_flows(), hosts=hosts, step_ca=step_ca, service_port=settings.service_port,
+        listen_port=settings.listen_port, registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local",
+    )
+    files = {"override": LAYOUT_DIR / f"{server.name}.yaml", "env": LAYOUT_DIR / f"{server.name}.env", "stage": LAYOUT_DIR / f"{server.name}.stage.yaml"}
+    write_if_changed(files["override"], dlayout.dump_yaml(override, f"./deploy 가 서버 {server.name} 의 배치 설정에서 만든다(ADR 0026). 손으로 고치지 않는다."))
+    write_if_changed(files["env"], f"# ./deploy 가 만든다. 서버 {server.name} 의 compose 가 읽는 값이다.\nOPENIT_EDGE_CONFIG={edge_yaml}\n")
+    return files
+
+
+def pf_edge_render(settings: object, generated: pf_generate.Generated, server: dlayout.Server, layout: dlayout.Layout) -> str:
+    from openit_platform import gateway as pf_gateway  # noqa: PLC0415
+
+    egress_services = [] if server is layout.platform else list(server.areas)  # 왜: 플랫폼 서버에서는 입구가 나가는 터널을 맡는다
+    config = pf_edge.build_edge(settings, generated.gateway, areas=list(server.areas), egress_services=egress_services)  # type: ignore[arg-type]
+    return pf_gateway.render(config).replace("platform/src/openit_platform/gateway.py", "platform/src/openit_platform/edge.py")
+
+
+def compose_model(server: dlayout.Server) -> dict[str, object]:
+    """이 서버의 compose 모델(덮개까지 합친 `config --format json`, 파일 올리기 덮개는 뺀 것)."""
+    with on_server(server):
+        result = docker([*compose_args(server, staged=False), "config", "--format", "json"], capture_output=True)
+    if result.returncode != 0:
+        fail(f"서버 {server.name} 의 compose config 실패: {result.stderr.strip()[-400:]}")
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+def selected_services(server: dlayout.Server, model: dict[str, object]) -> list[str]:
+    return dlayout.services_in(
+        model, get_layout(), server,  # type: ignore[arg-type]
+        registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local" and server is get_layout().platform,
+        inference_local=env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true" and "model-runtime" in server.services,
+    )
+
+
+def tool_image() -> str:
+    """서버 엔진에서 파일을 올리고 지우는 일회용 컨테이너의 이미지(compose.yaml 의 레지스트리 앞단 Caddy, digest 고정). 모든 서버가 이미 받는 이미지다(영역 게이트웨이도 같은 것)."""
+    return str(yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]["registry"]["image"])
+
+
+def stage_root(server: dlayout.Server) -> str:
+    """서버의 엔진 호스트에서 이 서버 프로젝트의 파일을 두는 폴더(OPENIT_STAGE_ROOT/<프로젝트>)."""
+    return f"{env_values()['OPENIT_STAGE_ROOT'].rstrip('/')}/{server_project(server)}"
+
+
+def stage_server(server: dlayout.Server) -> list[str]:
+    """여러 서버일 때 서버의 엔진 호스트에 compose 가 읽는 파일을 올린다(bind mount 는 엔진 호스트의 경로라 원격 엔진에는 관리 노드의 경로가 없다).
+
+    엔진 API 만 쓴다: 일회용 컨테이너가 스테이징 폴더를 bind mount 하고 표준 입력의 tar 를 푼다(ssh·rsync 가 필요 없다). 서비스는 그 경로를 bind mount 한다.
+    지난번과 내용이 바뀐 파일을 쓰는 서비스 이름을 돌려준다(돌고 있으면 다시 만들어야 읽는다).
+    """
+    if not get_layout().multi:
+        return []
+    model = compose_model(server)
+    selected = selected_services(server, model)
+    root = stage_root(server)
+    entries, document, users = dlayout.stage_plan(model, selected, root=root)  # type: ignore[arg-type]
+    files = prepare_layout(server)
+    write_if_changed(files["stage"], dlayout.dump_yaml(document, f"./deploy 가 서버 {server.name} 에 올릴 파일의 마운트를 만든다(ADR 0026). 손으로 고치지 않는다."))
+    digests = {entry.rel: dlayout.entry_digest(entry) for entry in entries}
+    state_file = LAYOUT_DIR / f"{server.name}.stage.json"
+    before = json.loads(state_file.read_text(encoding="utf-8")) if state_file.is_file() else {}
+    changed_entries = [entry for entry in entries if before.get(entry.rel) != digests[entry.rel]]
+    changed = sorted({service for entry in changed_entries if entry.rel in before for service in users[entry.rel]})
+    # 왜 바뀐 폴더만 비운다: 폴더를 지우고 다시 만들면 그 폴더를 마운트한 컨테이너가 지워진 폴더를 계속 본다. 안의 내용만 비우고 폴더는 둔다
+    clear = " ".join(f"find /stage/{entry.rel} -mindepth 1 -delete;" for entry in changed_entries if entry.source.is_dir() and entry.rel in before)
+    if changed_entries:
+        # 왜 바뀐 것만: 안 바뀐 파일을 다시 쓰면 파일이 새로 만들어져(unlink 뒤 create) 그 파일을 bind mount 한 컨테이너가 다시 시작할 때 원본을 못 찾는다
+        with on_server(server):
+            uploaded = docker_bytes(["run", "--rm", "-i", "--entrypoint", "sh", "-v", f"{root}:/stage", tool_image(), "-c",
+                                     f"chmod 700 /stage; {clear} tar -x -C /stage"], dlayout.build_tar(changed_entries))
+        if uploaded.returncode != 0:
+            fail(f"서버 {server.name}: 파일을 올리지 못했다(rc={uploaded.returncode}): {uploaded.stderr.decode(errors='replace').strip()[-300:]}")
+    state_file.write_text(json.dumps(digests, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return changed
+
+
+def unstage_server(server: dlayout.Server) -> None:
+    """down --volumes: 서버의 엔진 호스트에서 이 프로젝트의 스테이징 폴더를 지운다(비밀 파일 사본이 남지 않게)."""
+    root = stage_root(server)
+    parent, _, name = root.rpartition("/")
+    with on_server(server):
+        docker(["run", "--rm", "--entrypoint", "sh", "-v", f"{parent}:/stage", tool_image(), "-c", f"rm -rf /stage/{name}"],
+               capture_output=True)
+    (LAYOUT_DIR / f"{server.name}.stage.json").unlink(missing_ok=True)
 
 
 def git(*args: str) -> str:
@@ -459,6 +691,55 @@ def validate_platform_configs() -> list[tuple[str, bool, str]]:
     return results
 
 
+def endpoint_host(endpoint: str) -> str | None:
+    """ssh://사용자@호스트[:포트] 나 tcp://호스트:포트 의 호스트. unix 소켓이면 None(같은 호스트의 엔진이라 주소를 대조할 수 없다)."""
+    if not endpoint.startswith(("ssh://", "tcp://")):
+        return None
+    return endpoint.split("://", 1)[1].rpartition("@")[2].split(":")[0]
+
+
+def doctor_layout(check: Callable[..., None]) -> None:
+    """배치 설정 점검(ADR 0026): 서버마다 docker context 와 엔진, 주소, 서비스 배정, 서버 사이에 열어야 하는 포트."""
+    layout = get_layout()
+    typer.echo(f"[--] 배치: {'배치 설정 파일' if layout.explicit else '파일 없음 = 서버 한 대(관리 노드의 엔진)'}, 서버 {len(layout.servers)}대")
+    for server in layout.servers:
+        typer.echo(f"      {server.name} {server.address}: {', '.join(server.services)}")
+    if not layout.multi:
+        return
+    check("compose 서비스 라벨(서버 배정의 기준)", not (missing := dlayout.unlabeled_services(compose_model(layout.platform))), f"라벨 io.openit.service 가 없다: {', '.join(missing)}")
+    for server in layout.servers:
+        try:
+            endpoint = dockerenv.docker_env(server_environ(server))["DOCKER_HOST"]
+        except dockerenv.DockerEnvError as error:
+            check(f"서버 {server.name} 의 docker context", False,
+                  f"{error}. 만들기: DOCKER_CONFIG=\"$PWD/.docker-config\" docker context create {server.name} --docker host=ssh://<사용자>@{server.address}")
+            continue
+        host = endpoint_host(endpoint)
+        check(f"서버 {server.name} 의 docker context 가 주소 {server.address} 를 가리킨다", host is None or host == server.address,
+              f"context 의 엔드포인트 호스트는 {host} 이다")
+        with on_server(server):
+            engine = docker(["version", "--format", "{{.Server.Version}}"], capture_output=True)
+            check(f"서버 {server.name} 의 엔진 응답", engine.returncode == 0, "엔진에 연결하지 못했다")
+            if engine.returncode == 0 and "model-runtime" in server.services and env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true":
+                runtimes = docker(["info", "--format", "{{json .Runtimes}}"], capture_output=True).stdout
+                check(f"서버 {server.name}: 추론 엔진용 nvidia 런타임", "nvidia" in runtimes, "NVIDIA 컨테이너 툴킷을 설치하고 도커에 nvidia 런타임을 등록한다")
+        try:
+            dlayout.resolve_ip(server.address)
+            check(f"서버 {server.name} 의 주소 {server.address} 를 IPv4 로 풀 수 있다", True)
+        except dlayout.LayoutError as error:
+            check(f"서버 {server.name} 의 주소 풀이", False, "; ".join(error.problems))
+    flow_list = layout_flows()
+    settings = platform_generated().settings
+    problems = dlayout.port_problems(layout, flow_list, service_port=settings.service_port, listen_port=settings.listen_port,
+                                     registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local")
+    check("서버 안 게시 포트가 겹치지 않는다", not problems, "; ".join(problems))
+    typer.echo("[--] 서버 사이에 열어야 하는 포트(방화벽에서 이 방향만 연다):")
+    for flow in flow_list:
+        typer.echo(f"      {flow.src} -> {flow.dst}:{flow.port}  {flow.purpose}")
+    if env_values()["OPENIT_REGISTRY_MODE"] == "local":
+        typer.echo(f"[--] 서버의 엔진 호스트마다 필요한 것: /etc/hosts 에 '{layout.platform.address} {reg_cfg().names[0]}', /etc/docker/certs.d/{reg_cfg().names[0]}:443/ca.crt 에 신뢰 목록의 루트(INSTALL.md)")
+
+
 @app.command()
 def doctor() -> None:
     """필요한 도구·버전·포트·비밀 파일이 갖춰졌는지 확인한다."""
@@ -506,7 +787,10 @@ def doctor() -> None:
             for port in svc.get("ports", [])
             if port.get("published")
         ]
-        check("고정 호스트 포트 없음", not fixed, ", ".join(fixed))
+        if get_layout().multi:
+            typer.echo("[OK] 고정 호스트 포트: 서버를 넘는 호출에 필요한 것만 서버 주소에 게시한다(아래 '서버 사이에 열어야 하는 포트')")
+        else:
+            check("고정 호스트 포트 없음", not fixed, ", ".join(fixed))
         unpinned = [n for n, s in model.get("services", {}).items() if "@sha256:" not in s.get("image", "")]
         check("compose 이미지 digest 고정", not unpinned, ", ".join(unpinned))
     if env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] not in ("true", "false"):
@@ -534,6 +818,7 @@ def doctor() -> None:
         check("기기 CA 파일", False, "위 메시지를 본다")
     for label, ok, detail in validate_platform_configs():
         check(label, ok, detail)
+    doctor_layout(check)
     if not generated.settings.alert_receiver_url:
         typer.echo("[--] 경보 수신처(OPENIT_ALERT_RECEIVER_URL)가 비어 있다. 경보를 어디로도 보내지 않고 서버 중단도 알릴 수 없다")
     if problems:
@@ -731,16 +1016,21 @@ def is_running(service: str) -> bool:
 
 
 def recreate(services: list[str]) -> None:
+    # 왜 --no-deps(여러 서버): compose 는 이 서버에 없는 서비스(다른 서버에 배정된 것)를 의존성으로 이 서버에 띄운다
+    extra = ["--no-deps"] if get_layout().multi else []
     for service in services:
-        if compose(["up", "-d", "--wait", "--force-recreate", service]).returncode != 0:
+        if compose(["up", "-d", "--wait", *extra, "--force-recreate", service]).returncode != 0:
             fail(f"{service} 를 다시 만들지 못했다. 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status")
 
 
 @app.command()
 def up() -> None:
-    """compose 로 띄운다(health 가 될 때까지 기다린다). 바뀐 platform 설정은 돌고 있던 서비스를 다시 만들어 반영한다."""
+    """compose 로 띄운다(health 가 될 때까지 기다린다). 바뀐 platform 설정은 돌고 있던 서비스를 다시 만들어 반영한다. 배치 설정이 여러 서버면 서버마다 그 서버의 서비스만 띄운다."""
     if not (SECRETS_DIR / next(iter(SECRET_NAMES))).is_file() or not (CA_DIR / "ca.json").is_file():
         fail("비밀 파일이나 CA 파일이 없다. 먼저 ./deploy bootstrap", EXIT_FAIL)
+    if get_layout().multi:
+        up_multi()
+        return
     unbuilt = sync_image_env()
     if unbuilt:
         fail(f"이 엔진에 없는 이미지가 있다: {', '.join(unbuilt)}. ./deploy build 로 만들거나 ./deploy pull 로 받는다", EXIT_FAIL)
@@ -759,31 +1049,113 @@ def up() -> None:
         typer.echo("알림: realm 파일이 바뀌었다. Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다. ./deploy identity sync 로 반영한다")
 
 
+def up_multi() -> None:
+    """서버마다(플랫폼 서버 먼저) 이미지를 받고 파일을 올리고 그 서버의 서비스만 띄운다. 신뢰의 뿌리 -> 레지스트리 -> 이미지 순서는 bootstrap 이 먼저 지킨다."""
+    prepare_platform()
+    changed = sorted(PENDING_CHANGES)
+    for server in get_layout().order():
+        typer.echo(f"[{server.name}] {server.address}: {', '.join(server.services)}")
+        up_server(server, changed)
+    PENDING_CHANGES.clear()
+
+
+def up_server(server: dlayout.Server, changed: list[str]) -> None:
+    with on_server(server):
+        ensure_images(server)
+        if (unbuilt := sync_image_env(server)):
+            fail(f"서버 {server.name} 의 엔진에 없는 이미지가 있다: {', '.join(unbuilt)}. ./deploy build 로 만들거나 서버가 레지스트리에서 받을 수 있게 한다", EXIT_FAIL)
+        stale = stage_server(server)
+        model = compose_model(server)
+        selected = selected_services(server, model)
+        running = {service for service in selected if is_running(service)}
+        for tier in dlayout.tiers(model, selected):  # type: ignore[arg-type]
+            result = compose(["up", "-d", "--wait", "--no-deps", *tier])
+            if result.returncode != 0:
+                fail(f"서버 {server.name} 의 up 실패(rc={result.returncode}). 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status", EXIT_FAIL)
+        again = sorted({service for name in changed for service in RECREATE_ON_CHANGE.get(name, ()) if service in running} | (set(stale) & running))
+        if again:
+            typer.echo(f"[{server.name}] 바뀐 설정을 반영하려고 다시 만든다: {', '.join(again)}")
+            recreate(again)
+
+
+def ensure_images(server: dlayout.Server) -> None:
+    """서버의 엔진에 영역 이미지를 갖춘다. 빌드 엔진과 같은 엔진이면 이미 있고, 다른 엔진이면 lock 의 digest 로 레지스트리에서 받는다(docker pull, ADR 0013)."""
+    if is_build_engine(server):
+        return
+    prefix = registry_target(reg_cfg()).prefix
+    lock = read_lock()
+    for name in deployed_images():
+        if image_service(name) not in server.services:
+            continue
+        if name not in lock:
+            fail(f"images.lock 에 '{name}' 이 없다. 먼저 ./deploy bootstrap 으로 이미지를 올린다")
+        reference = f"{prefix}/{local_image(name)}@{lock[name]}"
+        if docker(["image", "inspect", reference], capture_output=True).returncode != 0:
+            pulled = docker(["pull", "--quiet", reference], capture_output=True)
+            if pulled.returncode != 0:
+                fail(f"서버 {server.name} 의 엔진이 {reference} 를 받지 못했다: {(pulled.stderr or pulled.stdout).strip()[-300:]}\n"
+                     f"  이 서버의 호스트가 레지스트리 이름 {prefix.split(':')[0]} 을 플랫폼 서버 주소로 풀고(/etc/hosts), 신뢰 목록의 루트를 "
+                     f"/etc/docker/certs.d/{prefix}/ca.crt 에 두어야 한다(INSTALL.md 의 서버 준비)")
+        if docker(["tag", reference, f"{local_image(name)}:local"], capture_output=True).returncode != 0:
+            fail(f"{name}: 내려받은 이미지에 이름을 붙이지 못했다")
+
+
 @app.command()
-def down() -> None:
-    """이 프로젝트(openit)의 컨테이너를 내린다. 볼륨은 지우지 않는다."""
+def down(
+    volumes: Annotated[bool, typer.Option("--volumes", help="볼륨(데이터베이스, 인증서 저장소)까지 지운다. 되돌릴 수 없다")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="--volumes 로 데이터가 지워지는 것을 확인했다")] = False,
+) -> None:
+    """이 설치의 컨테이너를 내린다(여러 서버면 모든 서버, 서비스 서버 먼저 플랫폼 서버 마지막). 볼륨은 --volumes --yes 일 때만 지운다."""
     global LENIENT_GENERATION  # noqa: PLW0603
+    if volumes and not yes:
+        fail("--volumes 는 데이터베이스와 인증서 저장소를 지운다. 확인했으면 --yes 를 붙인다", 2)
     LENIENT_GENERATION = True
-    result = compose(["down"])
-    if result.returncode != 0:
-        fail(f"down 실패(rc={result.returncode})")
+    layout = get_layout()
+    servers = list(reversed(layout.order())) if layout.multi else [layout.platform]
+    failed: list[str] = []
+    for server in servers:
+        command = ["down", *(["--volumes"] if volumes else []), *(["--remove-orphans"] if layout.multi else [])]
+        result = compose(command, server)
+        if result.returncode != 0:
+            failed.append(f"{server.name}(rc={result.returncode})")
+        elif volumes and layout.multi:
+            unstage_server(server)
+    if failed:
+        fail(f"down 실패: {', '.join(failed)}")
 
 
 @app.command()
 def status() -> None:
-    """컨테이너 상태와 health 를 보인다."""
-    listing = compose(["ps", "--all", "--format", "json"], capture_output=True)
-    if listing.returncode != 0:
-        fail(f"status 실패(rc={listing.returncode}): {listing.stderr.strip()}")
-    rows = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
-    if not rows:
-        no_target("떠 있는 컨테이너가 없다(./deploy up)")
+    """컨테이너 상태와 health 를 보인다(여러 서버면 모든 서버, 배정된 서비스가 없으면 그것도 정상이 아니다)."""
+    layout = get_layout()
+    servers = layout.order() if layout.multi else [layout.platform]
     unhealthy = 0
-    for row in rows:
-        health = row.get("Health") or "-"
-        typer.echo(f"{row['Service']:<16} {row['State']:<10} health={health}")
-        if row["State"] != "running" or health not in ("healthy", "-"):
+    seen = 0
+    for server in servers:
+        if layout.multi:
+            typer.echo(f"[{server.name}] {server.address}")
+        listing = compose(["ps", "--all", "--format", "json"], server, capture_output=True)
+        if listing.returncode != 0:
+            if not layout.multi:
+                fail(f"status 실패(rc={listing.returncode}): {listing.stderr.strip()}")
+            typer.echo(f"  FAIL 서버에 닿지 못했다(rc={listing.returncode}): {listing.stderr.strip()[-200:]}")
             unhealthy += 1
+            continue
+        rows = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
+        seen += len(rows)
+        for row in rows:
+            health = row.get("Health") or "-"
+            typer.echo(f"{row['Service']:<16} {row['State']:<10} health={health}")
+            if row["State"] != "running" or health not in ("healthy", "-"):
+                unhealthy += 1
+        if layout.multi:
+            expected = selected_services(server, compose_model(server))
+            missing = sorted(set(expected) - {row["Service"] for row in rows if row["State"] == "running"} - {row["Service"] for row in rows})
+            for service in missing:
+                typer.echo(f"{service:<16} {'없음':<10} (이 서버에 배정됐으나 컨테이너가 없다)")
+            unhealthy += len(missing)
+    if not seen and not unhealthy:
+        no_target("떠 있는 컨테이너가 없다(./deploy up)")
     if unhealthy:
         fail(f"정상이 아닌 컨테이너 {unhealthy}개", EXIT_FAIL)
 
@@ -1078,6 +1450,10 @@ def ensure_pki(cfg: pki.CaSettings) -> bool:
 
 
 def published_endpoint(service: str, port: int) -> tuple[str, int] | None:
+    layout = get_layout()
+    if layout.multi and service in ("registry", "ingress-acme"):
+        # 왜 서버 주소와 같은 포트: 여러 서버일 때 플랫폼 서버는 이 포트를 고정으로 게시한다(다른 서버가 이름으로 찾는다, ADR 0026)
+        return (layout.platform.address, port) if is_running(service) else None
     result = compose(["port", service, str(port)], capture_output=True)
     text = result.stdout.strip()
     if result.returncode != 0 or ":" not in text:
@@ -1088,6 +1464,8 @@ def published_endpoint(service: str, port: int) -> tuple[str, int] | None:
 
 def engine_host() -> str:
     """docker 엔진이 있는 호스트. 원격 엔진(docker context, SSH)이면 게시된 포트는 그 호스트에 있다."""
+    if get_layout().multi:
+        return get_layout().platform.address  # 왜: 여러 서버면 레지스트리와 입구는 플랫폼 서버의 주소로 닿는다
     env = dockerenv.docker_env()
     endpoint = env.get("DOCKER_HOST", "")
     if endpoint.startswith(("ssh://", "tcp://")):
@@ -1115,10 +1493,26 @@ def crane(args: list[str], stage: Path | None = None) -> subprocess.CompletedPro
     왜 데몬의 push 가 아닌가: 데몬이 게시된 포트에 닿는지는 설치 환경에 달렸다(Docker Desktop 에서는 닿지 않는 것을 확인했다). 안쪽 네트워크의 이름으로 접속하면
     어느 환경에서나 같고, 데몬에 루트 인증서를 설치(certs.d)하지 않아도 TLS 를 완전히 검증한다(ADR 0013).
     """
+    if get_layout().multi:
+        return crane_on_build_engine(args, stage)
     command = [*compose_args(), "--profile", "tools", "run", "--rm", "--no-deps", "-T", "--user", f"{os.getuid()}:{os.getgid()}"]
     if stage is not None:
         command += ["-v", f"{stage}:/w"]
     return docker([*command, "registry-client", *args], capture_output=True)
+
+
+def crane_on_build_engine(args: list[str], stage: Path | None) -> subprocess.CompletedProcess[str]:
+    """여러 서버일 때의 레지스트리 클라이언트: 레지스트리는 플랫폼 서버에 있어 compose 안쪽 네트워크로 닿지 못한다. 빌드 엔진의 일회용 컨테이너가 레지스트리 이름을
+    플랫폼 서버 주소로 풀어(--add-host) 접속한다. 인증서는 같은 신뢰 목록으로 검증한다(검증을 끄지 않는다)."""
+    layout = get_layout()
+    reg = reg_cfg()
+    image = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]["registry-client"]["image"]
+    command = ["run", "--rm", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--user", f"{os.getuid()}:{os.getgid()}",
+               "-e", "SSL_CERT_FILE=/etc/openit/trust-bundle.pem", "-v", f"{bundle_path()}:/etc/openit/trust-bundle.pem:ro",
+               "--add-host", f"{reg.names[0]}:{dlayout.resolve_ip(layout.platform.address)}"]
+    if stage is not None:
+        command += ["-v", f"{stage}:/w"]
+    return docker([*command, image, *args], capture_output=True)
 
 
 def registry_has(target: Registry, repo: str, digest: str) -> bool:
@@ -1229,6 +1623,8 @@ def bootstrap() -> None:
     if reg.mode == "external":
         typer.echo(f"      외부 레지스트리 {reg.address} 를 쓴다(레지스트리 단계를 건너뛴다)")
     else:
+        if get_layout().multi:
+            stage_server(get_layout().platform)  # 왜 먼저: 플랫폼 서버의 엔진이 읽는 파일(CA 설정, 신뢰 목록)을 올려야 step-ca 가 뜬다
         running = compose(["ps", "--quiet", "step-ca"], capture_output=True).stdout.strip()
         if changed and running:
             # 왜 다시 만든다: step-ca 가 읽는 파일이 바뀌었다(중간 CA 교체, 설정 변경). 컨테이너는 시작할 때 읽는다

@@ -1,0 +1,15 @@
+{
+  "servers": [
+    { "name": "service-01", "address": "192.0.2.10", "services": ["platform", "survey-service", "admin-console", "kiosk-frontend"] },
+    { "name": "serving-01", "address": "192.0.2.20", "services": ["model-runtime"] }
+  ],
+  "device_placements": [],
+  "backup": {
+    "repository_url": "rest:https://platform:8000/survey-service",
+    "password_file": "/run/secrets/backup_password",
+    "http_credentials_file": "/run/secrets/backup_http_credentials",
+    "encryption_key_file": "/run/secrets/backup_encryption_key",
+    "offsite_url": "https://backup.example.org/openit",
+    "offsite_credentials_file": "/run/secrets/offsite_credentials"
+  }
+}
