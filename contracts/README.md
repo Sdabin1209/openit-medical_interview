@@ -52,22 +52,44 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 서비스는 활성 릴리스의 모델 입출력 버전에 맞는 모델 통신 컴포넌트로만 모델과 이야기하고, 나머지 컴포넌트는 서비스 내부 타입만 안다. 그 버전을 아는 통신 컴포넌트가 없는 릴리스는 적재하지 않는다.
 
+## JWT 접근 토큰 검증 프로파일 (RFC 9068)
+
+사람 호출을 받는 서비스(survey-service, release-gate, question-authoring, ops-feedback)는 아래를 모두 확인하고 하나라도 어기면 401 로 거절한다. 설정은 그 서비스 Env 의 `OPENIT_OIDC_ISSUER_URL`, `OPENIT_OIDC_JWKS_URL`(없으면 발급자의 디스커버리 문서의 `jwks_uri`), `OPENIT_OIDC_AUDIENCE` 로 받는다.
+
+| 확인 | 값 | 근거 |
+|---|---|---|
+| JOSE 헤더 `typ` | `at+jwt` (`AccessTokenType`, `AccessTokenHeader`) | RFC 9068 2.1, 4 |
+| JOSE 헤더 `alg` | `none` 이 아니다 | RFC 9068 4 |
+| 서명 | 발급자의 공개 키 집합(JWKS)으로 검증 | RFC 9068 4, RFC 7517 |
+| `iss` | `OPENIT_OIDC_ISSUER_URL` 과 같다 | RFC 9068 4 |
+| `aud` | 문자열 또는 배열에 자기 서비스 이름(`OPENIT_OIDC_AUDIENCE`)이 있다. 서비스 이름만 받는 것은 이 프로젝트의 로컬 프로파일이다 | RFC 9068 2.2, 4 |
+| `exp`, `iat` | 만료되지 않았고 발급 시각이 있다(`NumericDate`) | RFC 9068 2.2, RFC 7519 |
+| `sub`, `client_id`, `jti` | 있다(`UserIdentityClaims`) | RFC 9068 2.2 |
+| 역할 | `realm_access.roles` 에 작업이 요구한 `UserRole` 이 있다 | Keycloak, U82 |
+
+서비스가 읽는 클레임은 `UserIdentityClaims` 이고 그 밖의 클레임(scope, azp 등)은 허용한다.
+
+## 모델 입출력 v3 에 의존하는 기능
+
+확인 중 상태의 전달, 질문의 뜻·대상을 묻는 말의 되묻기 한도 면제, 설명 요청이 한 문항에서 3번 이어진 뒤의 직원 도움 안내는 모델 입출력 v3(데이터셋 반영과 재학습)에 의존한다. 모델 입출력 v2 모델로는 서비스가 뜻 묻기를 구분할 수 없으므로 **데이터셋 v3 를 반영하기 전까지 비활성**이다. 활성 조건은 활성 릴리스의 `model_io_version` 이 `model-io-v3` 이상인 것이며 `ModelIoFeatureRequirements` 가 기능마다 정의한다. v3 가 활성이 되기 전의 동작은 되묻기 한도(처음 질문 1회와 되묻기 2회)를 REASK 와 CONFIRM 의 연속으로 세어 서비스가 건너뛰는 것이다.
+
 ## 범위의 근거
 
 값의 범위(길이, 개수, 최솟값, 최댓값)는 `x-basis` 에 근거를 적는다. 근거는 다음 순서로 찾았다.
 
 1. **표준**(예: 샘플링 온도 0~2는 OpenAI API 허용 범위, 시작 코드는 RFC 4226 과 NIST SP 800-63B, 기반 모델 이름은 Hugging Face 저장소 이름 규칙).
 2. **측정**: 데이터셋 정본(학습 서버의 `labels.py`, `SQL.md`, 학습 파일, 어댑터 파일 크기)에서 잰 최대값. 상한은 사용자 결정(발화 한 턴 300자: 관측 최대 140자의 약 2배)과 같은 방식으로 관측 최대의 2배로 했다.
-3. **구조에서 나오는 값**: 열거 값의 수, 칸 수 같은 계약 안의 개수.
-4. **결정 기록**의 결정 번호.
+3. **프로젝트 선택 상한**: 표준 조항이 범위를 직접 정하지 않는 값(예를 들어 URI 8000, 시각 35자, 안전한 수 범위)은 측정이나 사용자 결정으로 근거를 대고, 아직 결정이 없으면 `user-decisions-needed.md` 에 올린다.
+4. **구조에서 나오는 값**: 열거 값의 수, 칸 수 같은 계약 안의 개수.
+5. **결정 기록**의 결정 번호.
 
 위 어느 것에서도 값이 나오지 않은 것은 `user-decisions-needed.md` 에 올려 사용자가 정했고, `x-basis` 는 "사용자 결정 2026-11-10(UD-n)"을 가리킨다.
 
 ## 점검
 
 ```
-npx spectral lint -r lint/ruleset.yaml components.yaml openapi/*.yaml   # 계약 린트(표준 spectral:oas + openit 규칙)
-node --test lint/tests/*.test.mjs                                              # 규칙이 위반을 실제로 잡는지
+npx spectral lint -r lint/ruleset.yaml components.yaml openapi/*.yaml   # 계약 린트(표준 spectral:oas + openit 규칙 + 예시 검증)
+node --test lint/tests/*.test.mjs                                              # 규칙이 위반을 잡는지, 거부해야 할 값을 실제로 거부하는지(ajv)
 ```
 
 린트는 오류 0, 경고 0 이다. `lint/ruleset.yaml` 의 `overrides` 가 두 곳에서 표준 규칙을 끈다(사유는 규칙 파일 주석). `components.yaml` 에는 `oas3-unused-component` 와 `oas3-api-servers` 를 끈다. 이 파일은 서비스 문서가 아니라 공유 값 라이브러리라서 같은 문서 안의 참조 수와 서버 주소가 없기 때문이다. `openapi/*.yaml` 에는 `oas3-operation-security-defined` 를 끈다. 이 규칙은 보안 요구의 값을 oauth2 의 scope 로만 읽는데 OpenAPI 3.1.0 4.8.30 은 그 밖의 체계에서 필요한 역할 이름 목록으로 쓰도록 허용하기 때문이다.
