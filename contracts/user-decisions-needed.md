@@ -11,9 +11,18 @@
 | UD-01 | 이름·제목 글의 최대 길이(`ProblemTitle`, `QuestionnaireTitle`, `DatasetName`, `CandidateLabel`, `MetricSlice`) | 화면과 목록에 보이는 이름의 최대 글자 수 | 실측 문항 질문 문장 최대 56자, 한 줄 표시 폭. 측정할 정본이 없다 | 200자 |
 | UD-02 | 사유·설명 글의 최대 길이(`ProblemDetail`, `DecisionReason`, `CheckMessage`, `PreviewWarning`) | 사람이 쓰는 사유와 서버가 쓰는 설명의 최대 글자 수 | 반려·활성화·롤백 사유는 승인 기록에 남는다. 환자 발화는 넣지 않는다(D88). 측정할 정본이 없다 | 사유와 오류 설명 4000자, 검사 메시지와 경고 1000자 |
 | UD-03 | `/metrics` 본문의 최대 크기(`PrometheusExposition`) | 지표 읽기 응답의 최대 바이트 | Prometheus 는 본문 크기 상한이 기본 없음. 서비스 지표 수를 아직 잴 수 없다 | 8 MiB |
-| UD-04 | 시작 코드의 유효 시간(`StartCodeTtlSeconds` 의 실제 값, 계약은 NIST 상한 600초까지 허용) | 직원이 코드를 발급하고 환자가 키오스크에 입력하기까지 허용할 시간 | NIST SP 800-63B 는 일회용 비밀 유효 시간을 최대 10분으로 한다. 대기 줄이 길면 길어야 하고 짧을수록 안전하다 | 300초 |
+| UD-04 | 시작 코드의 유효 시간(`StartCodeTtlSeconds` 의 기본 300초, 계약은 NIST 상한 600초까지 허용) | 직원이 코드를 발급하고 환자가 키오스크에 입력하기까지 허용할 시간 | NIST SP 800-63B-3 5.1.3.2 는 일회용 비밀 유효 시간을 최대 10분으로 한다. 대기 줄이 길면 길어야 하고 짧을수록 안전하다 | 300초 |
 | UD-05 | 문항 자료 파일의 최대 크기(`MaterialFileContent`) | 저자가 올리는 PDF 등의 최대 바이트 | 지원 형식을 정하지 않았고(D33) 실제 자료 크기가 없다 | 20 MiB |
 | UD-06 | 문항 초안 미리보기의 최대 길이(`PreviewText`) | 사람이 읽는 미리보기 글의 최대 글자 수 | 실측 문항 31개, 질문 문장 최대 56자. 문진표 하나 전체 분량은 측정하지 않았다 | 20000자 |
 | UD-07 | 평가 지표 개수의 상한(`EvaluationReport.metrics`, `ReviewReport.comparisons`) | 한 보고서에 담는 지표(조각별 포함)의 최대 개수 | 지표 이름 8종 안팎에 문항·단위·위반 코드별 조각(D13, D97)이 곱해진다. 평가 실행기가 아직 조각을 정하지 않았다 | 1000개 |
 | UD-08 | 키오스크 기기 수의 상한(`DeviceAllowlist.devices`, `DeploymentLayout.device_placements`) | 한 설치에서 등록할 기기의 최대 수 | 설치처를 전제하지 않는다(설치처 차이는 설정 값). 기기 수에 대한 결정이 없다 | 1000대 |
 | UD-09 | 컨테이너가 쓰는 경로 수의 상한(`ContainerInputs.writable_paths`) | 읽기 전용 루트 파일시스템에서 쓰기를 허용할 경로의 최대 수 | ADR 0004(루트는 읽기 전용, 로그는 표준 출력). 영역 이미지의 쓰기 경로를 아직 모은 적이 없다 | 16개 |
+| UD-10 | 목록 크기 상한(`QuestionSetRefs`, `SubmissionRequest.question_set_version_ids`, `RollbackRequestCreate.evidence_case_ids`, `ProblemFieldErrors`, `HealthChecks`, `DraftPreview.warnings`, `FailureSignal.confusions`, `ActiveQuestionnaireList.questionnaires`, `TraceDelivery.traces` 와 `business_logs`) | 쪽이 아닌 목록 하나에 담을 항목의 최대 수 | 쪽 나누기 최대값(100)과는 관계가 없는 값들이다. 실제 문진표 수, 한 릴리스의 구성, 점검 항목 수를 아직 정하지 않았다 | 100개 |
+| UD-11 | 나가는 호출 상대 수의 상한(`Exposure.egress`) | 한 영역이 선언할 수 있는 나가는 상대(서비스와 영역 밖 호스트)의 최대 수 | 서비스 10개에 외부 상대(푸시 서비스, 모델 허브, 서버 밖 백업, 학습 서버)가 더해진다. 푸시 서비스는 브라우저마다 달라 수가 정해지지 않는다 | 32개 |
+| UD-12 | 응답 문장의 음성 출력(TTS)을 기기 안에서만 할지(F24) | 환자의 건강 값을 되짚는 응답 문장을 외부 음성 합성 제공자로 보낼 수 있는지 | 음성 입력은 기기 안에서 처리하고 외부로 보내지 않는다는 결정(C12, D88 U3)이 있다. 응답 문장은 `known` 의 값을 담는다. 외부 전송은 외부 공개 범주다 | 기기 안에서만 처리하고 외부로 보내지 않는다 |
+| UD-13 | 이미지 라벨 값의 최대 길이(`ImageLabelValue`) | 선언 객체를 JSON 글자로 쓴 라벨 값의 최대 글자 수 | OCI 는 라벨 값 길이를 정하지 않고 컨테이너 런타임이 한도를 둘 수 있다. 영역 이미지의 선언 크기를 아직 모았다 하지 않았다 | 8000자 |
+| UD-14 | 식별 이름의 최대 길이(`QuestionnaireId`, `MetricName`, `MetricGroupName`, `HealthCheckName`, `RiskSourceName`, `ModelProfileName`, `EnvVarName`) | 사람이 정하는 식별 이름의 최대 글자 수 | 측정할 정본이 없다. 짧을수록 화면과 로그에 알맞다 | 63자 |
+| UD-15 | 서비스를 서버에 나누는 방식(U97, `DeploymentLayout.servers`) | 서비스를 서버 몇 대에 어떻게 나눌 수 있게 할지. 사용자 요구는 모든 서비스를 어느 서버로든 나눌 수 있게 하는 것이고 설계 방향만 정해졌다 | 서버 수 상한은 서비스 수 10 이하라는 구조 값만 계약에 있다 | 서비스 수 이하의 임의 서버 수를 허용하고 서비스와 서버의 대응은 배치 설정으로 둔다 |
+| UD-16 | 학습 실행 요청을 학습 서버에 전하는 방식(F66) | model-lab 이 학습 서버에 `TrainingRunRequest` 를 어떻게 건네고 데이터셋과 설정 파일을 어떻게 얻게 할지 | 결과를 올리는 방향은 HTTPS 게시 API 로 정해졌다(C16). 요청 방향은 결정이 없다. 학습 서버가 model-lab 에서 당겨 가는 HTTPS 작업이 같은 표준 안에서 가장 단순하다 | 학습 서버가 model-lab 에서 대기 중인 요청과 파일을 당겨 가는 HTTPS 작업을 둔다 |
+| UD-17 | 키오스크 유휴 초기화 시간(D88 U10) | 말이 없을 때 세션을 만료시키는 시간과 멈춘 세션의 처리 | 시간 상한 표(`TimeBudgetTable`)에 값이 없다. 위험 정지 중인 세션은 만료하지 않는다(D66(5)) | 결정 기록 D88 U10 의 값을 확인해 `TimeBudgetTable` 에 넣는다 |
+| UD-18 | 외부 위험 감지기의 입력 경로(F37) | 외부 감지기가 위험을 판단하려고 세션의 발화를 어떻게 얻는지, 또는 감지기를 서비스 내부 규칙 엔진으로 정리할지 | 계약에는 신호를 받는 작업만 있고 감지기가 발화를 받는 길이 없다. 위험 감지는 기본 꺼짐이다(L11) | 위험 감지가 꺼진 동안은 유지하고, 켤 때 입력 경로를 정한다 |

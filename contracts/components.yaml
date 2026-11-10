@@ -334,7 +334,7 @@ components:
     TurnId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
     UtteranceText: { type: string, minLength: 1, maxLength: 300, description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배), D88 U3(음성은 기기 안 처리)" }
     ResponseSentence: { type: string, minLength: 1, maxLength: 344, description: "환자에게 보여 주고 읽어 줄 응답 문장", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), 이 문장이 다음 턴의 current_question 이 되므로 CurrentQuestionText 와 같은 상한이다. 실측 응답 문장 최대 134자와 current_question 최대 172자 중 큰 값의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: question-authoring, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SessionStatus:
       type: string
       enum: [ACTIVE, PAUSED, ENDED_COMPLETE, ENDED_PARTIAL, EXPIRED]
@@ -574,37 +574,37 @@ components:
     # ======================================================================
     # 문항 정의(문진 스키마): 문항, 칸, 순서·건너뛰기 표, 문항 세트 버전
     # ======================================================================
-    SlotKey: { type: string, pattern: "^[a-z][a-z0-9_]*$", maxLength: 32, description: "문항 안의 칸 하나의 이름(예를 들어 days, use_pattern, duration_minutes). 데이터셋의 field_name 이다", x-owner: question-authoring, x-basis: "데이터셋 question_fields.field_name(SQL.md), 실측 최대 16자(duration_minutes), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
-    SlotRefString: { type: string, pattern: "^[A-Za-z0-9_.]+(\\[[a-z]+\\])?\\.[a-z][a-z0-9_]*$", maxLength: 44, description: "문항과 칸을 한 문자열로 가리키는 값. 문항ID.칸키(예 Q1.D01.diagnosed)이고 술처럼 반복 키가 있으면 문항ID[반복키].칸키(예 Q7_1[soju].amount)다", x-owner: question-authoring, x-basis: "데이터셋 labels.py 의 _key 와 parse_key, D43(SlotRef 문자열은 마지막 점에서 나눈다), 실측 key 최대 22자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    RepeatKey: { type: string, pattern: "^[a-z]+$", maxLength: 20, description: "같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine)", x-owner: question-authoring, x-basis: "데이터셋 question_fields.repeat_keys_json(SQL.md), 실측 최대 9자(makgeolli), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    RepeatKeys: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/RepeatKey" }, description: "한 칸이 가질 수 있는 반복 키들", x-owner: question-authoring, x-basis: "실측 반복 키 5개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    SlotKey: { type: string, pattern: "^[a-z][a-z0-9_]*$", maxLength: 32, description: "문항 안의 칸 하나의 이름(예를 들어 days, use_pattern, duration_minutes). 데이터셋의 field_name 이다", x-owner: survey-service, x-basis: "데이터셋 question_fields.field_name(SQL.md), 실측 최대 16자(duration_minutes), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
+    SlotRefString: { type: string, pattern: "^[A-Za-z0-9_.]+(\\[[a-z]+\\])?\\.[a-z][a-z0-9_]*$", maxLength: 44, description: "문항과 칸을 한 문자열로 가리키는 값. 문항ID.칸키(예 Q1.D01.diagnosed)이고 술처럼 반복 키가 있으면 문항ID[반복키].칸키(예 Q7_1[soju].amount)다", x-owner: survey-service, x-basis: "데이터셋 labels.py 의 _key 와 parse_key, D43(SlotRef 문자열은 마지막 점에서 나눈다), 실측 key 최대 22자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    RepeatKey: { type: string, pattern: "^[a-z]+$", maxLength: 20, description: "같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine)", x-owner: survey-service, x-basis: "데이터셋 question_fields.repeat_keys_json(SQL.md), 실측 최대 9자(makgeolli), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    RepeatKeys: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/RepeatKey" }, description: "한 칸이 가질 수 있는 반복 키들", x-owner: survey-service, x-basis: "실측 반복 키 5개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SlotDataType:
       type: string
       enum: [boolean, integer, number, option, text]
       x-enum-descriptions: { boolean: "예 또는 아니오(true 와 false)", integer: "정수 값", number: "소수를 포함한 수", option: "선택지 코드 중 하나", text: "자유 글" }
       description: "칸이 받는 값의 자료형"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "데이터셋 question_fields.data_type 의 CHECK 제약(SQL.md)"
-    SlotUnit: { type: string, maxLength: 16, description: "수 칸의 단위 이름(년, 개비, day/week, minute 등)", x-owner: question-authoring, x-basis: "데이터셋 question_fields.unit, 실측 최대 8자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
-    SlotNumber: { type: number, minimum: -9007199254740991, maximum: 9007199254740991, description: "칸에 담기는 수 값 또는 그 최소·최대 한계(정수도 포함). 칸마다의 허용 범위는 칸 규격(QuestionFieldSpec)이 정한다", x-owner: question-authoring, x-basis: "RFC 7493 2.2(I-JSON 의 안전한 수 범위), D115(값은 question_fields 와 같게: 범위는 칸 규격이 정한다), D117" }
-    OptionCode: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 20, description: "선택지 하나의 코드(예를 들어 days_10_29, current, bottle)", x-owner: question-authoring, x-basis: "데이터셋 field_options.option_code(SQL.md), 실측 최대 10자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    OptionLabel: { type: string, minLength: 1, maxLength: 38, description: "선택지 하나의 환자용 이름", x-owner: question-authoring, x-basis: "데이터셋 field_options.label, 실측 최대 19자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    SlotUnit: { type: string, maxLength: 16, description: "수 칸의 단위 이름(년, 개비, day/week, minute 등)", x-owner: survey-service, x-basis: "데이터셋 question_fields.unit, 실측 최대 8자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
+    SlotNumber: { type: number, minimum: -9007199254740991, maximum: 9007199254740991, description: "칸에 담기는 수 값 또는 그 최소·최대 한계(정수도 포함). 칸마다의 허용 범위는 칸 규격(QuestionFieldSpec)이 정한다", x-owner: survey-service, x-basis: "RFC 7493 2.2(I-JSON 의 안전한 수 범위), D115(값은 question_fields 와 같게: 범위는 칸 규격이 정한다), D117" }
+    OptionCode: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 20, description: "선택지 하나의 코드(예를 들어 days_10_29, current, bottle)", x-owner: survey-service, x-basis: "데이터셋 field_options.option_code(SQL.md), 실측 최대 10자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    OptionLabel: { type: string, minLength: 1, maxLength: 38, description: "선택지 하나의 환자용 이름", x-owner: survey-service, x-basis: "데이터셋 field_options.label, 실측 최대 19자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionOption:
       type: object
       additionalProperties: false
       description: "선택지 하나(코드와 환자용 이름)"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "데이터셋 field_options(SQL.md)"
       required: [option_code, label]
       properties:
         option_code: { $ref: "#/components/schemas/OptionCode", description: "저장되는 선택지 코드" }
         label: { $ref: "#/components/schemas/OptionLabel", description: "환자에게 보이는 이름" }
-    QuestionOptions: { type: array, maxItems: 23, items: { $ref: "#/components/schemas/QuestionOption" }, description: "한 칸의 선택지들", x-owner: question-authoring, x-basis: "실측 field_options 전체 23개(SQL.md 의 field_options). 칸 하나의 선택지는 전체 개수 이하이므로 상한을 23 으로 한다" }
+    QuestionOptions: { type: array, maxItems: 23, items: { $ref: "#/components/schemas/QuestionOption" }, description: "한 칸의 선택지들", x-owner: survey-service, x-basis: "실측 field_options 전체 23개(SQL.md 의 field_options). 칸 하나의 선택지는 전체 개수 이하이므로 상한을 23 으로 한다" }
     QuestionFieldSpec:
       type: object
       additionalProperties: false
       description: "칸 하나의 규격(자료형, 단위, 허용 범위, 반복 키, 선택지). 추론 서버가 출력 값을 이 규격으로 보증한다"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D115, U32, 데이터셋 question_fields 와 field_options(SQL.md)"
       required: [item_id, field_name, data_type]
       properties:
@@ -617,36 +617,36 @@ components:
         exclusive_minimum: { $ref: "#/components/schemas/SlotNumber", description: "수 칸이 이 값보다 커야 한다(이 값은 제외)" }
         repeat_keys: { $ref: "#/components/schemas/RepeatKeys", description: "반복 키가 있는 칸이면 그 키들(없으면 빈 키 하나만 쓴다)" }
         options: { $ref: "#/components/schemas/QuestionOptions", description: "선택지 칸의 선택지들" }
-    QuestionFieldSpecs: { type: array, maxItems: 104, items: { $ref: "#/components/schemas/QuestionFieldSpec" }, description: "칸 규격들", x-owner: question-authoring, x-basis: "실측 question_fields 52개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    QuestionText: { type: string, minLength: 1, maxLength: 124, description: "문항 하나의 환자용 질문 문장", x-owner: question-authoring, x-basis: "D74(문항 번호로 질문 문장을 찾는 표), 실측 문항 은행 질문 문장 최대 56자와 학습 데이터 next.text 최대 62자, 상한은 학습 데이터 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    QuestionFieldSpecs: { type: array, maxItems: 104, items: { $ref: "#/components/schemas/QuestionFieldSpec" }, description: "칸 규격들", x-owner: survey-service, x-basis: "실측 question_fields 52개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    QuestionText: { type: string, minLength: 1, maxLength: 124, description: "문항 하나의 환자용 질문 문장", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는 표), 실측 문항 은행 질문 문장 최대 56자와 학습 데이터 next.text 최대 62자, 상한은 학습 데이터 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionItem:
       type: object
       additionalProperties: false
       description: "문항 하나(식별자, 질문 문장, 받을 칸들)"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D13(QuestionBank), D74"
       required: [item_id, text, fields]
       properties:
         item_id: { $ref: "#/components/schemas/QuestionItemId", description: "문항 식별자" }
         text: { $ref: "#/components/schemas/QuestionText", description: "질문 문장" }
         fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "이 문항이 받는 칸들의 규격" }
-    QuestionItems: { type: array, maxItems: 62, items: { $ref: "#/components/schemas/QuestionItem" }, description: "문항들", x-owner: question-authoring, x-basis: "실측 문항 31개(question_items), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    QuestionItems: { type: array, maxItems: 62, items: { $ref: "#/components/schemas/QuestionItem" }, description: "문항들", x-owner: survey-service, x-basis: "실측 문항 31개(question_items), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionBank:
       type: object
       additionalProperties: false
       description: "한 문진표의 문항 정의 전체(문항 은행)"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D13, F15, F16"
       required: [items]
       properties:
         items: { $ref: "#/components/schemas/QuestionItems", description: "문항들" }
-    FlowTarget: { type: string, pattern: "^(END|[A-Za-z0-9_.]+)$", maxLength: 12, description: "순서표와 LoRA-A 출력이 가리키는 다음 자리. 문항 식별자 또는 끝을 뜻하는 END", x-owner: question-authoring, x-basis: "D76(QuestionFlowTable), 데이터셋 labels.py(END, next_item), 실측 문항 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    FlowTarget: { type: string, pattern: "^(END|[A-Za-z0-9_.]+)$", maxLength: 12, description: "순서표와 LoRA-A 출력이 가리키는 다음 자리. 문항 식별자 또는 끝을 뜻하는 END", x-owner: survey-service, x-basis: "D76(QuestionFlowTable), 데이터셋 labels.py(END, next_item), 실측 문항 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     FlowComparison:
       type: string
       enum: [EQ, NE, LT, LE, GT, GE]
       x-enum-descriptions: { EQ: "같다", NE: "다르다", LT: "작다", LE: "작거나 같다", GT: "크다", GE: "크거나 같다" }
       description: "건너뛰기 조건의 비교 연산"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76(Q8_1.days == 0 같은 수 조건)"
     ConditionValue:
       oneOf:
@@ -654,13 +654,13 @@ components:
         - { $ref: "#/components/schemas/SlotNumber" }
         - { $ref: "#/components/schemas/OptionCode" }
       description: "건너뛰기 조건이 비교하는 값(예 또는 아니오, 수, 선택지 코드 중 하나)"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76"
     FlowCondition:
       type: object
       additionalProperties: false
       description: "분기가 선택되는 조건(칸 값과 비교)"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76"
       required: [slot, operator, value]
       properties:
@@ -671,7 +671,7 @@ components:
       type: object
       additionalProperties: false
       description: "분기 하나. 조건이 맞으면 다음 자리로 간다. 조건이 없으면 앞 분기가 모두 맞지 않을 때의 기본 경로다"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76"
       required: [next_item]
       properties:
@@ -681,7 +681,7 @@ components:
       type: object
       additionalProperties: false
       description: "문항 하나 다음에 어디로 가는지의 분기들. 앞에서부터 처음 맞는 분기를 쓴다"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76, D74(순서는 서비스 표가 정한다), U74"
       required: [item_id, branches]
       properties:
@@ -691,7 +691,7 @@ components:
       type: object
       additionalProperties: false
       description: "문항 순서와 건너뛰기 규칙 표. 추론 서버가 출력의 다음 문항을 이 표로 보증하고 채운다"
-      x-owner: question-authoring
+      x-owner: survey-service
       x-basis: "D76, D104(2), D108(1), U74"
       required: [start_item, rules]
       properties:
@@ -710,7 +710,7 @@ components:
         flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "순서와 건너뛰기" }
     Sha256Digest: { type: string, pattern: "^[0-9a-f]{64}$", maxLength: 64, description: "내용의 SHA-256 해시(소문자 16진수 64자)", x-owner: head, x-basis: "FIPS 180-4 (SHA-256), D33(원본 자료 해시), D69(서버가 계산)" }
     Int32Positive: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "1부터 시작하는 순번(32비트 정수 범위)", x-owner: head, x-basis: "OpenAPI 3.1 format int32, D75(2)(정수 버전)" }
-    RuntimeContractVersion: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "문항 은행과 칸 키의 정수 버전. 모델 패키지가 학습한 값과 다르면 적재와 승인을 거부한다", x-owner: question-authoring, x-basis: "D75(2), D79(1)(1 로 시작해 호환이 깨질 때만 올린다)" }
+    RuntimeContractVersion: { type: integer, format: int32, minimum: 1, maximum: 2147483647, description: "문항 은행과 칸 키의 정수 버전. 모델 패키지가 학습한 값과 다르면 적재와 승인을 거부한다", x-owner: survey-service, x-basis: "D75(2), D79(1)(1 로 시작해 호환이 깨질 때만 올린다)" }
     QuestionSetVersionId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, description: "문진표 한 벌의 확정된 버전 하나의 식별자", x-owner: question-authoring, x-basis: "RFC 9562 (UUID), D30(임상 승인은 정확한 버전에 묶인다)" }
     ChangeClass:
       type: string
@@ -929,9 +929,9 @@ components:
     # ======================================================================
     # LoRA-A 입력·출력과 LoRA-B 입력·출력(정본은 데이터셋 정의, D74)
     # ======================================================================
-    YesNoAnswer: { type: boolean, description: "예 또는 아니오 칸의 값(예이면 참)", x-owner: model-runtime, x-basis: "데이터셋 labels.py 와 학습 데이터의 boolean 값(실측 25463건)" }
-    NoValue: { type: "null", description: "값이 없음을 뜻하는 null(모름·거절·빠짐 등 저장할 값이 없는 칸)", x-owner: model-runtime, x-basis: "실측 학습 데이터 LoRA-A 출력 value 의 null 8820건" }
-    SlotText: { type: string, maxLength: 300, description: "자유 글 칸의 값", x-owner: question-authoring, x-basis: "데이터셋 question_fields.data_type 의 text, 사용자 결정 2026-11-10(발화 상한 300자: 자유 글 값은 환자 발화에서 나온다)" }
+    YesNoAnswer: { type: boolean, description: "예 또는 아니오 칸의 값(예이면 참)", x-owner: head, x-basis: "데이터셋 labels.py 와 학습 데이터의 boolean 값(실측 25463건)" }
+    NoValue: { type: "null", description: "값이 없음을 뜻하는 null(모름·거절·빠짐 등 저장할 값이 없는 칸)", x-owner: head, x-basis: "실측 학습 데이터 LoRA-A 출력 value 의 null 8820건" }
+    SlotText: { type: string, maxLength: 300, description: "자유 글 칸의 값", x-owner: survey-service, x-basis: "데이터셋 question_fields.data_type 의 text, 사용자 결정 2026-11-10(발화 상한 300자: 자유 글 값은 환자 발화에서 나온다)" }
     SlotAnswer:
       anyOf:
         - { $ref: "#/components/schemas/YesNoAnswer" }
@@ -940,20 +940,20 @@ components:
         - { $ref: "#/components/schemas/SlotText" }
         - { $ref: "#/components/schemas/NoValue" }
       description: "칸 하나에 담긴 값(예 또는 아니오, 수, 선택지 코드, 자유 글, 값 없음 중 하나)"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 학습 데이터 values[].value 의 실측 형식(bool, int, float, str, null), labels.py, SQL.md 의 data_type 5종"
     StateStatus:
       type: string
       enum: [ANSWERED, MISSING, UNCLEAR]
       x-enum-descriptions: { ANSWERED: "답이 저장되어 있다", MISSING: "앞 턴에서 빠져 다시 물은 칸이다(값 null)", UNCLEAR: "앞 턴에서 불분명해 다시 물은 칸이다(값 null)" }
       description: "LoRA-A 입력 state 안의 칸 하나의 상태"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_state(ANSWERED 와 pending_rows 의 status), 실측 학습 데이터 state 의 status 값 3종"
     StateEntry:
       type: object
       additionalProperties: false
       description: "state 안의 칸 하나(저장된 값과 상태)"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_state, 실측 학습 데이터 state 항목의 키(value, status)"
       required: [value, status]
       properties:
@@ -966,21 +966,21 @@ components:
         "^[A-Za-z0-9_.]+(\\[[a-z]+\\])?\\.[a-z][a-z0-9_]*$": { $ref: "#/components/schemas/StateEntry" }
       maxProperties: 18
       description: "칸을 가리키는 키(문항.칸, 술은 문항[술코드].칸)에서 그 칸의 값과 상태로 가는 표. 항목의 순서가 의미를 가진다(모델 입력 글자는 학습 데이터와 같게 만든다)"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_state, D77(state 안은 삽입 순서 보존), 실측 학습 데이터 state 항목 수 최대 9, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)"
-    CurrentQuestionText: { type: string, maxLength: 344, description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문). 환자의 말은 이 질문에 대한 답으로 읽는다", x-owner: model-runtime, x-basis: "데이터셋 A 입력 current_question(학습 데이터 36145행 최대 172자), 사용자 결정 2026-11-10(사용자 말은 직전 화면 질문에 대한 답으로 읽는다), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    CurrentQuestionText: { type: string, maxLength: 344, description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문). 환자의 말은 이 질문에 대한 답으로 읽는다", x-owner: head, x-basis: "데이터셋 A 입력 current_question(학습 데이터 36145행 최대 172자), 사용자 결정 2026-11-10(사용자 말은 직전 화면 질문에 대한 답으로 읽는다), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ModelIoVersion:
       type: string
       enum: [model-io-v2]
       x-enum-descriptions: { model-io-v2: "모델 입출력 v2. 학습 데이터셋 dataset_10_29(학습 서버 ~/dataset/docs/labels.py 와 학습 파일)가 정의한 LoRA-A·LoRA-B 의 입력과 출력. 지금 학습된 어댑터가 쓰는 형식이다" }
       description: "모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 릴리스의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "D74(입출력은 데이터셋 정의가 정본이고 바꿀 수 없다), D75(2)(모델 패키지가 학습한 버전), D77, 사용자 결정 2026-11-10(모델 입출력에 버전을 붙인다)"
     ActionExtractionInput:
       type: object
       additionalProperties: false
       description: "LoRA-A 의 입력. 지금 묻는 문항과 상담원이 한 말과 환자의 말과 저장된 값들"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "D74(입출력은 데이터셋 정의가 정본), 데이터셋 labels.py a_input 과 실측 학습 데이터 A 입력 키 4개, D77(글자 단위로 학습 입력과 같은 직렬화)"
       required: [question_id, current_question, user_utterance, state]
       properties:
@@ -993,13 +993,13 @@ components:
       enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
       x-enum-descriptions: { TARGET_ITEM: "다시 물을 칸(targets)의 문항", ASKED_ITEM: "지금 묻던 문항(question_id)", SEQUENCE_AFTER_SAVED: "이번 턴에 저장되는 값(save 가 참)이나 대상 칸의 문항 다음 문항. 건너뛰기를 반영하고 끝이면 END" }
       description: "행동마다 next_item 을 정하는 규칙의 종류"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_target 의 next_item 규칙, D74, U74"
     NextItemRule:
       type: object
       additionalProperties: false
       description: "행동 하나의 next_item 규칙"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_target"
       required: [action, rule]
       properties:
@@ -1009,7 +1009,7 @@ components:
       type: object
       additionalProperties: false
       description: "LoRA-A 출력의 합격 조건 명세(데이터). 추론 서버가 이 조건을 보증하고 받는 쪽은 다시 검증하지 않는다. 칸 값 범위와 자료형은 요청의 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-runtime 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "D104(2)(합격 조건은 데이터 명세), D108(2), D75(3), D115, D97, U100, 실측 final 과 finaltest 의 A 출력 48747행이 모두 이 조건을 만족"
       required: [saved_statuses, actions_without_reason, actions_with_targets, next_item_rules]
       properties:
@@ -1017,14 +1017,14 @@ components:
         actions_without_reason: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ExtractionAction" }, description: "reason 과 targets 와 note 가 없는 행동들(NEXT, CORRECT)", x-basis: "ExtractionAction 값의 수 7" }
         actions_with_targets: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ExtractionAction" }, description: "reason 과 targets 가 반드시 있고 targets 가 values 의 키의 부분집합인 행동들(REASK, CONFIRM, HOLD, SKIP)", x-basis: "ExtractionAction 값의 수 7" }
         next_item_rules: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/NextItemRule" }, description: "행동마다 next_item 을 정하는 규칙", x-basis: "ExtractionAction 값의 수 7" }
-    AlphabeticalOrder: { type: string, const: alphabetical, description: "키를 문자 순(유니코드 코드 포인트 순)으로 정렬해 쓴다는 뜻", x-owner: model-runtime, x-basis: "D77(A 는 최상위 키 알파벳 순, B 는 모든 수준 정렬)" }
-    EnsureAscii: { type: boolean, const: false, description: "모델 입력 글자에서 비 ASCII 글자를 이스케이프하지 않는다는 뜻(항상 거짓)", x-owner: model-runtime, x-basis: "D77(json.dumps 의 ensure_ascii=False)" }
-    InsertionOrder: { type: string, const: insertion, description: "키를 요청이 정한 순서대로 쓴다는 뜻(state_key_order)", x-owner: model-runtime, x-basis: "D77(state 안은 삽입 순서 보존)" }
+    AlphabeticalOrder: { type: string, const: alphabetical, description: "키를 문자 순(유니코드 코드 포인트 순)으로 정렬해 쓴다는 뜻", x-owner: head, x-basis: "D77(A 는 최상위 키 알파벳 순, B 는 모든 수준 정렬)" }
+    EnsureAscii: { type: boolean, const: false, description: "모델 입력 글자에서 비 ASCII 글자를 이스케이프하지 않는다는 뜻(항상 거짓)", x-owner: head, x-basis: "D77(json.dumps 의 ensure_ascii=False)" }
+    InsertionOrder: { type: string, const: insertion, description: "키를 요청이 정한 순서대로 쓴다는 뜻(state_key_order)", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존)" }
     ModelInputSerialization:
       type: object
       additionalProperties: false
       description: "모델 입력 글자의 직렬화 규칙(데이터). 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청의 state_key_order 가 정한다"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4, 실측 학습 파일 A 와 B 의 user 메시지"
       required: [ensure_ascii, a_top_level_key_order, a_nested_key_order, b_key_order]
       properties:
@@ -1044,7 +1044,7 @@ components:
         SKIP: "거절하거나 나중에 하겠다고 해서 넘어가고 다음으로 간다"
         REDIRECT: "문진과 상관없는 말이라 지금 질문으로 돌아온다"
       description: "LoRA-A 가 이번 말에 대해 고른 절차(action)"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 A 시스템 프롬프트의 action 정의와 labels.py ACTION, 실측 학습 데이터 action 7종"
     ActionReason:
       type: string
@@ -1071,28 +1071,28 @@ components:
         COUNT_EXCEEDS_DAYS: "횟수가 날수보다 크다(REASK)"
         UNPARSED_VALUE: "값을 읽어 내지 못했다(REASK)"
       description: "절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py reason_of 와 ask_text, 실측 학습 파일 A 출력 reason 20종(final 의 학습·검증·평가와 finaltest 전체 48747행), D74(입출력은 데이터셋이 정본)"
     ValueStatus:
       type: string
       enum: [ANSWERED, CORRECTION, MISSING, UNCLEAR, CONFLICT, UNKNOWN, REJECTED]
       x-enum-descriptions: { ANSWERED: "환자가 값을 말했다", CORRECTION: "고친 값이다", MISSING: "빠졌다", UNCLEAR: "불분명하거나 범위 밖이다", CONFLICT: "저장된 값과 다르다", UNKNOWN: "모른다고 했다", REJECTED: "거절하거나 보류했다" }
       description: "추출한 값 하나의 상태"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 A 시스템 프롬프트의 status 정의, 실측 학습 데이터 status 7종, D96(1)"
     ValuePrecision:
       type: string
       enum: [exact, approximate, unspecified]
       x-enum-descriptions: { exact: "정확한 값", approximate: "대략의 값(환자가 쯤이라고 말함)", unspecified: "값이 없어 정확도를 가릴 수 없다" }
       description: "추출한 값이 정확한지 대략인지"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "실측 학습 데이터 precision 3종(exact 43977, unspecified 8820, approximate 5684), D96(2)"
-    ValueSave: { type: boolean, description: "이 값을 문진 DB 에 저장하는지(참이면 저장). ANSWERED 와 CORRECTION 만 참이다", x-owner: model-runtime, x-basis: "데이터셋 A 시스템 프롬프트(save 는 DB 에 저장하면 true), 실측 학습 데이터에서 status 와 save 의 조합(ANSWERED·CORRECTION 은 true, 나머지 false)" }
+    ValueSave: { type: boolean, description: "이 값을 문진 DB 에 저장하는지(참이면 저장). ANSWERED 와 CORRECTION 만 참이다", x-owner: head, x-basis: "데이터셋 A 시스템 프롬프트(save 는 DB 에 저장하면 true), 실측 학습 데이터에서 status 와 save 의 조합(ANSWERED·CORRECTION 은 true, 나머지 false)" }
     ExtractedValue:
       type: object
       additionalProperties: false
       description: "LoRA-A 가 이번 말에서 뽑은 칸 값 하나"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py a_target, 실측 학습 데이터 values 항목의 키 5개"
       required: [key, value, precision, status, save]
       properties:
@@ -1108,14 +1108,14 @@ components:
         - if: { properties: { value: { type: "null" } }, required: [value] }
           then: { properties: { precision: { const: unspecified } } }
           else: { properties: { precision: { enum: [exact, approximate] } } }
-    ExtractedValues: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/ExtractedValue" }, description: "뽑은 칸 값들", x-owner: model-runtime, x-basis: "실측 학습 데이터 한 출력의 values 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    SlotRefStrings: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/SlotRefString" }, description: "칸들의 목록", x-owner: model-runtime, x-basis: "실측 학습 데이터 한 출력의 targets 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    OutOfSchemaNote: { type: string, maxLength: 70, description: "문진표에 없는 건강 이야기를 요약한 짧은 말(예를 들어 손발이 저림)", x-owner: model-runtime, x-basis: "데이터셋 labels.py a_target 의 note, 실측 학습 데이터 note 최대 35자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    ExtractedValues: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/ExtractedValue" }, description: "뽑은 칸 값들", x-owner: head, x-basis: "실측 학습 데이터 한 출력의 values 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    SlotRefStrings: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/SlotRefString" }, description: "칸들의 목록", x-owner: head, x-basis: "실측 학습 데이터 한 출력의 targets 최대 4개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    OutOfSchemaNote: { type: string, maxLength: 70, description: "문진표에 없는 건강 이야기를 요약한 짧은 말(예를 들어 손발이 저림)", x-owner: head, x-basis: "데이터셋 labels.py a_target 의 note, 실측 학습 데이터 note 최대 35자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ActionExtraction:
       type: object
       additionalProperties: false
       description: "LoRA-A 의 출력(규칙 보증을 마친 값). 받는 쪽은 다시 검증하지 않는다"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "D74, D75, D104(3), D115, R7(컴포넌트가 낸 값은 받는 쪽이 다시 검증하지 않는다), 데이터셋 labels.py a_target 과 실측 학습 데이터 출력 키(action, next_item, values, reason, targets, note)"
       required: [action, next_item, values]
       properties:
@@ -1135,12 +1135,12 @@ components:
         - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason] }
           then: { required: [note] }
           else: { not: { required: [note] } }
-    StateKeyOrder: { type: array, maxItems: 18, items: { $ref: "#/components/schemas/SlotRefString" }, description: "state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다", x-owner: model-runtime, x-basis: "D77(state 안은 삽입 순서 보존), RFC 8259 4, 실측 state 항목 수 최대 9, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    StateKeyOrder: { type: array, maxItems: 18, items: { $ref: "#/components/schemas/SlotRefString" }, description: "state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존), RFC 8259 4, 실측 state 항목 수 최대 9, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ExtractionRequest:
       type: object
       additionalProperties: false
       description: "추론 서버에 LoRA-A 추출을 요청하는 본문"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "F33, D108(1)(input 과 flow), D115(fields), D104(5), D77, D46"
       required: [release_id, input, state_key_order, flow, fields]
       properties:
@@ -1153,7 +1153,7 @@ components:
       type: object
       additionalProperties: false
       description: "LoRA-A 추출 응답. 처리한 릴리스와 보증을 마친 출력"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "F34, D46, D19(처리한 릴리스를 기록한다)"
       required: [release_id, output]
       properties:
@@ -1164,26 +1164,26 @@ components:
       enum: [START, NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT]
       x-enum-descriptions: { START: "문진을 시작하는 인사와 첫 질문(LoRA-A 를 부르지 않는다)", NEXT: "다음 문항을 묻는다", CORRECT: "고친 값을 알리고 다음 문항을 묻는다", REASK: "같은 문항을 다시 묻는다", CONFIRM: "이전 값과 이번 값을 보여 주며 확인한다", HOLD: "모름이라 비워 두고 넘어간다고 알린다", SKIP: "넘어간다고 알린다", REDIRECT: "문진과 상관없는 말이라 지금 질문으로 돌아온다" }
       description: "LoRA-B 가 문장을 만들 때의 절차"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 B 시스템 프롬프트와 labels.py start_b_input, 실측 학습 파일 B 입력 action 8종(START 은 final 과 finaltest 전체에서 119행)"
     ResponseNextType:
       type: string
       enum: [NEXT, SAME, END]
       x-enum-descriptions: { NEXT: "다음 문항의 질문을 묻고 끝낸다", SAME: "같은 문항을 다시 묻는다(ask 가 있으면 ask 를 묻는다)", END: "질문 없이 마무리 인사로 끝낸다" }
       description: "응답 뒤에 가는 자리의 종류"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 B 시스템 프롬프트(next.type), 실측 학습 데이터 next.type 3종"
-    TopicText: { type: string, maxLength: 88, description: "지금 다루는 문항을 사람 말로 풀어 쓴 설명(예를 들어 뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지)", x-owner: model-runtime, x-basis: "데이터셋 labels.py topic(), 실측 학습 데이터 B 입력 topic 최대 44자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    KnownText: { type: string, maxLength: 124, description: "이번 턴에 정해진 값을 사람 말로 되짚은 문장들(쉼표로 이은 글)", x-owner: model-runtime, x-basis: "데이터셋 labels.py b_input 의 known, 실측 학습 데이터 최대 62자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    AskText: { type: string, maxLength: 92, description: "되묻거나 확인할 내용을 사람 말로 쓴 문장 틀", x-owner: model-runtime, x-basis: "데이터셋 labels.py ask_text, 실측 학습 데이터 B 입력 ask 최대 46자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    PreviousValueText: { type: string, maxLength: 30, description: "CONFIRM 에서 이전에 저장된 값을 사람 말로 쓴 글", x-owner: model-runtime, x-basis: "데이터셋 labels.py previous_text, 실측 학습 데이터 previous 최대 15자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    CurrentValueText: { type: string, maxLength: 30, description: "CONFIRM 에서 이번에 말한 값을 사람 말로 쓴 글", x-owner: model-runtime, x-basis: "데이터셋 labels.py b_input 의 current, 실측 학습 데이터 current 최대 15자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    HoldText: { type: string, maxLength: 36, description: "HOLD 나 SKIP 으로 비워 두는 부분의 이름", x-owner: model-runtime, x-basis: "데이터셋 labels.py hold_text, 실측 학습 데이터 hold 최대 18자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    TopicText: { type: string, maxLength: 88, description: "지금 다루는 문항을 사람 말로 풀어 쓴 설명(예를 들어 뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지)", x-owner: head, x-basis: "데이터셋 labels.py topic(), 실측 학습 데이터 B 입력 topic 최대 44자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    KnownText: { type: string, maxLength: 124, description: "이번 턴에 정해진 값을 사람 말로 되짚은 문장들(쉼표로 이은 글)", x-owner: head, x-basis: "데이터셋 labels.py b_input 의 known, 실측 학습 데이터 최대 62자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    AskText: { type: string, maxLength: 92, description: "되묻거나 확인할 내용을 사람 말로 쓴 문장 틀", x-owner: head, x-basis: "데이터셋 labels.py ask_text, 실측 학습 데이터 B 입력 ask 최대 46자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    PreviousValueText: { type: string, maxLength: 30, description: "CONFIRM 에서 이전에 저장된 값을 사람 말로 쓴 글", x-owner: head, x-basis: "데이터셋 labels.py previous_text, 실측 학습 데이터 previous 최대 15자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    CurrentValueText: { type: string, maxLength: 30, description: "CONFIRM 에서 이번에 말한 값을 사람 말로 쓴 글", x-owner: head, x-basis: "데이터셋 labels.py b_input 의 current, 실측 학습 데이터 current 최대 15자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    HoldText: { type: string, maxLength: 36, description: "HOLD 나 SKIP 으로 비워 두는 부분의 이름", x-owner: head, x-basis: "데이터셋 labels.py hold_text, 실측 학습 데이터 hold 최대 18자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ResponseNext:
       type: object
       additionalProperties: false
       description: "응답 뒤에 가는 자리(종류, 문항, 그 질문 문장)"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "데이터셋 labels.py b_input 의 next, 실측 학습 데이터 next 의 키(type, question_id, text)"
       required: [type]
       properties:
@@ -1197,7 +1197,7 @@ components:
       type: object
       additionalProperties: false
       description: "LoRA-B 의 입력(모델 입출력 v2). 어떤 절차로 어떤 문장을 만들지와 다음에 갈 자리를 알려 주는 모든 것"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "F33, D74, D77, 데이터셋 labels.py b_input 과 start_b_input, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
       required: [action, topic, next]
       properties:
@@ -1232,7 +1232,7 @@ components:
       type: object
       additionalProperties: false
       description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "F33, D46, D77"
       required: [release_id, input]
       properties:
@@ -1242,7 +1242,7 @@ components:
       type: object
       additionalProperties: false
       description: "LoRA-B 가 만든 응답 문장과 처리한 릴리스"
-      x-owner: model-runtime
+      x-owner: head
       x-basis: "F34, D74, D46, 데이터셋 B 학습 데이터의 assistant 메시지(응답 문장만 출력)"
       required: [release_id, text]
       properties:
@@ -1892,32 +1892,32 @@ components:
       enum: [auto_only]
       x-enum-descriptions: { auto_only: "사람의 검토 없이 자동으로 만든 행" }
       description: "행을 사람이 검토했는지의 표시"
-      x-owner: synthetic-data
+      x-owner: head
       x-basis: "실측 학습 서버 final 6개와 finaltest 2개, 모두 8개 파일의 모든 행이 auto_only"
     ChatRole:
       type: string
       enum: [system, user, assistant]
       x-enum-descriptions: { system: "모델에게 일을 알리는 지시문(어댑터와 짝이 되는 시스템 프롬프트)", user: "모델 입력(입력 객체를 JSON 글자로 쓴 것)", assistant: "정답 출력(LoRA-A 는 출력 JSON 글자, LoRA-B 는 응답 문장)" }
       description: "대화 메시지의 역할"
-      x-owner: synthetic-data
+      x-owner: head
       x-basis: "실측 학습 데이터 messages 의 role 3종, D77"
-    ChatMessageContent: { type: string, maxLength: 1854, description: "대화 메시지 하나의 내용(글자 그대로 모델에 들어가고 나온다)", x-owner: synthetic-data, x-basis: "D77(입력 글자는 학습 데이터와 같게), 실측 메시지 내용 최대 927자(LoRA-A 시스템 프롬프트), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    ChatMessageContent: { type: string, maxLength: 1854, description: "대화 메시지 하나의 내용(글자 그대로 모델에 들어가고 나온다)", x-owner: head, x-basis: "D77(입력 글자는 학습 데이터와 같게), 실측 메시지 내용 최대 927자(LoRA-A 시스템 프롬프트), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     ChatMessage:
       type: object
       additionalProperties: false
       description: "학습 행 안의 메시지 하나(역할과 내용)"
-      x-owner: synthetic-data
+      x-owner: head
       x-basis: "실측 학습 데이터 messages 항목의 키(role, content)"
       required: [role, content]
       properties:
         role: { $ref: "#/components/schemas/ChatRole", description: "메시지의 역할" }
         content: { $ref: "#/components/schemas/ChatMessageContent", description: "메시지 내용" }
-    ScenarioId: { type: string, maxLength: 62, description: "행이 나온 시나리오와 변형을 가리키는 식별 글(예를 들어 c_Q1.D01_P01_normal_0002_v0)", x-owner: synthetic-data, x-basis: "실측 학습 데이터 scenario_id 최대 31자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    ScenarioId: { type: string, maxLength: 62, description: "행이 나온 시나리오와 변형을 가리키는 식별 글(예를 들어 c_Q1.D01_P01_normal_0002_v0)", x-owner: head, x-basis: "실측 학습 데이터 scenario_id 최대 31자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     DatasetRow:
       type: object
       additionalProperties: false
       description: "LoRA-A 또는 LoRA-B 학습·검증·평가 파일의 한 줄(한 턴). 메시지 셋은 시스템 지시문, 입력, 정답 순서다. LoRA-A 의 입력과 정답은 ActionExtractionInput 과 ActionExtraction, LoRA-B 는 ResponseRequest 와 응답 문장을 JSON 글자로 쓴 것이다"
-      x-owner: synthetic-data
+      x-owner: head
       x-basis: "D74(정본은 데이터셋 정의), D77, 실측 학습 데이터 행의 키(human_review, messages, scenario_id, split)"
       required: [human_review, messages, scenario_id, split]
       properties:
