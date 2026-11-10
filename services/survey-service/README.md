@@ -56,11 +56,13 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 
 | 명령 | 결과 |
 |---|---|
-| `uv run pytest`(SQLite) | 통과 — 95개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
+| `uv run pytest`(SQLite) | 통과 — 98개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
 | `uv run pytest -m postgres`(PostgreSQL 16) | 통과 — 46개(같은 행동·시나리오·계약 적합성 시험과 잡 명령) |
 | `uv run lint-imports` | 통과 — 계약 5개 |
 | `uv run pyright`(strict) | 오류 0 |
-| `uv run ruff check` | 통과 |
+| `uv run ruff check`, `ruff format --check` | 통과 |
+| `openit-check`(licenses, docker-isolation, image-pins, bake-targets, area-isolation, dockerfile-lint, trivyignore, notices) | 통과(위반 0) |
+| `openit-check contract-drift` | 이 영역의 파이썬 생성물은 위반 0. `all` 은 `web/_example` 이 `npm ci` 를 요구해 이 환경에서 실패한다(이 영역과 무관, 다른 영역 폴더라 손대지 않았다) |
 | `deploy/deploy build survey-service`(Trivy 포함) | 통과 |
 | `tools/smoke service survey-service` | 통과 — 6개 |
 
