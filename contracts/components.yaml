@@ -1114,7 +1114,7 @@ components:
       required: [item_id, reason]
       properties:
         item_id: { $ref: "#/components/schemas/QuestionItemId", description: "비어 있는 문항" }
-        slot_key: { $ref: "#/components/schemas/SlotKey", description: "비어 있는 칸(문항 전체이면 없다)" }
+        field_name: { $ref: "#/components/schemas/SlotKey", description: "비어 있는 칸(문항 전체이면 없다)" }
         reason: { $ref: "#/components/schemas/BlankReason", description: "비어 있는 원인" }
     SessionResult:
       type: object
