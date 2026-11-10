@@ -58,10 +58,10 @@ tools/smoke service model-runtime           # 이미지 스모크(평문 HTTP, �
 `libs/model-io` 를 고친 뒤에는 `uv sync --reinstall-package openit-model-io` 로 이 영역의 설치본을 갱신한다(경로 의존은 소스 변경을 자동으로 보지 않는다).
 
 ## 5. 시험 상태
-**2026-11-11, 계약 9.0.0 반영 뒤**(검증 환경: 이 작업 트리의 WSL2 한 곳. 깨끗한 두 번째 환경은 확인하지 못했다). `uv run pytest` 162개 통과(스모크 5개 제외), `ruff check`, `ruff format --check`, `pyright`, `lint-imports` 통과. `libs/model-io` 는 `pytest` 83개 통과와 같은 점검 통과. `openit-check` 의 `declarations`, `area-isolation`, `dockerfile-lint`, `notices`, `licenses` 통과.
-이번에 시험이 새로 지키는 것: JWT 기계 호출자 인증(호출자 표 허용, 계약 밖 역할 무시, 고정 문자열 토큰 거부), 평문 서버, 엔진 주소 입력, 이름 표(`HostsTable`)로 접속, 레지스트리 자격 형식(RFC 7617)과 클라이언트 인증서, 어댑터 tar 가 같은 입력이면 같은 바이트, 프로파일 표와 기반 모델 불일치 거부, 게시된 패키지 목록(정렬·쪽 나누기·활성 표시), `inputs.json`·`exposure.json` 이 계약과 작업 `security` 에 맞는 것.
+**2026-11-11, 계약 9.1.0 반영 뒤**(검증 환경: 이 작업 트리의 WSL2 한 곳. 깨끗한 두 번째 환경은 확인하지 못했다). `uv run pytest` 167개 통과(스모크 5개 제외), 이미지 스모크 5개 통과, `ruff check`, `ruff format --check`, `pyright`, `lint-imports` 통과. `libs/model-io` 는 `pytest` 83개 통과와 같은 점검 통과. `openit-check` 의 `declarations`, `area-isolation`, `dockerfile-lint`, `notices`, `licenses` 통과.
+이번에 시험이 새로 지키는 것: 레지스트리 이름이 `registry`·`registry:443`·점이 있는 이름일 때 게시·받기·목록이 같은 저장소 경로(ADR 0011), 채팅 호출이 학습과 같은 비생각 조건(ADR 0010), 적재 상한을 넘으면 FAILED 이고 이전 패키지 유지(ADR 0012). 앞서 지키던 것: JWT 기계 호출자 인증(호출자 표 허용, 계약 밖 역할 무시, 고정 문자열 토큰 거부), 평문 서버, 엔진 주소 입력, 이름 표(`HostsTable`)로 접속, 레지스트리 자격 형식(RFC 7617)과 클라이언트 인증서, 어댑터 tar 가 같은 입력이면 같은 바이트, 프로파일 표와 기반 모델 불일치 거부, 게시된 패키지 목록(정렬·쪽 나누기·활성 표시), `inputs.json`·`exposure.json` 이 계약과 작업 `security` 에 맞는 것.
 
-**이번 작업에서 하지 못한 것:** 이미지 스모크(`tools/smoke service model-runtime`, 이미지 빌드가 필요해 하지 않았다. 스모크 시험 파일은 평문 HTTP 와 새 라벨에 맞게 고쳤으나 돌려 보지 못했다). 학습 파일 정답으로 위반 0 을 재는 시험(`-m dataset`)은 학습 파일이 이 트리에 없어 다시 재지 못했다. 아래 표는 2026-11-10 이전 작업의 측정이다(이번에 재확인하지 않았다).
+**이번 작업에서 하지 못한 것:** 서빙 프롬프트가 학습 서열과 토큰 단위로 같은지 실제 vLLM 으로 비교하는 것(ADR 0010). 학습 파일 정답으로 위반 0 을 재는 시험(`-m dataset`)은 학습 파일이 이 트리에 없어 다시 재지 못했다. 아래 표는 2026-11-10 이전 작업의 측정이다(이번에 재확인하지 않았다).
 
 **학습 서버 학습 파일 정답 출력(`final` 44563행 + `finaltest` 2092행 = LoRA-A 46655행, ssh 로 읽기만 함)**
 

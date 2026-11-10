@@ -1,7 +1,7 @@
 # `deploy/deploy build` 와 `deploy/deploy bootstrap` 이 쓴다. 한 줄 = <대상> <이미지 digest>. 직접 고치지 않는다.
 _example sha256:3fe0a05508d05098f3454278d3e4025cfc4dfd7716f0c26ccee3f75e8af60ba5
 _example-job sha256:13fd77b2ea13754b8e99e8f880b799a79bf1f12782fe38fcdaafc34ef3c914ce
-model-runtime sha256:449d14811774e1df91a07d0161fecc47b261ec86864be969f2e50b45150ea064
+model-runtime sha256:894ea846e5b3ac923b4d2a41f237b179cc49653bb2c1392b2b03df0d320792c2
 survey-service sha256:740f8f97a36ee706a25f07ecf00cf7b55ec40ea921528b49dc6d856b0da38e46
 web-admin-console sha256:44e2cc8e175f45cbd56ce0f1be19a5f7ee31b08d7f7e635742583d9072154b7a
 web-example sha256:01416c7323bc5ebca18620ed21d408da70965953bcda335a7b7269385291bda0
