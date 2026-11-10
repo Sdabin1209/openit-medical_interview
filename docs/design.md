@@ -144,3 +144,25 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | 잡 실행 결과(JobRunResult) | 잡은 끝날 때 표준 출력에 JSON 한 줄(JSON Lines)을 낸다. 종료 코드는 0·75·1(D130) | 한 줄 JSON 은 로그 수집 도구가 그대로 읽는 표준 형식(JSON Lines)이고, 종료 코드만으로 모자란 처리 수·시각을 담는다 |
 | 직원 도움 안내(StaffHelpNotice) | 안전과 닿는 안내 문장은 모델이 아니라 survey-service 의 고정 문장이다. 모델 입출력 v3 부터 쓴다 | v7-flow-resolutions 41·51행(설명 요청 3번 뒤 직원 도움 안내, v3 의존) |
 | FHIR 대응(FhirMapping) | 결과를 HL7 FHIR R4 QuestionnaireResponse 로 옮긴다(빈칸은 data-absent-reason) | FHIR R4 표준이 그대로 근거다(C10) |
+
+## 5. 디렉터리 구조
+
+리포 구성은 ADR 0002, 영역 폴더 안 구조는 ADR 0003 을 따른다. 영역 7개는 다음 자리에 둔다.
+
+```
+contracts/                  영역 사이 계약(헤드). inputs/ 는 정본 입력
+libs/model-io/              공유 라이브러리: 모델 입력 직렬화, 출력 검증(model-runtime 과 model-lab 이 씀)
+services/survey-service/    상시 서비스
+services/model-runtime/     상시 서비스(추론 엔진 vLLM 은 별도 컨테이너)
+jobs/model-lab/             학습 파이프라인(잡 단계 명령, HTTP 서버 없음)
+web/kiosk-frontend/         화면
+web/admin-console/          화면
+platform/                   기성품 구성: envoy, keycloak, oauth2-proxy, step-ca, monitoring, registry(caddy)
+deploy/                     배포 도구: ./deploy, compose.yaml, images.lock, env.example
+docs/                       ADR, 설계, 브리프
+templates/  tools/          영역 틀과 점검·생성 도구
+```
+
+- 영역 폴더 하나가 이미지 하나다(platform 은 기성품 이미지마다 설정 폴더 하나).
+- platform 의 설정은 지금 `deploy/` 아래(envoy, keycloak, caddy, monitoring, pki.py 등)에 있다. platform 영역 작업에서 `platform/` 으로 옮기고 `./deploy` 는 그 경로를 읽는다.
+- 영역 폴더는 `tools/new-area {service|web|job|lib} <이름>` 으로 만든다.
