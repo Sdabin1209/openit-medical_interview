@@ -190,6 +190,18 @@ services:
       - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
     networks: [backend]
 
+  # 이미지·Dockerfile 보안 검사(ADR 0016). `./deploy build` 가 일회용으로 돌린다(`compose run`). 취약점 DB 는 인터넷에서 받아 리포의 .trivy-cache/ 에 둔다.
+  trivy:
+    profiles: [tools]
+    image: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TRIVY_CACHE_DIR: /cache
+      TRIVY_NO_PROGRESS: "true"
+
   # 감시(ADR 0014). blackbox_exporter 가 TLS 로 접속해 인증서 만료 시각(probe_ssl_earliest_cert_expiry)을 재고, Prometheus 가 규칙으로 경보를 판정한다.
   blackbox:
     image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13

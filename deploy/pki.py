@@ -59,14 +59,19 @@ def _split(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _hours(env: dict[str, str], key: str) -> int:
-    try:
-        number = int(env[key])
-    except (KeyError, ValueError) as error:
-        raise ConfigError(f"{key} 는 시간 단위 정수여야 한다") from error
-    if number <= 0:
-        raise ConfigError(f"{key} 는 0 보다 커야 한다")
-    return number
+DURATION_RE = re.compile(r"^(\d+)([mh])$")
+
+
+def _minutes(env: dict[str, str], key: str) -> int:
+    """'168h', '5m' 같은 기간(분 또는 시간 접미사)을 분으로. step-ca 가 읽는 형식과 같다."""
+    match = DURATION_RE.match(env.get(key, ""))
+    if not match or int(match.group(1)) <= 0:
+        raise ConfigError(f"{key} 는 0 보다 큰 '<정수>h' 또는 '<정수>m' 여야 한다(현재 '{env.get(key, '')}')")
+    return int(match.group(1)) * (60 if match.group(2) == "h" else 1)
+
+
+def fmt_minutes(minutes: int) -> str:
+    return f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}m"
 
 
 @dataclass(frozen=True)
@@ -76,12 +81,12 @@ class CaSettings:
     dns_names: list[str]
     allowed_dns: list[str]
     allowed_ips: list[str]
-    root_hours: int
-    intermediate_hours: int
-    leaf_hours: int
-    warn_root_hours: int
-    warn_intermediate_hours: int
-    warn_leaf_hours: int
+    root_minutes: int
+    intermediate_minutes: int
+    leaf_minutes: int
+    warn_root_minutes: int
+    warn_intermediate_minutes: int
+    warn_leaf_minutes: int
     acme_directory_url: str
 
 
@@ -102,12 +107,12 @@ def ca_settings(env: dict[str, str]) -> CaSettings:
         dns_names=_split(env["OPENIT_CA_DNS_NAMES"]),
         allowed_dns=_split(env["OPENIT_CA_ALLOWED_DNS"]),
         allowed_ips=_split(env["OPENIT_CA_ALLOWED_IPS"]),
-        root_hours=_hours(env, "OPENIT_CA_ROOT_LIFETIME_HOURS"),
-        intermediate_hours=_hours(env, "OPENIT_CA_INTERMEDIATE_LIFETIME_HOURS"),
-        leaf_hours=_hours(env, "OPENIT_LEAF_LIFETIME_HOURS"),
-        warn_root_hours=_hours(env, "OPENIT_CA_WARN_ROOT_HOURS"),
-        warn_intermediate_hours=_hours(env, "OPENIT_CA_WARN_INTERMEDIATE_HOURS"),
-        warn_leaf_hours=_hours(env, "OPENIT_CA_WARN_LEAF_HOURS"),
+        root_minutes=_minutes(env, "OPENIT_CA_ROOT_LIFETIME"),
+        intermediate_minutes=_minutes(env, "OPENIT_CA_INTERMEDIATE_LIFETIME"),
+        leaf_minutes=_minutes(env, "OPENIT_LEAF_LIFETIME"),
+        warn_root_minutes=_minutes(env, "OPENIT_CA_WARN_ROOT"),
+        warn_intermediate_minutes=_minutes(env, "OPENIT_CA_WARN_INTERMEDIATE"),
+        warn_leaf_minutes=_minutes(env, "OPENIT_CA_WARN_LEAF"),
         acme_directory_url=env["OPENIT_INTERNAL_ACME_DIRECTORY_URL"],
     )
     if not settings.name or not settings.dns_names:
@@ -115,7 +120,7 @@ def ca_settings(env: dict[str, str]) -> CaSettings:
     if not settings.allowed_dns and not settings.allowed_ips:
         raise ConfigError("OPENIT_CA_ALLOWED_DNS 와 OPENIT_CA_ALLOWED_IPS 가 모두 비면 CA 가 아무것도 발급하지 못한다")
     # 왜: 하위 인증서는 상위보다 오래 살 수 없다(RFC 5280 6.1.3 경로 검증). 어기면 중간 CA 가 만료되는 날 리프도 함께 죽는다
-    if not settings.leaf_hours < settings.intermediate_hours < settings.root_hours:
+    if not settings.leaf_minutes < settings.intermediate_minutes < settings.root_minutes:
         raise ConfigError("수명은 리프 < 중간 CA < 루트 여야 한다")
     public = env["OPENIT_PUBLIC_CERT_MODE"]
     if public not in PUBLIC_MODES:
@@ -155,7 +160,7 @@ def render_ca_json(settings: CaSettings) -> dict[str, Any]:
         policy["dns"] = settings.allowed_dns
     if settings.allowed_ips:
         policy["ip"] = settings.allowed_ips
-    leaf = f"{settings.leaf_hours}h"
+    leaf = fmt_minutes(settings.leaf_minutes)
     return {
         "root": "/home/step/certs/root_ca.crt",
         "crt": "/home/step/certs/intermediate_ca.crt",

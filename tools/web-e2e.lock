@@ -1,0 +1,2 @@
+# tools/web-e2e --pin 이 쓴다. 한 줄 = <@playwright/test 버전> <mcr.microsoft.com/playwright:v<버전>-noble 의 digest>.
+1.65.0 sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d

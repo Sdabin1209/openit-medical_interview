@@ -19,7 +19,7 @@ from pathlib import Path
 
 NAME_RE = re.compile(r"^_?[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 KINDS = {"service": ("services", "SERVICES"), "web": ("web", "WEBS")}
-TEXT_SUFFIXES = {".py", ".toml", ".md", ".txt", ".json", ".ts", ".tsx", ".html", ".css", ".mjs", ".cjs", ".js", ".yaml", ".yml", ".conf", ""}
+TEXT_SUFFIXES = {".py", ".toml", ".md", ".txt", ".json", ".ts", ".tsx", ".html", ".css", ".mjs", ".cjs", ".js", ".yaml", ".yml", ".conf", ".ini", ".mako", ""}
 SKIP_DIRS = {"node_modules", ".venv", "__pycache__", "dist", "test-results", "playwright-report", ".pytest_cache", ".ruff_cache"}
 
 

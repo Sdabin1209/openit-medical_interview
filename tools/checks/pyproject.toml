@@ -14,7 +14,13 @@ dependencies = [
 openit-check = "openit_checks.cli:main"
 
 [dependency-groups]
-dev = ["pytest", "pyright", "ruff"]
+dev = [
+    "pytest",
+    "pyright",
+    "ruff",
+    "hadolint-bin",  # 실행만 하는 Dockerfile 검사 도구(ShellCheck 포함, ADR 0016)
+    "cryptography",
+]
 
 [build-system]
 requires = ["hatchling"]

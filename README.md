@@ -27,5 +27,7 @@ openit-v7/
 | 공통 점검 | `cd tools/checks && uv run openit-check all` |
 | 점검 자체 시험 | `cd tools/checks && uv run pytest` |
 | 배포 환경 확인 | `deploy/deploy doctor` |
+| 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
+| 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
 템플릿은 `templates/service`, `templates/web`이고 `services/_example`, `web/_example`은 템플릿 시험용으로 남겨 둔다(실제 영역이 아니다).

@@ -1,0 +1,7 @@
+# hadolint 설정(공식 형식, ADR 0016). `openit-check dockerfile-lint` 가 모든 Dockerfile 에 이 파일로 hadolint 를 돌린다.
+# 무시 규칙은 항목마다 사유와 되돌리는 조건을 주석으로 적는다.
+failure-threshold: info # 기본값: info 이상(info, warning, error)이 하나라도 있으면 실패한다
+ignored:
+  # 화면 이미지의 기반(nginx-unprivileged, digest 고정)에 수정판이 있는 CRITICAL·HIGH 취약점이 있어 `apk upgrade` 로 고친다(Trivy 확인).
+  # 기반 이미지가 수정판을 담아 갱신되면 Dockerfile 의 `apk upgrade` 와 이 항목을 함께 지운다.
+  - DL3017

@@ -14,7 +14,8 @@
 ## 4. 실행·시험 명령
 ```
 uv sync
-uv run pytest            # 단위·계약 시험
+uv run pytest            # 단위·계약·마이그레이션 시험
+DATABASE_URL_FILE=<연결 문자열 파일> uv run alembic upgrade head   # DB 마이그레이션(리비전: src/example/store/migrations/versions/)
 uv run lint-imports      # 경계 점검
 uv run pyright           # 타입 검사(strict)
 uv run ruff check        # 린트

@@ -29,5 +29,8 @@
 - **얻는 것:** 다섯 서비스가 `./deploy up`으로 뜨고 `./deploy status`가 health를 보인다(이 환경에서 확인).
 - **감수하는 것:** Keycloak realm(`openit`)은 oauth2-proxy 클라이언트 하나만 가진 최소 구성이다. 사람 인증 정책, Envoy 라우트와 oauth2-proxy 연동, step-ca 인증서 발급 흐름은 영역 계약이 정해진 뒤 정한다(남은 것). 기동 시험은 이 환경 한 곳에서만 했다.
 
+## 후속
+사설 CA 발급 흐름, 레지스트리, 감시는 ADR 0013~0015가 정한다. step-ca 구성(`step-ca-data` 볼륨, 초기화 환경 변수)은 그 ADR로 바뀌었다.
+
 ## 되돌리는 조건
 Compose가 secrets의 `uid/gid/mode`를 지원하면 0644를 0400으로 좁힌다. Keycloak이 `_FILE`을 지원하면 진입 명령 우회를 없앤다.

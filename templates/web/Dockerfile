@@ -23,6 +23,11 @@ LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
       io.openit.contracts="${CONTRACTS_VERSION}"
+# 왜 apk upgrade: 기반 이미지(digest 고정)의 알파인 패키지에 수정판이 나온 취약점(CRITICAL·HIGH)이 있다(Trivy 로 확인, ADR 0016).
+# 기반 이미지가 갱신되면 이 줄을 지운다. 감수: 이 줄은 빌드 시점의 패키지 저장소를 따라 같은 입력에서 같은 이미지가 나오지 않는다
+# hadolint DL3017(apk upgrade 금지)은 위 이유로 .hadolint.yaml 에서 사유와 함께 무시한다
+USER 0:0
+RUN apk upgrade --no-cache
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/dist /usr/share/nginx/html
 # 이 기반 이미지의 기본 사용자는 비root(nginx, uid 101)다. 명시해 두면 기본값이 바뀌어도 root 로 돌지 않는다.

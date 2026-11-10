@@ -46,6 +46,9 @@ PKI_DIR = DEPLOY / "pki"
 CA_DIR = PKI_DIR / "ca"
 PENDING_DIR = PKI_DIR / "pending"
 ARCHIVE_DIR = PKI_DIR / "archive"
+TRIVY_CACHE = ROOT / ".trivy-cache"  # git 제외 폴더. 취약점 DB 캐시
+# 왜 CRITICAL,HIGH 와 --ignore-unfixed: Trivy 공식 문서가 CI 실패 기준으로 보이는 일반 예시다. 고칠 수 없는 항목(수정판 없음)으로 막지 않는다(ADR 0016)
+TRIVY_SEVERITY = "CRITICAL,HIGH"
 STEP_IMAGE_SERVICE = "step-ca"  # 인증서 만들기에 쓰는 step CLI 는 step-ca 이미지(같은 digest)에 들어 있다
 EXIT_FAIL = 1
 EXIT_NO_TARGET = 3
@@ -220,6 +223,53 @@ def secrets_init() -> None:
         typer.echo(f"만듦: {name}")
 
 
+def trivy(args: list[str], stage: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Trivy 를 공식 이미지(digest 고정, compose 의 trivy 서비스)로 일회용 실행한다. 리포는 읽기 전용으로 /src 에 보인다."""
+    TRIVY_CACHE.mkdir(exist_ok=True)
+    command = [*compose_args(), "--profile", "tools", "run", "--rm", "--no-deps", "-T", "--user", f"{os.getuid()}:{os.getgid()}",
+               "-v", f"{ROOT}:/src:ro", "-v", f"{TRIVY_CACHE}:/cache"]
+    if stage is not None:
+        command += ["-v", f"{stage}:/w:ro"]
+    return docker([*command, "trivy", *args, "--ignorefile", "/src/.trivyignore"], capture_output=True)
+
+
+def trivy_or_fail(what: str, result: subprocess.CompletedProcess[str]) -> None:
+    if result.returncode != 0:
+        tail = (result.stdout + result.stderr).strip().splitlines()[-40:]
+        fail(f"{what} 실패(rc={result.returncode}):\n" + "\n".join(tail))
+    typer.echo(f"Trivy 통과: {what}")
+
+
+def area_folder(name: str, kind: str) -> str:
+    """대상 이름('_example', 'web-example')에 해당하는 폴더(리포 기준 상대 경로)."""
+    base, prefix = ("web", "web-") if kind == "web" else ("services", "")
+    for child in sorted((ROOT / base).iterdir()):
+        if child.is_dir() and (child / "Dockerfile").is_file() and (child.name if kind == "service" else prefix + child.name.lstrip("_")) == name:
+            return f"{base}/{child.name}"
+    fail(f"대상 '{name}' 의 폴더를 찾지 못했다")
+
+
+def trivy_config_scan(names: list[str], targets: dict[str, str]) -> None:
+    """빌드 전: Dockerfile 과 배포 구성(compose)의 보안 설정을 본다."""
+    for name in names:
+        folder = area_folder(name, targets[name])
+        trivy_or_fail(f"trivy config {folder}", trivy(["config", "--severity", TRIVY_SEVERITY, "--exit-code", "1", f"/src/{folder}"]))
+    trivy_or_fail("trivy config deploy", trivy(["config", "--severity", TRIVY_SEVERITY, "--exit-code", "1", "/src/deploy/compose.yaml"]))
+
+
+def trivy_image_scan(names: list[str]) -> None:
+    """빌드 뒤: 이미지의 알려진 취약점을 본다. 이미지는 docker save 한 파일로 넘긴다(도커 소켓을 Trivy 에 주지 않는다)."""
+    stage = META_DIR / "scan"
+    stage.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        archive = stage / f"{name}.tar"
+        if (saved := docker(["save", f"{local_image(name)}:local", "-o", str(archive)], capture_output=True)).returncode != 0:
+            fail(f"{name} 저장 실패: {saved.stderr.strip()[-300:]}")
+        result = trivy(["image", "--input", f"/w/{archive.name}", "--severity", TRIVY_SEVERITY, "--ignore-unfixed", "--exit-code", "1"], stage)
+        archive.unlink(missing_ok=True)
+        trivy_or_fail(f"trivy image {local_image(name)}", result)
+
+
 @app.command()
 def build(
     service: Annotated[str | None, typer.Argument(help="빌드할 대상(없으면 전부)")] = None,
@@ -236,6 +286,8 @@ def build(
     contracts = git("rev-parse", "HEAD:contracts") if (ROOT / "contracts").is_dir() else ""
     if not contracts:
         fail("contracts/ 가 없어 계약 버전을 정할 수 없다")
+    if not check:
+        trivy_config_scan(names, targets)
     META_DIR.mkdir(exist_ok=True)
     meta = META_DIR / f"bake-{time.time_ns()}.json"
     env = dockerenv.docker_env()
@@ -251,6 +303,7 @@ def build(
     if check:
         typer.echo("Dockerfile 검사 통과")
         return
+    trivy_image_scan(names)  # 왜 lock 을 쓰기 전: 검사를 통과하지 못한 이미지의 digest 를 기록하지 않는다
     built = json.loads(meta.read_text(encoding="utf-8"))
     lock = read_lock()
     for name in names:
@@ -449,10 +502,10 @@ def read_password(name: str) -> bytes:
     return (SECRETS_DIR / name).read_text(encoding="utf-8").strip().encode()
 
 
-def bounded_hours(configured: int, root_cert: object) -> int:
-    """중간 CA 수명(시간). 설정 값이되 루트의 남은 수명을 넘지 않는다(RFC 5280 6.1.3: 하위는 상위보다 오래 살 수 없다)."""
-    left = int(pki.remaining(root_cert).total_seconds() // 3600) - 1  # type: ignore[arg-type]
-    if left < 2 * ca_cfg().leaf_hours:
+def bounded_minutes(configured: int, root_cert: object) -> int:
+    """중간 CA 수명(분). 설정 값이되 루트의 남은 수명을 넘지 않는다(RFC 5280 6.1.3: 하위는 상위보다 오래 살 수 없다)."""
+    left = int(pki.remaining(root_cert).total_seconds() // 60) - 60  # type: ignore[arg-type]
+    if left < 2 * ca_cfg().leaf_minutes:
         fail("루트 CA 의 남은 수명이 리프 수명의 두 배보다 짧아 중간 CA 를 만들 수 없다. 루트 교체가 먼저다(docs/CA.md 의 '루트 교체')")
     return min(configured, left)
 
@@ -460,7 +513,7 @@ def bounded_hours(configured: int, root_cert: object) -> int:
 def create_root(cfg: pki.CaSettings) -> None:
     result = step_cli(
         ["certificate", "create", f"{cfg.name} Root CA", "/pki/root_ca.crt", "/pki/root_ca.key", "--profile", "root-ca",
-         "--not-after", f"{cfg.root_hours}h", "--password-file", "/run/pw/root"],
+         "--not-after", pki.fmt_minutes(cfg.root_minutes), "--password-file", "/run/pw/root"],
         rw={PKI_DIR: "/pki"}, ro={SECRETS_DIR / "step_ca_root_password": "/run/pw/root"},
     )
     step_or_fail("루트 CA 생성", result)
@@ -476,7 +529,7 @@ def create_intermediate(cfg: pki.CaSettings) -> None:
     result = step_cli(
         ["certificate", "create", f"{cfg.name} Intermediate CA", "/out/intermediate_ca.crt", "/out/intermediate_ca.key",
          "--profile", "intermediate-ca", "--ca", "/pki/root_ca.crt", "--ca-key", "/pki/root_ca.key", "--ca-password-file", "/run/pw/root",
-         "--password-file", "/run/pw/ca", "--not-after", f"{bounded_hours(cfg.intermediate_hours, root)}h"],
+         "--password-file", "/run/pw/ca", "--not-after", pki.fmt_minutes(bounded_minutes(cfg.intermediate_minutes, root))],
         rw={PENDING_DIR: "/out"},
         ro={PKI_DIR / "root_ca.crt": "/pki/root_ca.crt", PKI_DIR / "root_ca.key": "/pki/root_ca.key",
             SECRETS_DIR / "step_ca_root_password": "/run/pw/root", SECRETS_DIR / "step_ca_password": "/run/pw/ca"},
@@ -772,19 +825,19 @@ def ca_status() -> None:
         no_target("deploy/pki/ca/ 가 없다(./deploy bootstrap)")
     problems = 0
 
-    def line(label: str, cert: object, warn_hours: int, extra: str = "") -> None:
+    def line(label: str, cert: object, warn_minutes: int, extra: str = "") -> None:
         nonlocal problems
         left = pki.remaining(cert)  # type: ignore[arg-type]
         hours = left.total_seconds() / 3600
-        ok = hours >= warn_hours
+        ok = hours * 60 >= warn_minutes
         problems += not ok
         shown = f"{left.days}일" if hours >= 48 else f"{hours:.1f}시간"
-        typer.echo(f"[{'OK' if ok else 'FAIL'}] {label}: 남은 {shown} (기준 {warn_hours}시간) {extra}".rstrip())
+        typer.echo(f"[{'OK' if ok else 'FAIL'}] {label}: 남은 {shown} (기준 {pki.fmt_minutes(warn_minutes)}) {extra}".rstrip())
 
     root = pki.load_cert(CA_DIR / "root_ca.crt")
     chain = pki.load_certs(CA_DIR / "intermediate_ca.crt")
-    line(f"루트 CA {pki.subject_text(root)}", root, cfg.warn_root_hours)
-    line(f"중간 CA {pki.subject_text(chain[0])}", chain[0], cfg.warn_intermediate_hours)
+    line(f"루트 CA {pki.subject_text(root)}", root, cfg.warn_root_minutes)
+    line(f"중간 CA {pki.subject_text(chain[0])}", chain[0], cfg.warn_intermediate_minutes)
     issues = pki.check_intermediate(chain[0], chain[1] if len(chain) > 1 else root)
     try:
         if not pki.key_matches_cert(CA_DIR / "intermediate_ca.key", read_password("step_ca_password"), chain[0]):
@@ -803,7 +856,7 @@ def ca_status() -> None:
         typer.echo("[OK] 사슬: 루트 -> 중간 CA 서명·CA 확장·키 짝·ca.json·신뢰 목록이 맞다")
     for extra in sorted(p for p in extra_trust_dir().glob("*") if p.suffix in {".crt", ".pem"}) if extra_trust_dir().is_dir() else []:
         for cert in pki.load_certs(extra):
-            line(f"추가 신뢰 루트 {extra.name} {pki.subject_text(cert)}", cert, cfg.warn_root_hours)
+            line(f"추가 신뢰 루트 {extra.name} {pki.subject_text(cert)}", cert, cfg.warn_root_minutes)
     kiosk = env_values()["OPENIT_KIOSK_CLIENT_CA_FILE"]
     if kiosk:
         kiosk_path = pki.resolve_path(DEPLOY, kiosk)
@@ -812,7 +865,7 @@ def ca_status() -> None:
             problems += 1
         else:
             for cert in pki.load_certs(kiosk_path):
-                line(f"키오스크 클라이언트 CA {pki.subject_text(cert)}", cert, cfg.warn_root_hours)
+                line(f"키오스크 클라이언트 CA {pki.subject_text(cert)}", cert, cfg.warn_root_minutes)
     if reg.mode == "local":
         endpoint = published_endpoint("registry", 443)
         if endpoint is None:
@@ -825,7 +878,7 @@ def ca_status() -> None:
                 typer.echo(f"[FAIL] 레지스트리 리프: 신뢰 목록으로 검증하지 못했다: {error}")
                 problems += 1
             else:
-                line(f"리프 {reg.names[0]}", leaf, cfg.warn_leaf_hours,
+                line(f"리프 {reg.names[0]}", leaf, cfg.warn_leaf_minutes,
                      f"serial={format(leaf.serial_number, 'x')[:12]} 발급={leaf.not_valid_before_utc:%Y-%m-%dT%H:%M:%SZ}")
     else:
         typer.echo(f"[--] 리프: 외부 레지스트리 {reg.address} 의 인증서는 그 운영처가 관리한다")

@@ -1,4 +1,4 @@
-# 인증서 경보 규칙(ADR 0014). 임계값은 deploy/env.example 의 OPENIT_CA_WARN_LEAF_HOURS(24)와 같아야 하고
+# 인증서 경보 규칙(ADR 0014). 임계값은 deploy/env.example 의 OPENIT_CA_WARN_LEAF(24h)와 같아야 하고
 # tools/checks 의 시험이 같은지 확인한다. 루트·중간 CA 의 긴 기간은 이 규칙이 아니라 `./deploy ca status` 가 본다.
 groups:
   - name: openit-certificates

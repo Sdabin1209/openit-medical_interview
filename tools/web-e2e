@@ -3,7 +3,9 @@
 
 사용: tools/web-e2e <영역>
 왜 컨테이너: 브라우저는 시스템 라이브러리(nss 등)가 필요하다. 공식 이미지는 브라우저와 라이브러리를 함께 담아 호스트 설치 없이 같은 결과를 준다(Playwright 문서의 Docker 안내).
-이미지 태그는 영역이 설치한 @playwright/test 버전과 같아야 한다(공식 요구). 그래서 태그를 잠금된 설치본에서 읽는다.
+이미지 태그는 영역이 설치한 @playwright/test 버전과 같아야 한다(공식 요구). 그래서 버전을 잠금된 설치본에서 읽는다.
+이미지는 태그와 digest 로 고정한다(ADR 0012). 버전별 digest 는 tools/web-e2e.lock 에 한 줄(<버전> <digest>)로 있다. 없는 버전이면 멈추고
+`tools/web-e2e --pin <영역>` 이 공식 레지스트리에서 digest 를 읽어 파일에 더한다(읽은 값은 사람이 검토해 커밋한다).
 docker 환경은 deploy/dockerenv.py 의 격리 설정만 쓴다.
 """
 
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,13 +23,46 @@ sys.path.insert(0, str(ROOT / "deploy"))
 import dockerenv  # noqa: E402
 
 
+LOCK = Path(__file__).resolve().parent / "web-e2e.lock"
+
+
+def read_lock() -> dict[str, str]:
+    pins: dict[str, str] = {}
+    if LOCK.is_file():
+        for line in LOCK.read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#"):
+                version, _, digest = line.partition(" ")
+                pins[version] = digest
+    return pins
+
+
+def pin(version: str, env: dict[str, str]) -> int:
+    result = subprocess.run(  # noqa: S603, S607
+        ["docker", "buildx", "imagetools", "inspect", f"mcr.microsoft.com/playwright:v{version}-noble"],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    found = re.search(r"^Digest:\s+(sha256:[0-9a-f]{64})$", result.stdout, re.M)
+    digest = found.group(1) if found else ""
+    if result.returncode != 0 or not digest:
+        print(f"digest 를 읽지 못했다(rc={result.returncode}): {result.stderr.strip()[-300:]}", file=sys.stderr)
+        return 1
+    pins = read_lock()
+    pins[version] = digest
+    header = "# tools/web-e2e --pin 이 쓴다. 한 줄 = <@playwright/test 버전> <mcr.microsoft.com/playwright:v<버전>-noble 의 digest>.\n"
+    LOCK.write_text(header + "".join(f"{v} {d}\n" for v, d in sorted(pins.items())), encoding="utf-8")
+    print(f"고정함: {version} {digest}")
+    return 0
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("사용: tools/web-e2e <영역>", file=sys.stderr)
+    args = [a for a in sys.argv[1:] if a != "--pin"]
+    pinning = "--pin" in sys.argv[1:]
+    if len(args) != 1:
+        print("사용: tools/web-e2e [--pin] <영역>", file=sys.stderr)
         return 2
-    area = ROOT / "web" / sys.argv[1]
+    area = ROOT / "web" / args[0]
     if not area.is_dir():
-        print(f"대상 없음: web/{sys.argv[1]} 가 없다", file=sys.stderr)
+        print(f"대상 없음: web/{args[0]} 가 없다", file=sys.stderr)
         return 3
     manifest = area / "node_modules" / "@playwright" / "test" / "package.json"
     if not manifest.is_file():
@@ -38,7 +74,13 @@ def main() -> int:
     except dockerenv.DockerEnvError as error:
         print(f"docker 환경을 정하지 못했다: {error}", file=sys.stderr)
         return 1
-    image = f"mcr.microsoft.com/playwright:v{version}-noble"
+    if pinning:
+        return pin(version, env)
+    digest = read_lock().get(version)
+    if digest is None:
+        print(f"오류: tools/web-e2e.lock 에 Playwright {version} 의 digest 가 없다. tools/web-e2e --pin {args[0]}", file=sys.stderr)
+        return 1
+    image = f"mcr.microsoft.com/playwright:v{version}-noble@{digest}"
     command = [
         "docker", "run", "--rm", "--ipc=host", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
         "-e", "CI=1", "-v", f"{area}:/work", "-w", "/work", image, "npx", "playwright", "test",

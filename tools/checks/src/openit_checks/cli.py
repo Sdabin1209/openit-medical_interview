@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from . import area_isolation, bake_targets, docker_isolation, dockerfile_lint, image_pins, licenses
+from . import area_isolation, bake_targets, docker_isolation, dockerfile_lint, image_pins, licenses, trivyignore
 from .common import Violation
 
 CHECKS: dict[str, Callable[[Path], list[Violation]]] = {
@@ -17,6 +17,7 @@ CHECKS: dict[str, Callable[[Path], list[Violation]]] = {
     "bake-targets": bake_targets.run,
     "area-isolation": area_isolation.run,
     "dockerfile-lint": dockerfile_lint.run,
+    "trivyignore": trivyignore.run,
 }
 
 

@@ -117,3 +117,31 @@ def test_cli_rc_is_1_on_violation(tmp_path: Path) -> None:
 def test_cli_rc_is_0_when_clean(tmp_path: Path) -> None:
     write(tmp_path, "package-lock.json", json.dumps({"packages": {"": {}, "node_modules/ok": {"license": "MIT"}}}))
     assert main(["licenses", "--root", str(tmp_path)]) == 0
+
+
+# ---- 제품 의존과 개발 전용 의존(ADR 0017) ----
+def test_product_gpl_fails_but_dev_tool_gpl_passes() -> None:
+    packages = [("copyleft-lib", "GPL-3.0-only")]
+    product_violations, product_notes = licenses.judge_scoped("python", "svc", packages, [], {})
+    assert [v.message for v in product_violations] == ["python copyleft-lib: 복사 의무 라이선스 'GPL-3.0-only'"]
+    assert product_notes == []
+    dev_violations, dev_notes = licenses.judge_scoped("python", "svc", [], packages, {})
+    assert dev_violations == []  # 실행만 하는 도구는 라이선스와 무관하게 통과
+    assert len(dev_notes) == 1 and dev_notes[0].startswith("[보고]") and "개발 전용" in dev_notes[0]
+
+
+def test_npm_dev_flag_splits_product_and_dev(tmp_path: Path) -> None:
+    lock = {
+        "lockfileVersion": 3,
+        "packages": {
+            "": {"name": "root"},
+            "node_modules/runtime": {"version": "1.0.0", "license": "MIT"},
+            "node_modules/tool": {"version": "1.0.0", "license": "GPL-3.0", "dev": True},
+            "node_modules/maybe": {"version": "1.0.0", "license": "AGPL-3.0-only", "devOptional": True},
+        },
+    }
+    path = write(tmp_path, "package-lock.json", json.dumps(lock))
+    assert [n for n, _ in licenses.npm_packages(path, dev=False)] == ["runtime"]
+    assert sorted(n for n, _ in licenses.npm_packages(path, dev=True)) == ["maybe", "tool"]
+    violations, notes = licenses.judge_scoped("npm", "x", licenses.npm_packages(path, dev=False), licenses.npm_packages(path, dev=True), {})
+    assert violations == [] and len(notes) == 2

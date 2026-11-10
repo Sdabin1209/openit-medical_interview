@@ -156,18 +156,47 @@ def test_own_package_import_is_ok(tmp_path: Path) -> None:
     assert area_isolation.run(tmp_path) == []
 
 
-# ---- Dockerfile 검사 래퍼 ----
+# ---- Dockerfile 검사: 빌드 검사 래퍼 + hadolint ----
+GOOD_DOCKERFILE = "FROM python:3.12-slim-bookworm\nUSER 10001\nCMD [\"python\", \"--version\"]\n"
+HADOLINT_CONFIG = "failure-threshold: info\nignored: []\n"
+
+
+def _lint_tree(tmp_path: Path, deploy_script: str, dockerfile: str = GOOD_DOCKERFILE) -> None:
+    write(tmp_path, "deploy/deploy", deploy_script, mode=0o755)
+    write(tmp_path, ".hadolint.yaml", HADOLINT_CONFIG)
+    write(tmp_path, "services/a/Dockerfile", dockerfile)
+
+
 def test_dockerfile_lint_reports_failure(tmp_path: Path) -> None:
-    write(tmp_path, "deploy/deploy", "#!/bin/sh\necho 'bad' >&2\nexit 1\n", mode=0o755)
+    _lint_tree(tmp_path, "#!/bin/sh\necho 'bad' >&2\nexit 1\n")
     found = dockerfile_lint.run(tmp_path)
     assert len(found) == 1 and "rc=1" in found[0].message
 
 
 def test_dockerfile_lint_no_target_is_violation(tmp_path: Path) -> None:
     write(tmp_path, "deploy/deploy", "#!/bin/sh\nexit 3\n", mode=0o755)
-    assert len(dockerfile_lint.run(tmp_path)) == 1
+    write(tmp_path, ".hadolint.yaml", HADOLINT_CONFIG)
+    assert len(dockerfile_lint.run(tmp_path)) == 2  # hadolint 대상 없음 + 빌드 검사 대상 없음
 
 
 def test_dockerfile_lint_passes_on_rc0(tmp_path: Path) -> None:
-    write(tmp_path, "deploy/deploy", "#!/bin/sh\nexit 0\n", mode=0o755)
+    _lint_tree(tmp_path, "#!/bin/sh\nexit 0\n")
     assert dockerfile_lint.run(tmp_path) == []
+
+
+def test_hadolint_catches_unpinned_latest_tag(tmp_path: Path) -> None:
+    _lint_tree(tmp_path, "#!/bin/sh\nexit 0\n", "FROM python:latest\nUSER 10001\n")
+    found = dockerfile_lint.run(tmp_path)
+    assert found and any("DL3007" in v.message for v in found)
+
+
+def test_hadolint_runs_shellcheck_on_run_lines(tmp_path: Path) -> None:
+    _lint_tree(tmp_path, "#!/bin/sh\nexit 0\n", "FROM python:3.12-slim-bookworm\nRUN cd /tmp && ls $HOME/*.txt | wc -l\nUSER 10001\n")
+    found = dockerfile_lint.run(tmp_path)
+    assert found and any("SC" in v.message for v in found)
+
+
+def test_hadolint_requires_config(tmp_path: Path) -> None:
+    write(tmp_path, "deploy/deploy", "#!/bin/sh\nexit 0\n", mode=0o755)
+    write(tmp_path, "services/a/Dockerfile", GOOD_DOCKERFILE)
+    assert any(".hadolint.yaml" in v.where for v in dockerfile_lint.run(tmp_path))
