@@ -6,7 +6,8 @@
   목록에 없거나 알 수 없는 라이선스도 실패한다(놓치는 것보다 낫다). 예외는 license-overrides.toml 에 이유와 함께 적는다.
 - 개발 전용 의존(실행만 하고 배포물에 들어가지 않는 도구)은 라이선스와 무관하게 허용한다. 실패시키지 않고 '[보고]' 줄로 알린다.
 - 어느 쪽인지는 잠금 파일의 표준 구분으로 정한다: Python 은 uv 의 `--no-dev` 설치에 들어가는 패키지가 제품, 나머지(dev 그룹)는 개발이다.
-  npm 은 package-lock.json 의 `dev`(`devOptional` 포함) 표시가 개발이다. `tools/` 아래 프로젝트와 PEP 723 스크립트(deploy/deploy)는 배포물이 아니므로 모두 도구다.
+  npm 은 package-lock.json 의 `dev`(`devOptional` 포함) 표시가 개발이다.
+  `tools/` 아래 프로젝트와 PEP 723 스크립트(deploy/deploy)는 배포물이 아니므로 모두 도구다.
 - Python: 프로젝트의 uv.lock 대로 설치한 환경을 pip-licenses(MIT)로 읽는다. npm: package-lock.json 의 `license` 칸을 읽는다.
 """
 
@@ -206,7 +207,7 @@ def run(root: Path) -> list[Violation]:
         found, notes = judge_scoped("python", where, product_rows, dev_rows, overrides)
         violations += found
         _announce(notes)
-    for script_lock in sorted(p for p in tracked_and_new_files(root) if p.suffix == ".lock" and p.with_suffix("").is_file()):
+    for script_lock in sorted(p for p in tracked_and_new_files(root) if p.suffix == ".lock" and _is_pep723_script(p.with_suffix(""))):
         # PEP 723 스크립트(deploy/deploy)의 잠금 파일: uv 가 만든 스크립트 환경을 읽는다. 배포 도구라 개발 전용으로 본다
         script = script_lock.with_suffix("")
         found_python = subprocess.run(["uv", "python", "find", "--script", str(script)], capture_output=True, text=True, check=False)
@@ -228,6 +229,11 @@ def run(root: Path) -> list[Violation]:
     if seen == 0:
         violations.append(Violation(CHECK, str(root), "읽은 패키지가 하나도 없다. 잠금 파일이 없으면 점검이 비어 성공하므로 실패로 본다"))
     return violations
+
+
+def _is_pep723_script(path: Path) -> bool:
+    """`# /// script` 블록(PEP 723)이 있는 파일만 uv 스크립트다. 같은 이름의 .lock(예: tools/web-e2e.lock)은 다른 용도일 수 있다."""
+    return path.is_file() and "# /// script" in path.read_text(encoding="utf-8", errors="ignore")
 
 
 def _announce(notes: list[str]) -> None:

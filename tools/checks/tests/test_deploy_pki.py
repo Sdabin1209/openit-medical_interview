@@ -135,5 +135,5 @@ def test_key_matches_cert(pki: ModuleType, tmp_path: Path) -> None:
     assert pki.key_matches_cert(path, b"pw", cert)
     other, _ = _make("Y", None, ca=True, days=10)
     assert not pki.key_matches_cert(path, b"pw", other)
-    with pytest.raises(ValueError, match="(?i)password|decrypt"):
+    with pytest.raises(ValueError, match=r"(?i)password|decrypt"):
         pki.key_matches_cert(path, b"wrong", cert)

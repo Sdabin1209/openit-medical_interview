@@ -25,13 +25,15 @@ def run(root: Path, today: date | None = None) -> list[Violation]:
         if not line:
             reason_seen = False
         elif line.startswith("#"):
-            reason_seen = reason_seen or "사유" in line and not line.startswith("# 예:") and not line.startswith("#  ")
+            reason_seen = reason_seen or ("사유" in line and not line.startswith("# 예:") and not line.startswith("#  "))
         else:
             match = ENTRY.match(line)
             if not match:
                 violations.append(Violation(CHECK, where, f"'<ID> exp:<YYYY-MM-DD>' 형식이 아니다: {line}"))
             elif date.fromisoformat(match.group(2)) < now:
-                violations.append(Violation(CHECK, where, f"{match.group(1)} 의 만료일 {match.group(2)} 이 지났다. 고치거나 사유를 다시 검토해 연장한다"))
+                violations.append(
+                    Violation(CHECK, where, f"{match.group(1)} 의 만료일 {match.group(2)} 이 지났다. 고치거나 사유를 다시 검토해 연장한다")
+                )
             if not reason_seen:
                 violations.append(Violation(CHECK, where, "바로 위에 '# 사유: ...' 주석이 없다"))
             reason_seen = False

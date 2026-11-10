@@ -1,7 +1,8 @@
 """Dockerfile 검사(ADR 0016): Docker 표준 빌드 검사(`docker buildx bake --check`)와 hadolint(ShellCheck 포함)를 모두 돌린다.
 
 - 빌드 검사: deploy 명령이 격리된 docker 환경으로 돌린다(ADR 0004, 0009).
-- hadolint: Dockerfile 작성 규칙과 RUN 줄의 셸 명령(ShellCheck)을 본다. 개발·점검에서 실행만 하는 도구이며 이미지에 들어가지 않는다(ADR 0017).
+- hadolint: Dockerfile 작성 규칙과 RUN 줄의 셸 명령(ShellCheck)을 본다.
+  개발·점검에서 실행만 하는 도구이며 이미지에 들어가지 않는다(ADR 0017).
   모든 Dockerfile(templates/, services/, web/, deploy/)이 대상이다. 규칙 설정은 리포 루트의 `.hadolint.yaml`이다.
 """
 
@@ -32,7 +33,7 @@ def hadolint(root: Path) -> list[Violation]:
         return [Violation(CHECK, "hadolint", "hadolint 가 설치되지 않았다(cd tools/checks && uv sync)")]
     violations: list[Violation] = []
     for path in files:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [str(binary), "--config", str(config), "--no-color", str(path)], capture_output=True, text=True, check=False, cwd=root
         )
         if result.returncode != 0:
@@ -44,7 +45,7 @@ def hadolint(root: Path) -> list[Violation]:
 def run(root: Path) -> list[Violation]:
     violations = hadolint(root)
     deploy = root / "deploy" / "deploy"
-    result = subprocess.run([str(deploy), "build", "--check"], capture_output=True, text=True, check=False)  # noqa: S603
+    result = subprocess.run([str(deploy), "build", "--check"], capture_output=True, text=True, check=False)
     if result.returncode == 3:
         return [*violations, Violation(CHECK, "services/ web/", "검사할 Dockerfile 이 없다(대상 없음)")]
     if result.returncode != 0:

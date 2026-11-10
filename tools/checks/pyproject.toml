@@ -41,7 +41,7 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S603", "S607"]
+"tests/**" = ["S101", "S603", "S607", "E501"]  # 왜 E501: 시험은 인증서·설정 사례를 한 줄에 둔다
 # 왜: 점검은 PATH 의 표준 도구(git, uv)를 부른다. 경로를 박으면 설치처마다 깨진다
 "src/**" = ["S603", "S607"]
 
