@@ -13,12 +13,12 @@ components:
     # ======================================================================
     # 공통: 시각, 오류(RFC 9457), 쪽 나누기, 건강 상태
     # ======================================================================
-    Timestamp: { type: string, format: date-time, maxLength: 35, examples: [ "2026-11-10T09:30:00+09:00" ], description: "일이 일어난 때. UTC 오프셋을 포함한 RFC 3339 날짜-시각", x-owner: head, x-basis: "RFC 3339 5.6(date-time). 소수 초 자릿수는 RFC 3339 가 제한하지 않아 프로젝트 선택으로 9자리까지로 하고 최대 길이 35 는 그 표기와 오프셋을 더한 길이다(UD-20)" }
-    ProblemType: { type: string, format: uri, pattern: "^(https://|about:blank$)", maxLength: 8000, examples: [ "https://openit/problems/STALE_REPORT" ], description: "오류의 종류를 가리키는 절대 URI. 이 계약에서는 https://openit/problems/<ProblemReason 값> 을 쓰고 사유가 없으면 about:blank 다", x-owner: head, x-basis: "RFC 9457 3.1.1(type 은 URI 이고 기본은 about:blank, 상대 참조는 혼란을 낳는다), 프로젝트 선택 상한 8000(UD-19: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이)" }
+    Timestamp: { type: string, format: date-time, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?([Zz]|[+-][0-9]{2}:[0-9]{2})$", maxLength: 35, examples: [ "2026-11-10T09:30:00+09:00" ], description: "일이 일어난 때. UTC 오프셋을 포함한 RFC 3339 날짜-시각", x-owner: head, x-basis: "RFC 3339 5.6(date-time). 소수 초 자릿수는 RFC 3339 가 제한하지 않아 사용자 결정 2026-11-10(UD-20)으로 9자리까지로 하고 최대 길이 35 는 그 표기와 오프셋을 더한 길이다" }
+    ProblemType: { type: string, format: uri, pattern: "^(https://|about:blank$)", maxLength: 8000, examples: [ "https://openit/problems/STALE_REPORT" ], description: "오류의 종류를 가리키는 절대 URI. 이 계약에서는 https://openit/problems/<ProblemReason 값> 을 쓰고 사유가 없으면 about:blank 다", x-owner: head, x-basis: "RFC 9457 3.1.1(type 은 URI 이고 기본은 about:blank, 상대 참조는 혼란을 낳는다), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     ProblemTitle: { type: string, maxLength: 200, examples: [ "검토 보고서가 바뀌었다" ], description: "오류 종류의 짧은 사람용 이름. 같은 종류면 항상 같다", x-owner: head, x-basis: "RFC 9457 3.1.3 (title), 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     HttpStatus: { type: integer, minimum: 400, maximum: 599, examples: [ 503 ], description: "오류 응답의 HTTP 상태 코드(클라이언트 오류 4xx, 서버 오류 5xx)", x-owner: head, x-basis: "RFC 9457 3.1.2 (status), RFC 9110 15.5 와 15.6 (4xx 와 5xx 범위)" }
     ProblemDetail: { type: string, maxLength: 4000, examples: [ "승인 요청이 가리킨 검토 보고서 해시가 지금 보고서와 다르다" ], description: "이번 오류가 일어난 까닭의 사람용 설명. 환자 발화와 비밀 값은 넣지 않는다", x-owner: head, x-basis: "RFC 9457 3.1.4 (detail), D88(환자 발화 최소 수집), 최대 길이 값은 사용자 결정 2026-11-10(UD-02, 권고값 일괄 승인)" }
-    ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, examples: [ "/v1/submissions/3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90/decisions" ], description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), 프로젝트 선택 상한 8000(UD-19)" }
+    ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, examples: [ "/v1/submissions/3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90/decisions" ], description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     ProblemReason:
       type: string
       enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, STALE_REPORT, ALREADY_DECIDED, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, RELEASE_MISMATCH, DEADLINE_EXCEEDED, QUESTION_STRUCTURE_MISMATCH, SAME_PERSON_APPROVAL, PREVIEW_STALE, CASE_VERSION_MISMATCH, IMPORT_INCOMPLETE, RELEASE_NOT_ACTIVATABLE, ROLLBACK_TARGET_INVALID, ARTIFACT_DIGEST_MISMATCH, RISK_DETECTION_DISABLED]
@@ -46,7 +46,7 @@ components:
       description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다"
       x-owner: head
       x-basis: "RFC 9457 3.2(확장 멤버), D75(1), D86, D69, D46, D120, U81, L13·D92, D16, 사용자 결정 2026-11-10(시작 코드)"
-    JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/input/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 프로젝트 선택 상한(UD-19)" }
+    JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/input/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 사용자 결정 2026-11-10(UD-19)" }
     ProblemFieldError:
       type: object
       additionalProperties: false
@@ -180,10 +180,10 @@ components:
         service: { $ref: "#/components/schemas/ServiceName", description: "응답한 서비스" }
         revision: { $ref: "#/components/schemas/ImageRevision", description: "실행 중인 이미지의 소스 커밋" }
         checks: { $ref: "#/components/schemas/HealthChecks", description: "의존별 점검 결과(/readyz 에서만)" }
-    ForwardedClientCertValue: { type: string, maxLength: 8000, examples: [ "Hash=468ed33be74eee6556d90c0149c1309e9ba61d6425303443c0748a02dd8de688;Subject=\"CN=kiosk-01\"" ], description: "Envoy 의 X-Forwarded-Client-Cert 헤더 값(By, Hash, Subject, URI 같은 요소를 세미콜론으로 이은 글). 기기 ID 는 Subject 의 CN 이다", x-owner: platform, x-basis: "Envoy x-forwarded-client-cert 헤더 사양, RFC 8705, 프로젝트 선택 상한 8000(UD-19: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다), D113" }
+    ForwardedClientCertValue: { type: string, maxLength: 8000, examples: [ "Hash=468ed33be74eee6556d90c0149c1309e9ba61d6425303443c0748a02dd8de688;Subject=\"CN=kiosk-01\"" ], description: "Envoy 의 X-Forwarded-Client-Cert 헤더 값(By, Hash, Subject, URI 같은 요소를 세미콜론으로 이은 글). 기기 ID 는 Subject 의 CN 이다", x-owner: platform, x-basis: "Envoy x-forwarded-client-cert 헤더 사양, RFC 8705, 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다, D113" }
     ReprDigestValue: { type: string, pattern: "^sha-256=:[A-Za-z0-9+/]{43}=:$", maxLength: 54, examples: [ "sha-256=:d435Qo+nKZ+gLcUHn7GQtQ72hiBVAgqoLsZnZPiTGPk=:" ], description: "올리는 파일 내용의 SHA-256 해시를 구조화 헤더 바이트열로 쓴 값(sha-256=:base64:)", x-owner: head, x-basis: "RFC 9530 2(Repr-Digest), RFC 8941 3.3.5(바이트열), FIPS 180-4(SHA-256 은 32옥텟이라 base64 44자 = 43자 + 패딩 1자. 값 전체 길이는 접두 9자 + 44자 + 끝 콜론 1자 = 54)" }
     IdempotencyKeyValue: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "쓰기 요청의 재전송을 가리는 멱등 키(클라이언트가 만든 UUID)", x-owner: head, x-basis: "draft-ietf-httpapi-idempotency-key-header(키는 클라이언트가 만든 고유 값, UUID 권장), RFC 9110 9.2.2(POST 는 멱등이 아님), D39" }
-    AuthenticateChallenge: { type: string, maxLength: 8000, examples: [ "Bearer realm=\"openit\"" ], description: "WWW-Authenticate 헤더 값(예를 들어 Bearer realm 과 error 를 담은 도전)", x-owner: head, x-basis: "RFC 9110 11.6.1, RFC 6750 3, 프로젝트 선택 상한 8000(UD-19: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다)" }
+    AuthenticateChallenge: { type: string, maxLength: 8000, examples: [ "Bearer realm=\"openit\"" ], description: "WWW-Authenticate 헤더 값(예를 들어 Bearer realm 과 error 를 담은 도전)", x-owner: head, x-basis: "RFC 9110 11.6.1, RFC 6750 3, 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다" }
     NumericDate: { type: integer, minimum: 0, maximum: 253402300799, examples: [ 1783684200 ], description: "JWT 의 시각 클레임(1970-01-01T00:00:00Z 부터의 초)", x-owner: platform, x-basis: "RFC 7519 2(NumericDate), 상한은 RFC 3339 의 연도 9999 의 끝(9999-12-31T23:59:59Z)" }
     FhirIssueSeverity:
       type: string
@@ -300,10 +300,17 @@ components:
       description: "접근 토큰의 aud 클레임. RFC 9068 은 문자열 하나나 문자열 배열을 허용하며, 이 프로젝트는 자기 서비스 이름이 aud 에 들어 있는 토큰만 받는다(로컬 프로파일)"
       x-owner: platform
       x-basis: "RFC 9068 2.2(aud 는 자원 서버를 가리킨다), 4(자원 서버는 자기 식별자가 aud 에 있는지 확인한다), 서비스 이름은 ServiceName, 배열 최대 10 은 ServiceName 값의 수"
-    AccessTokenType: { type: string, const: "at+jwt", description: "JWT 접근 토큰의 JOSE 헤더 typ 값. 서비스는 이 값이 아닌 토큰을 거절한다", x-owner: platform, x-basis: "RFC 9068 2.1(typ 은 at+jwt), 4(자원 서버는 typ 을 확인하고 다르면 거절한다)" }
-    OidcClientId: { type: string, minLength: 1, maxLength: 255, examples: [ "admin-console" ], description: "토큰을 받은 클라이언트의 식별자(client_id 클레임)", x-owner: platform, x-basis: "RFC 9068 2.2(client_id 필수), RFC 6749 2.2(client_id 는 문자열), 최대 길이는 프로젝트 선택 상한(UD-22)" }
-    TokenId: { type: string, minLength: 1, maxLength: 255, examples: [ "c0a8f3a2-7a41-4b86-9b5e-0d1e2f3a4b5c" ], description: "토큰의 고유 식별자(jti 클레임)", x-owner: platform, x-basis: "RFC 9068 2.2(jti 필수), RFC 7519 4.1.7, 최대 길이는 프로젝트 선택 상한(UD-22)" }
-    OidcJwksUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://platform/realms/openit/protocol/openid-connect/certs" ], description: "발급자의 JWT 서명 공개 키 집합(JWKS) 주소. 없으면 발급자의 디스커버리 문서(.well-known/openid-configuration)의 jwks_uri 를 쓴다", x-owner: platform, x-basis: "RFC 7517(JWK Set), OpenID Connect Discovery 1.0 3(jwks_uri), 최대 길이는 프로젝트 선택 상한 8000(UD-19)" }
+    AccessTokenType:
+      type: string
+      enum: ["at+jwt", "application/at+jwt"]
+      x-enum-descriptions: { "at+jwt": "JWT 접근 토큰의 JOSE 헤더 typ 값(권고 표기)", "application/at+jwt": "같은 뜻의 미디어 유형 전체 표기" }
+      examples: [ "at+jwt" ]
+      description: "JWT 접근 토큰의 JOSE 헤더 typ 값. 서비스는 두 표기 중 하나가 아닌 토큰을 거절한다"
+      x-owner: platform
+      x-basis: "RFC 9068 2.1(typ 은 at+jwt), 4(자원 서버는 typ 이 at+jwt 또는 application/at+jwt 가 아니면 거절한다)"
+    OidcClientId: { type: string, minLength: 1, maxLength: 255, examples: [ "admin-console" ], description: "토큰을 받은 클라이언트의 식별자(client_id 클레임)", x-owner: platform, x-basis: "RFC 9068 2.2(client_id 필수), RFC 6749 2.2(client_id 는 문자열), 최대 길이는 사용자 결정 2026-11-10(UD-22)" }
+    TokenId: { type: string, minLength: 1, maxLength: 255, examples: [ "c0a8f3a2-7a41-4b86-9b5e-0d1e2f3a4b5c" ], description: "토큰의 고유 식별자(jti 클레임)", x-owner: platform, x-basis: "RFC 9068 2.2(jti 필수), RFC 7519 4.1.7, 최대 길이는 사용자 결정 2026-11-10(UD-22)" }
+    OidcJwksUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://platform/realms/openit/protocol/openid-connect/certs" ], description: "발급자의 JWT 서명 공개 키 집합(JWKS) 주소. 없으면 발급자의 디스커버리 문서(.well-known/openid-configuration)의 jwks_uri 를 쓴다", x-owner: platform, x-basis: "RFC 7517(JWK Set), OpenID Connect Discovery 1.0 3(jwks_uri), 최대 길이는 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     AccessTokenHeader:
       allOf: [ { type: object } ]
       required: [typ, alg]
@@ -313,7 +320,7 @@ components:
       description: "서비스가 JWT 접근 토큰의 JOSE 헤더에서 확인하는 칸. 그 밖의 헤더 칸은 허용한다"
       x-owner: platform
       x-basis: "RFC 9068 2.1 과 4, RFC 7515 4.1(alg), 열린 객체라 allOf 로 객체 유형만 요구한다"
-    JwsAlgorithmName: { type: string, maxLength: 16, not: { const: none }, description: "JWS 서명 알고리즘 이름(예를 들어 RS256, ES256). none 은 허용하지 않는다", x-owner: platform, x-basis: "RFC 9068 4(alg 가 none 인 토큰을 거절한다), RFC 7518 3.1(알고리즘 이름 표), 최대 길이는 RFC 7518 의 가장 긴 이름 이상으로 둔 프로젝트 선택 상한(UD-22)" }
+    JwsAlgorithmName: { type: string, maxLength: 16, not: { const: none }, description: "JWS 서명 알고리즘 이름(예를 들어 RS256, ES256). none 은 허용하지 않는다", x-owner: platform, x-basis: "RFC 9068 4(alg 가 none 인 토큰을 거절한다), RFC 7518 3.1(알고리즘 이름 표), 최대 길이는 사용자 결정 2026-11-10(UD-22)" }
     UserIdentityClaims:
       allOf: [ { type: object } ]
       required: [iss, sub, aud, exp, iat, jti, client_id, realm_access]
@@ -567,7 +574,7 @@ components:
       required: [action]
       properties:
         action: { $ref: "#/components/schemas/InterventionAction", description: "직원의 결정" }
-    PushEndpoint: { type: string, format: uri, maxLength: 8000, examples: [ "https://updates.push.services.mozilla.com/wpush/v2/gAAAAABexample" ], description: "브라우저 푸시 서비스가 정한 구독 주소. 이 주소로 푸시 메시지를 보낸다", x-owner: survey-service, x-basis: "W3C Push API(PushSubscription.endpoint), RFC 8030 5, 프로젝트 선택 상한 8000(UD-19)" }
+    PushEndpoint: { type: string, format: uri, maxLength: 8000, examples: [ "https://updates.push.services.mozilla.com/wpush/v2/gAAAAABexample" ], description: "브라우저 푸시 서비스가 정한 구독 주소. 이 주소로 푸시 메시지를 보낸다", x-owner: survey-service, x-basis: "W3C Push API(PushSubscription.endpoint), RFC 8030 5, 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     PushPublicKey: { type: string, pattern: "^[A-Za-z0-9_-]{87}$", maxLength: 87, examples: [ "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM" ], description: "P-256 비압축 공개키를 base64url(패딩 없음)로 쓴 값(65옥텟이 87자)", x-owner: survey-service, x-basis: "RFC 8291 3.1(수신자 공개키), RFC 8292 3.2(애플리케이션 서버 키), RFC 4648 5" }
     PushAuthSecret: { type: string, pattern: "^[A-Za-z0-9_-]{22}$", maxLength: 22, examples: [ "tBHItJI5svbpez7KI4CCXg" ], description: "푸시 구독의 인증 비밀(16옥텟을 base64url 로 쓴 22자)", x-owner: survey-service, x-basis: "RFC 8291 3.2(auth secret 은 16옥텟), RFC 4648 5" }
     PushKeys:
@@ -637,7 +644,7 @@ components:
       x-owner: survey-service
       x-basis: "데이터셋 question_fields.data_type 의 CHECK 제약(SQL.md)"
     SlotUnit: { type: string, maxLength: 16, examples: [ "day/week" ], description: "수 칸의 단위 이름(년, 개비, day/week, minute 등)", x-owner: survey-service, x-basis: "데이터셋 question_fields.unit, 실측 최대 8자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
-    SlotNumber: { type: number, minimum: -9007199254740991, maximum: 9007199254740991, examples: [ 3 ], description: "칸에 담기는 수 값 또는 그 최소·최대 한계(정수도 포함). 칸마다의 허용 범위는 칸 규격(QuestionFieldSpec)이 정한다", x-owner: survey-service, x-basis: "RFC 7493 2.2 는 ±(2^53-1) 밖의 수를 상호운용 위험으로 보는 정수 범위다. 이 범위를 쓰는 것은 프로젝트 선택이다(UD-21). 칸마다의 허용 범위는 칸 규격이 정한다(D115, D117)" }
+    SlotNumber: { type: number, minimum: -9007199254740991, maximum: 9007199254740991, examples: [ 3 ], description: "칸에 담기는 수 값 또는 그 최소·최대 한계(정수도 포함). 칸마다의 허용 범위는 칸 규격(QuestionFieldSpec)이 정한다", x-owner: survey-service, x-basis: "RFC 7493 2.2 는 ±(2^53-1) 밖의 수를 상호운용 위험으로 보는 정수 범위다. 이 범위는 사용자 결정 2026-11-10(UD-21)이다. 칸마다의 허용 범위는 칸 규격이 정한다(D115, D117)" }
     OptionCode: { type: string, pattern: "^[a-z0-9_]+$", maxLength: 20, examples: [ "days_10_29" ], description: "선택지 하나의 코드(예를 들어 days_10_29, current, bottle)", x-owner: survey-service, x-basis: "데이터셋 field_options.option_code(SQL.md), 실측 최대 10자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     OptionLabel: { type: string, minLength: 1, maxLength: 38, examples: [ "과거에는 피웠으나 현재 피우지 않음" ], description: "선택지 하나의 환자용 이름", x-owner: survey-service, x-basis: "데이터셋 field_options.label, 실측 최대 19자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionOption:
@@ -1037,7 +1044,19 @@ components:
       properties:
         feature: { $ref: "#/components/schemas/ModelIoFeature", description: "조건이 걸린 기능" }
         minimum_model_io_version: { $ref: "#/components/schemas/MinimumModelIoVersion", description: "기능을 켜는 최소 모델 입출력 버전" }
-    ModelIoFeatureRequirements: { type: array, minItems: 3, maxItems: 3, items: { $ref: "#/components/schemas/ModelIoFeatureRequirement" }, description: "v3 의존 기능 셋과 켜지는 조건의 표(ModelIoFeature 값마다 하나)", x-owner: head, x-basis: "ModelIoFeature 값의 수 3" }
+    ModelIoFeatureRequirements:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items: { $ref: "#/components/schemas/ModelIoFeatureRequirement" }
+      allOf:
+        - { contains: { properties: { feature: { const: CONFIRMING_STATE } }, required: [feature] }, minContains: 1, maxContains: 1 }
+        - { contains: { properties: { feature: { const: MEANING_ASKED_EXEMPTION } }, required: [feature] }, minContains: 1, maxContains: 1 }
+        - { contains: { properties: { feature: { const: STAFF_HELP_AFTER_EXPLAIN } }, required: [feature] }, minContains: 1, maxContains: 1 }
+        # 위 셋: 기능마다 하나씩이고 중복과 누락을 거부한다
+      description: "v3 의존 기능 셋과 켜지는 조건의 표(ModelIoFeature 값마다 정확히 하나)"
+      x-owner: head
+      x-basis: "ModelIoFeature 값의 수 3, 사용자 결정 2026-11-10"
     ModelIoVersion:
       type: string
       enum: [model-io-v2]
@@ -1759,7 +1778,7 @@ components:
         precision_match_rate: "비율(ratio). 값이 맞은 것 중 precision 도 일치한 개수를 값이 맞은 개수로 나눈 것. 값과 따로 보고한다(D96(2))"
         next_item_accuracy: "비율(ratio). next_item 이 정답과 같은 개수를 같은 action 의 표본 수로 나눈 것. 분모는 action 별 표본 수이고 action 마다 따로 낸다(slice 가 action)(D96(3))"
         schema_valid_raw: "비율(ratio). 출력이 스키마를 통과한 비율. 제약 디코딩을 켠 값과 끈 값을 모두 보고한다(slice 가 constrained_decoding 의 켬과 끔)(D96(4))"
-        semantic_violation_rate: "비율(ratio). 합격 조건(ActionExtractionRules)을 어긴 출력의 비율. 분모는 평가 표본 수이고 위반 코드별로 slice 를 낸다(D97, U11)"
+        semantic_violation_rate: "비율(ratio). 합격 조건(ActionExtractionRules)을 어긴 출력의 비율. 분모는 평가 표본 수이고 위반 코드(ViolationCode)별로 slice 를 낸다(slice 표기는 violation_code=<코드>)(D97, U11)"
         ungrounded_number_rate: "비율(ratio). 응답 문장의 숫자가 입력 재료에 없는 비율. 분모는 숫자가 든 응답 문장 수다(D94)"
         forbidden_expression_rate: "비율(ratio). 금지 표현이 든 응답의 비율. 금지 표현 목록이 없으면 sample_count 0 으로 낸다(D96(5))"
         length_p95_ms: "밀리초(milliseconds). 한 번의 모델 호출 시간의 95 백분위수(D96(6))"
@@ -1802,7 +1821,21 @@ components:
         labels: { type: array, maxItems: 1, items: { $ref: "#/components/schemas/PrometheusMetricLabel" }, description: "지표가 갖는 라벨들", x-basis: "PrometheusMetricLabel 값의 수 1" }
     PrometheusMetricType: { type: string, const: histogram, description: "Prometheus 히스토그램 지표 형", x-owner: head, x-basis: "U71(히스토그램), Prometheus 데이터 모델" }
     MetricGroupName: { type: string, maxLength: 63, examples: [ "ACCURACY" ], description: "평가 지표의 묶음 이름(예를 들어 ACCURACY)", x-owner: model-lab, x-basis: "D97(그룹 ACCURACY), 사용자 결정 2026-11-10(UD-14)" }
-    MetricSlice: { type: string, maxLength: 200, examples: [ "Q8_1.days" ], description: "지표를 쪼갠 조각의 이름(문항 유형·단위·범위·위반 코드 등)", x-owner: model-lab, x-basis: "D13(문항 유형·단위·범위별 평가), D97(위반 코드별 slice), 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
+    MetricSliceDimension:
+      type: string
+      enum: [action, violation_code, constrained_decoding, question_type, unit, value_range]
+      x-enum-descriptions: { action: "LoRA-A 의 행동(ExtractionAction 값)별로 쪼갠다(D96(3))", violation_code: "의미 위반 코드(ViolationCode 값)별로 쪼갠다(D97)", constrained_decoding: "제약 디코딩의 켬(on)과 끔(off)으로 쪼갠다(D96(4))", question_type: "문항 유형별로 쪼갠다(D13)", unit: "칸의 단위별로 쪼갠다(D13)", value_range: "값의 범위별로 쪼갠다(D13)" }
+      description: "평가 지표를 쪼개는 기준의 이름"
+      x-owner: model-lab
+      x-basis: "D96(3)(4), D97(위반 코드별 slice), D13(문항 유형·단위·범위별 평가)"
+    ViolationCode:
+      type: string
+      enum: [VALUE_INVALID, VALUE_TYPE_MISMATCH, UNKNOWN_SLOT, UNKNOWN_ITEM, OUT_OF_CURRENT_ITEM]
+      x-enum-descriptions: { VALUE_INVALID: "칸 규격이 있는 칸의 값이 규격(범위, 선택지)을 어겼다", VALUE_TYPE_MISMATCH: "칸 규격이 있는 칸의 값의 자료형이 규격과 다르다", UNKNOWN_SLOT: "문항에 없는 칸 이름이다", UNKNOWN_ITEM: "순서표에 없는 문항을 가리켰다", OUT_OF_CURRENT_ITEM: "지금 문항 밖의 칸에 값을 넣었다" }
+      description: "semantic_violation_rate 가 세는 의미 위반의 코드. 정본(D97, OPEN_GAPS 의 검증기 코드 이름)에 이름이 있는 것만 두었고 코드마다의 판정 규칙은 정본에 정의가 없다"
+      x-owner: model-lab
+      x-basis: "D97(위반 코드별 slice), OPEN_GAPS U74·G13(UNKNOWN_ITEM, OUT_OF_CURRENT_ITEM), 계약 2.3.0 후보 기록(VALUE_INVALID, VALUE_TYPE_MISMATCH, UNKNOWN_SLOT)"
+    MetricSlice: { type: string, pattern: "^(action|violation_code|constrained_decoding|question_type|unit|value_range)=[A-Za-z0-9_.-]{1,64}$", maxLength: 85, examples: [ "violation_code=OUT_OF_CURRENT_ITEM" ], description: "지표를 쪼갠 조각. 기준 이름(MetricSliceDimension)과 값을 등호로 이은 글(예를 들어 action=REASK, violation_code=OUT_OF_CURRENT_ITEM, constrained_decoding=on). 전체이면 없다", x-owner: model-lab, x-basis: "D96, D97, D13, 값 최대 64 와 기준 이름 최대 20(constrained_decoding)과 등호 하나를 더한 길이 85" }
     MetricUnit:
       type: string
       enum: [ratio, milliseconds, count]
@@ -1983,7 +2016,7 @@ components:
         split: { $ref: "#/components/schemas/DatasetSplit", description: "학습·검증·평가 갈래" }
         content: { $ref: "#/components/schemas/ArtifactRef", description: "파일 참조(해시와 크기)" }
         row_count: { $ref: "#/components/schemas/RowCount", description: "행 수" }
-    DatasetFiles: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(어댑터 2개 곱하기 갈래 3개)", x-owner: synthetic-data, x-basis: "실측 학습 서버의 final 6개(어댑터 2 곱하기 갈래 3)와 finaltest 2개, 합계 8" }
+    DatasetFiles: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(final 묶음의 어댑터 2개 곱하기 갈래 3개 6개와 finaltest 묶음 2개, 합계 8개)", x-owner: synthetic-data, x-basis: "실측 학습 서버의 final 6개(어댑터 2 곱하기 갈래 3)와 finaltest 2개, 합계 8" }
     DatasetName: { type: string, minLength: 1, maxLength: 200, examples: [ "dataset_10_29" ], description: "데이터셋을 사람이 가리키는 이름", x-owner: synthetic-data, x-basis: "F17, 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     DatasetOrigin:
       type: string
@@ -2470,8 +2503,8 @@ components:
     ListenPort: { type: integer, minimum: 1, maximum: 65535, examples: [ 8080 ], description: "서비스가 요청을 받는 TCP 포트 번호", x-owner: deploy, x-basis: "RFC 9293 3.1(포트는 16비트), 0 은 예약" }
     SecretFilePath: { type: string, pattern: "^/", maxLength: 4096, examples: [ "/run/secrets/openit_database_password" ], description: "비밀 값이 든 파일의 절대 경로. 값은 환경 변수나 설정에 적지 않고 이 파일에서만 읽는다", x-owner: deploy, x-basis: "D84(비밀은 NAME_FILE 파일), POSIX PATH_MAX 4096" }
     ConfigFilePath: { type: string, pattern: "^/", maxLength: 4096, examples: [ "/etc/openit/machine-tokens.json" ], description: "비밀이 아닌 설정 파일 또는 폴더의 절대 경로", x-owner: deploy, x-basis: "D133, POSIX PATH_MAX 4096" }
-    PeerBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://release-gate" ], description: "이웃 서비스의 기준 주소(항상 TLS)", x-owner: deploy, x-basis: "C14·D127(영역 사이 모든 HTTP 는 TLS), D129(https://영역이름), 프로젝트 선택 상한 8000(UD-19)" }
-    OidcIssuerUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://platform/realms/openit" ], description: "사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다", x-owner: platform, x-basis: "OpenID Connect Discovery 1.0 2(issuer 는 https URL), U82, 프로젝트 선택 상한 8000(UD-19)" }
+    PeerBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://release-gate" ], description: "이웃 서비스의 기준 주소(항상 TLS)", x-owner: deploy, x-basis: "C14·D127(영역 사이 모든 HTTP 는 TLS), D129(https://영역이름), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
+    OidcIssuerUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://platform/realms/openit" ], description: "사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다", x-owner: platform, x-basis: "OpenID Connect Discovery 1.0 2(issuer 는 https URL), U82, 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     EgressProxyUrl: { type: string, format: uri, maxLength: 8000, examples: [ "http://127.0.0.1:3128" ], description: "영역 게이트웨이의 나가는 CONNECT 터널 주소. Exposure.egress 에 선언한 상대에게만 닿는다", x-owner: platform, x-basis: "D128(OPENIT_EGRESS_PROXY, RFC 9110 9.3.6 CONNECT)" }
     LogLevel:
       type: string
@@ -2483,7 +2516,7 @@ components:
     DatabaseUrl: { type: string, format: uri, pattern: "^postgresql://", maxLength: 8000, examples: [ "postgresql://survey-db:5432/survey" ], description: "자기 영역 데이터베이스의 접속 주소(비밀번호는 넣지 않는다)", x-owner: deploy, x-basis: "ADR 0001(PostgreSQL 16, asyncpg), D126(DB 는 영역의 컴포넌트), D84" }
     BackupRepositoryUrl: { type: string, pattern: "^rest:https://", maxLength: 8000, examples: [ "rest:https://platform:8000/survey-service" ], description: "백업을 보낼 저장소 주소(restic REST 저장소)", x-owner: platform, x-basis: "D130(restic rest-server), restic REST 백엔드 사양" }
     OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, examples: [ "https://backup.example.org/openit" ], description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: platform, x-basis: "C09(서버 밖 대상이 필수, 주소는 설정), U6" }
-    VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 프로젝트 선택 상한 8000(UD-19: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이)" }
+    VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, examples: [ 300 ], description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
     ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "사용자 결정 U36 2026-11-10(처음 질문 1회와 되묻기 2회 뒤 건너뛰고 빈칸 사유를 남긴다)이 D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
     ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
@@ -2511,7 +2544,7 @@ components:
       required: [placements]
       properties:
         placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "사용자 결정 2026-11-10(UD-08)" }
-    FhirCanonicalBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://example.org/fhir/Questionnaire" ], description: "문진표의 정본 URL 을 만드는 기준 주소. 문진표의 canonical URL 은 이 주소 뒤에 슬래시와 문진표 식별자를 붙인 값이다. 설치처마다 다르다", x-owner: survey-service, x-basis: "HL7 FHIR R4 QuestionnaireResponse.questionnaire(canonical URL), 프로젝트 선택 상한 8000(UD-19)" }
+    FhirCanonicalBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://example.org/fhir/Questionnaire" ], description: "문진표의 정본 URL 을 만드는 기준 주소. 문진표의 canonical URL 은 이 주소 뒤에 슬래시와 문진표 식별자를 붙인 값이다. 설치처마다 다르다", x-owner: survey-service, x-basis: "HL7 FHIR R4 QuestionnaireResponse.questionnaire(canonical URL), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     SurveyServiceEnv:
       type: object
       additionalProperties: false
@@ -2769,8 +2802,8 @@ components:
       description: "공개 입구가 쓰는 TLS 인증서를 얻는 방식"
       x-owner: platform
       x-basis: "D88 U5(공인 인증서와 내부 CA 를 고르는 설정), RFC 8555(ACME), 헤드 판단 2026-11-10"
-    AcmeDirectoryUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://acme-v02.api.letsencrypt.org/directory" ], description: "ACME 서버의 디렉터리 주소(공개 입구 인증서를 공인 ACME CA 에서 받을 때)", x-owner: platform, x-basis: "RFC 8555 7.1.1(디렉터리 URL), 프로젝트 선택 상한 8000(UD-19)" }
-    AlertReceiverUrl: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:alerts@example.org" ], description: "감시 경보를 받을 주소(https 웹훅 또는 mailto). 서버 밖에서 받는 주소여야 한다", x-owner: platform, x-basis: "F59, D10(서버 전체 중단은 서버 밖 감시로 알린다), RFC 6068(mailto), 프로젝트 선택 상한 8000(UD-19)" }
+    AcmeDirectoryUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://acme-v02.api.letsencrypt.org/directory" ], description: "ACME 서버의 디렉터리 주소(공개 입구 인증서를 공인 ACME CA 에서 받을 때)", x-owner: platform, x-basis: "RFC 8555 7.1.1(디렉터리 URL), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
+    AlertReceiverUrl: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:alerts@example.org" ], description: "감시 경보를 받을 주소(https 웹훅 또는 mailto). 서버 밖에서 받는 주소여야 한다", x-owner: platform, x-basis: "F59, D10(서버 전체 중단은 서버 밖 감시로 알린다), RFC 6068(mailto), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     PlatformEnv:
       type: object
       additionalProperties: false
@@ -2814,7 +2847,7 @@ components:
       description: "경로에 허용하는 HTTP 메서드"
       x-owner: deploy
       x-basis: "RFC 9110 9.3"
-    RoutePathPrefix: { type: string, pattern: "^/", maxLength: 8000, examples: [ "/v1/results" ], description: "노출하는 경로의 앞부분(항상 /로 시작)", x-owner: deploy, x-basis: "프로젝트 선택 상한 8000(UD-19: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이), C23" }
+    RoutePathPrefix: { type: string, pattern: "^/", maxLength: 8000, examples: [ "/v1/results" ], description: "노출하는 경로의 앞부분(항상 /로 시작)", x-owner: deploy, x-basis: "사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이, C23" }
     ExposureRoute:
       type: object
       additionalProperties: false

@@ -58,7 +58,7 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 | 확인 | 값 | 근거 |
 |---|---|---|
-| JOSE 헤더 `typ` | `at+jwt` (`AccessTokenType`, `AccessTokenHeader`) | RFC 9068 2.1, 4 |
+| JOSE 헤더 `typ` | `at+jwt` 또는 `application/at+jwt`(`AccessTokenType`, `AccessTokenHeader`) | RFC 9068 2.1, 4 |
 | JOSE 헤더 `alg` | `none` 이 아니다 | RFC 9068 4 |
 | 서명 | 발급자의 공개 키 집합(JWKS)으로 검증 | RFC 9068 4, RFC 7517 |
 | `iss` | `OPENIT_OIDC_ISSUER_URL` 과 같다 | RFC 9068 4 |
@@ -79,7 +79,7 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 1. **표준**(예: 샘플링 온도 0~2는 OpenAI API 허용 범위, 시작 코드는 RFC 4226 과 NIST SP 800-63B, 기반 모델 이름은 Hugging Face 저장소 이름 규칙).
 2. **측정**: 데이터셋 정본(학습 서버의 `labels.py`, `SQL.md`, 학습 파일, 어댑터 파일 크기)에서 잰 최대값. 상한은 사용자 결정(발화 한 턴 300자: 관측 최대 140자의 약 2배)과 같은 방식으로 관측 최대의 2배로 했다.
-3. **프로젝트 선택 상한**: 표준 조항이 범위를 직접 정하지 않는 값(예를 들어 URI 8000, 시각 35자, 안전한 수 범위)은 측정이나 사용자 결정으로 근거를 대고, 아직 결정이 없으면 `user-decisions-needed.md` 에 올린다.
+3. **사용자 결정**: 표준 조항이 범위를 직접 정하지 않는 값(예를 들어 URI 8000, 시각 35자, 안전한 수 범위)은 사용자 결정(UD-n, `user-decisions-needed.md`)을 근거로 한다.
 4. **구조에서 나오는 값**: 열거 값의 수, 칸 수 같은 계약 안의 개수.
 5. **결정 기록**의 결정 번호.
 

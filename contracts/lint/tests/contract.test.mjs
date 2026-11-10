@@ -1,8 +1,8 @@
 // 계약 시험: 표준 JSON Schema 2020-12 검증기(ajv)로 "받아들여야 할 값"과 "거부해야 할 값"을 components.yaml 에서 확인한다.
 // 왜: 린트는 구조(뜻, 범위, 주인)만 보고 스키마가 틀린 값을 실제로 거부하는지는 보지 못한다.
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
-import Ajv2020 from 'ajv/dist/2020.js'; import addFormats from 'ajv-formats'; import { parse } from 'yaml';
+import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs'; import { gunzipSync } from 'node:zlib'; import { spawnSync } from 'node:child_process'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js'; import Ajv from 'ajv'; import addFormats from 'ajv-formats'; import { parse } from 'yaml';
 const here = path.dirname(fileURLToPath(import.meta.url)); const root = path.resolve(here, '../..');
 const doc = parse(readFileSync(path.join(root, 'components.yaml'), 'utf8'));
 const ajv = new Ajv2020({ strict: false, allErrors: true }); addFormats(ajv);
@@ -47,8 +47,8 @@ test('JWT 클레임은 RFC 9068 필수 클레임이 빠지면 거부하고 그 �
   for (const k of ['iat', 'jti', 'client_id', 'aud', 'exp', 'iss', 'sub']) { const c = { ...full }; delete c[k]; no('UserIdentityClaims', c, `${k} 없는 클레임`); }
   ok('UserIdentityClaims', { ...full, aud: ['survey-service', 'release-gate'] }); no('UserIdentityClaims', { ...full, aud: 'unknown-service' });
 });
-test('JOSE 헤더: typ 이 at+jwt 가 아니거나 alg 가 none 이면 거부한다', () => {
-  ok('AccessTokenHeader', { typ: 'at+jwt', alg: 'RS256', kid: 'k1' }); no('AccessTokenHeader', { typ: 'JWT', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'at+jwt', alg: 'none' });
+test('JOSE 헤더: typ 이 at+jwt 또는 application/at+jwt 가 아니거나 alg 가 none 이면 거부한다', () => {
+  ok('AccessTokenHeader', { typ: 'at+jwt', alg: 'RS256', kid: 'k1' }); ok('AccessTokenHeader', { typ: 'application/at+jwt', alg: 'ES256' }); no('AccessTokenHeader', { typ: 'application/jwt', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'JWT', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'at+jwt', alg: 'none' });
 });
 const NEXT_B = { action: 'NEXT', known: '진단 받음, 지금 약 먹음', topic: '뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지', user_utterance: '중풍 진단 받았고, 약도 먹고 있어예.', next: { type: 'NEXT', question_id: 'Q1.D02', text: '혹시 심근경색이나 협심증으로 진단받으셨거나 현재 약물 치료 중이신가요?' } };
 test('ResponseRequest: 정본 행은 받고 행동별 필수·금지 키와 next 조합을 어기면 거부한다', () => {
@@ -160,4 +160,64 @@ test('작업: 업로드에는 Repr-Digest 와 413 이 있다', () => {
 test('모델 입출력 v3 의존 기능은 v3 이상에서만 켜진다고 표로 정의한다', () => {
   ok('ModelIoFeatureRequirements', [{ feature: 'CONFIRMING_STATE', minimum_model_io_version: 'model-io-v3' }, { feature: 'MEANING_ASKED_EXEMPTION', minimum_model_io_version: 'model-io-v3' }, { feature: 'STAFF_HELP_AFTER_EXPLAIN', minimum_model_io_version: 'model-io-v3' }]);
   no('ModelIoFeatureRequirement', { feature: 'CONFIRMING_STATE', minimum_model_io_version: 'model-io-v2' });
+});
+
+test('시각: 소수 초는 9자리까지이고 오프셋이 있어야 한다(10자리 거부)', () => {
+  ok('Timestamp', '2026-11-10T09:30:00.123456789+09:00'); ok('Timestamp', '2026-11-10T00:00:00Z'); ok('Timestamp', '2026-11-10T09:30:00.5Z');
+  no('Timestamp', '2026-11-10T09:30:00.1234567890Z', '소수 10자리'); no('Timestamp', '2026-11-10T09:30:00', '오프셋 없음'); no('Timestamp', '2026-11-10 09:30:00Z', '공백 구분');
+});
+test('v3 의존 기능 표: 기능마다 정확히 하나이고 중복과 누락을 거부한다', () => {
+  const f = (feature) => ({ feature, minimum_model_io_version: 'model-io-v3' });
+  ok('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION'), f('STAFF_HELP_AFTER_EXPLAIN')]);
+  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('CONFIRMING_STATE'), f('STAFF_HELP_AFTER_EXPLAIN')], '중복');
+  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION')], '누락(길이 2)');
+  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION'), f('MEANING_ASKED_EXEMPTION')], '하나 누락과 중복');
+});
+test('지표 slice 는 기준=값 표기만 받고 위반 코드는 정본에 이름이 있는 것만 받는다', () => {
+  ok('MetricSlice', 'action=REASK'); ok('MetricSlice', 'violation_code=OUT_OF_CURRENT_ITEM'); ok('MetricSlice', 'constrained_decoding=on');
+  no('MetricSlice', 'Q8_1.days'); no('MetricSlice', 'color=red'); no('MetricSlice', 'action=');
+  ok('ViolationCode', 'UNKNOWN_ITEM'); no('ViolationCode', 'MADE_UP_CODE');
+});
+test('예시가 스키마를 어기면 린트가 실패하고 위치(경로)를 알린다', () => {
+  const dir = path.join(root, 'build/contract-tests'); mkdirSync(dir, { recursive: true });
+  const bad = `openapi: 3.1.0\ninfo: { title: t, version: 1.0.0, contact: { name: head } }\nservers: [ { url: "https://example.invalid" } ]\npaths: {}\ncomponents:\n  schemas:\n    Code: { type: string, pattern: "^[0-9]{6}$", maxLength: 6, examples: [ "482910", "48291A" ], description: 시험용 코드, x-owner: head, x-basis: 시험 }\n`;
+  const f = path.join(dir, 'bad-example.yaml'); writeFileSync(f, bad);
+  const r = spawnSync(path.join(root, 'node_modules/.bin/spectral'), ['lint', '-r', path.join(root, 'lint/ruleset.yaml'), '-f', 'json', '--fail-severity', 'error', f], { encoding: 'utf8' });
+  assert.equal(r.status, 1, `rc=${r.status}`);
+  const d = JSON.parse(r.stdout).filter((x) => x.code === 'openit-examples-valid');
+  assert.equal(d.length, 1); assert.deepEqual(d[0].path, ['components', 'schemas', 'Code', 'examples', '1']);
+});
+// ---- FHIR R4: HL7 공식 JSON Schema(draft-06, CC0)로 전체 검증 (lint/tests/fixtures/fhir/README.md)
+const fhir = JSON.parse(gunzipSync(readFileSync(path.join(here, 'fixtures/fhir/fhir.schema.json.gz'))).toString('utf8'));
+delete fhir.$schema; delete fhir.id; delete fhir.oneOf; delete fhir.discriminator;
+const fajv = new Ajv({ strict: false, allErrors: true });
+fajv.addMetaSchema(JSON.parse(readFileSync(path.join(root, 'node_modules/ajv/dist/refs/json-schema-draft-06.json'), 'utf8')));
+const fv = (name) => fajv.compile({ definitions: fhir.definitions, $ref: `#/definitions/${name}` });
+const qr = (extra = {}) => ({ resourceType: 'QuestionnaireResponse', status: 'completed', questionnaire: 'https://example.org/fhir/Questionnaire/national-health', subject: { identifier: { value: 'subj-000123' } }, authored: '2026-11-10T09:30:00+09:00',
+  item: [{ linkId: 'Q1.D01', item: [{ linkId: 'Q1.D01.diagnosed', answer: [{ valueBoolean: true }] }, { linkId: 'Q1.D01.on_medication', answer: [{ valueBoolean: true }] }] },
+    { linkId: 'Q8_1', item: [{ linkId: 'Q8_1.days', answer: [{ valueInteger: 3 }] }] },
+    { linkId: 'Q7_1', item: [{ linkId: 'Q7_1[soju].amount', extension: [{ url: 'http://hl7.org/fhir/StructureDefinition/data-absent-reason', valueCode: 'asked-declined' }] }] }], ...extra });
+test('FHIR R4 공식 스키마: 우리 대응 규칙대로 만든 QuestionnaireResponse 는 받고 계약 스키마와도 맞는다', () => {
+  const val = fv('QuestionnaireResponse'); assert.equal(val(qr()), true, JSON.stringify(val.errors?.slice(0, 3)));
+  ok('FhirQuestionnaireResponse', qr());
+});
+test('FHIR R4 공식 스키마: 자료형이 틀린 답과 잘못된 코드를 거부한다', () => {
+  const val = fv('QuestionnaireResponse');
+  assert.equal(val(qr({ item: [{ linkId: 'Q8_1', answer: [{ valueInteger: 'a' }] }] })), false, 'valueInteger 문자열');
+  assert.equal(val(qr({ status: 'finished' })), false, '없는 status 코드');
+  assert.equal(val(qr({ item: [{ linkId: 'Q1', answer: [{ valueBoolean: 'yes' }] }] })), false, 'valueBoolean 문자열');
+});
+test('FHIR R4: 공식 JSON Schema 는 필수 칸(1..1)을 강제하지 않으므로 계약 스키마의 필수 칸이 더한다', () => {
+  const val = fv('QuestionnaireResponse');
+  assert.equal(val({ resourceType: 'QuestionnaireResponse' }), true, '공식 스키마는 status 없음을 받는다(한계)');
+  no('FhirQuestionnaireResponse', { resourceType: 'QuestionnaireResponse' }, '계약 스키마는 status 없음을 거부한다');
+  const o = fv('OperationOutcome');
+  assert.equal(o({ resourceType: 'OperationOutcome', issue: [{ severity: 'error' }] }), true, '공식 스키마는 code 없음을 받는다(한계)');
+  no('FhirOperationOutcome', { resourceType: 'OperationOutcome', issue: [{ severity: 'error' }] }, '계약 스키마는 code 없음을 거부한다');
+});
+test('FHIR R4 공식 스키마: OperationOutcome 예시를 받고 계약 스키마와도 맞다', () => {
+  const val = fv('OperationOutcome'); const oo = { resourceType: 'OperationOutcome', issue: [{ severity: 'error', code: 'not-found', diagnostics: '결과가 없다' }] };
+  assert.equal(val(oo), true, JSON.stringify(val.errors?.slice(0, 3))); ok('FhirOperationOutcome', oo);
+  assert.equal(val({ resourceType: 'OperationOutcome', issue: [{ severity: 'bad', code: 'not-found' }] }), false, '없는 severity 코드');
+  assert.equal(val({ resourceType: 'OperationOutcome' }), false, 'issue 없음');
 });
