@@ -16,6 +16,13 @@
 |---|---|
 | survey-service | [survey-service.md](survey-service.md) |
 | model-runtime | [model-runtime.md](model-runtime.md) |
-| model-lab | 이번 범위 밖(design.md 2절). [model-lab.md](model-lab.md)는 나중에 학습 래퍼로 다시 쓴다 |
+| model-lab | 프로젝트 최하위 순위(E2E 뒤, 사용자 결정 2026-11-10). [model-lab.md](model-lab.md)는 그때 학습 래퍼로 다시 쓴다 |
 | platform | [platform.md](platform.md) |
 | kiosk-frontend, admin-console | [web.md](web.md) |
+
+## 순서
+1. 기반(타입 생성, 공유 라이브러리, 적합성 시험)
+2. survey-service, model-runtime, platform(병렬)
+3. kiosk-frontend, admin-console
+4. 배포 통합과 E2E
+5. model-lab(최하위)
