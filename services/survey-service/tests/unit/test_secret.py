@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from survey_service.main import SecretError, read_secret
+from survey_service.settings import SecretError, read_secret
 
 
 def test_reads_value_from_file(tmp_path: Path) -> None:

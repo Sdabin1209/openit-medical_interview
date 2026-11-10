@@ -27,7 +27,11 @@ def _docker_env() -> dict[str, str]:
 
 def _docker(*args: str) -> str:
     result = subprocess.run(  # noqa: S603
-        ["docker", *args], env=_docker_env(), capture_output=True, text=True, check=False  # noqa: S607
+        ["docker", *args],
+        env=_docker_env(),
+        capture_output=True,
+        text=True,
+        check=False,  # noqa: S607
     )
     if result.returncode != 0:
         pytest.fail(f"docker {args[0]} 실패 rc={result.returncode}: {result.stderr[-500:]}")
@@ -41,8 +45,18 @@ def container() -> Iterator[str]:
         pytest.fail("OPENIT_SMOKE_IMAGE 가 없다. tools/smoke 로 실행한다")
     name = f"openit-survey_service-smoke-{uuid.uuid4().hex[:8]}"
     cid = _docker(
-        "run", "-d", "--name", name, "--read-only", "--cap-drop", "ALL",
-        "--security-opt", "no-new-privileges", "-p", "127.0.0.1::8080", image,
+        "run",
+        "-d",
+        "--name",
+        name,
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "-p",
+        "127.0.0.1::8080",
+        image,
     )
     try:
         yield cid

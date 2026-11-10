@@ -1,4 +1,5 @@
-"""마이그레이션이 빈 DB 에서 head 까지 올라가고 내려오며 모델과 어긋나지 않는지 본다(임시 SQLite 파일, PostgreSQL 은 -m postgres)."""
+"""마이그레이션이 빈 DB 에서 head 까지 올라가고 내려오며 모델과 어긋나지 않는지 본다(임시 SQLite 파일,
+PostgreSQL 은 -m postgres)."""
 
 import sqlite3
 from pathlib import Path

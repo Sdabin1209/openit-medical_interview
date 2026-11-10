@@ -110,4 +110,4 @@ forbidden_modules = ["sqlalchemy", "asyncpg"]
 [[tool.importlinter.contracts]]
 name = "층 순서"
 type = "layers"
-layers = ["survey_service.main", "survey_service.link | survey_service.store", "survey_service.components", "survey_service.types", "survey_service.contract"]
+layers = ["survey_service.main | survey_service.jobs", "survey_service.link | survey_service.store | survey_service.settings", "survey_service.components", "survey_service.types", "survey_service.contract"]

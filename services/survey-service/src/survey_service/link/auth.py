@@ -171,7 +171,8 @@ def require_any(
         request: Request, authorization: Authorization = None, x_forwarded_client_cert: Forwarded = None
     ) -> Principal:
         auth: Authenticator = request.app.state.authenticator
-        if device and x_forwarded_client_cert and not authorization:
+        # 왜 헤더가 있으면 기기: 게이트웨이는 기기 인증서가 있는 요청에만 이 헤더를 쓴다
+        if device and x_forwarded_client_cert:
             return Principal(
                 kind=PrincipalKind.DEVICE, subject=device_id_of(x_forwarded_client_cert), roles=frozenset()
             )

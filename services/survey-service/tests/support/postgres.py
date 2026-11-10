@@ -1,6 +1,8 @@
-"""시험용 PostgreSQL 16 컨테이너(`pytest -m postgres`). 컨테이너 이름에 openit-ss 를 넣고, 시험이 끝나면 자기가 만든 것만 ID 로 지운다.
+"""시험용 PostgreSQL 16 컨테이너(`pytest -m postgres`). 컨테이너 이름에 openit-ss 를 넣고, 시험이 끝나면
+자기가 만든 것만 ID 로 지운다.
 
-docker 호출은 프로젝트 자체 설정만 쓴다: DOCKER_CONFIG 가 있으면 그대로, 없으면 빈 설정 폴더({})를 쓰고 사용자 ~/.docker 는 읽지 않는다.
+docker 호출은 프로젝트 자체 설정만 쓴다: DOCKER_CONFIG 가 있으면 그대로, 없으면 빈 설정 폴더({})를 쓰고
+사용자 ~/.docker 는 읽지 않는다.
 """
 
 import json
@@ -47,7 +49,10 @@ class PostgresContainer:
         mapping = docker("port", self.cid, "5432/tcp").splitlines()[0]
         self.port = int(mapping.rsplit(":", 1)[1])
         deadline = time.monotonic() + 60
-        while docker("exec", self.cid, "pg_isready", "-U", "postgres", "-h", "127.0.0.1", check=False).find("accepting") < 0:
+        while (
+            docker("exec", self.cid, "pg_isready", "-U", "postgres", "-h", "127.0.0.1", check=False).find("accepting")
+            < 0
+        ):
             if time.monotonic() > deadline:
                 logs = docker("logs", "--tail", "30", self.cid, check=False)
                 raise RuntimeError(f"PostgreSQL 이 준비되지 않았다: {logs}")

@@ -1,0 +1,1 @@
+{"jobs":[{"job":"DETECT_FAILURES","timeout_seconds":600},{"job":"PURGE_EXPIRED","timeout_seconds":600}]}

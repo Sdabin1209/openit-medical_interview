@@ -168,7 +168,8 @@ def to_fhir(result: SessionResult, content: QuestionSetContent, canonical_base_u
         "authored": authored.root.isoformat(),
         "item": items,
     }
-    # 왜 검증하고 본문은 그대로 내나: 계약 FhirQuestionnaireResponse 는 필수 칸(resourceType, status)만 검증하는 열린 객체다.
+    # 왜 검증하고 본문은 그대로 내나: 계약 FhirQuestionnaireResponse 는 필수 칸(resourceType, status)만
+    # 검증하는 열린 객체다.
     # 나머지 칸은 FHIR R4 사양이 정본이라 모델로 옮기면 버려진다
     FhirQuestionnaireResponse.model_validate(body)
     return body

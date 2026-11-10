@@ -47,6 +47,8 @@ from survey_service.types import (
 TURN_SECONDS = Histogram("turn_duration_seconds", "환자 턴 처리 시간(초)")
 # 왜 8: 100만 개 중 살아 있는 코드와 겹칠 확률이 극히 작아 몇 번이면 충분하다(측정하지 않았다)
 MAX_CODE_ATTEMPTS = 8
+# 왜 120: 계약 RetryAfterSeconds 의 최대(Retry-After 로 알릴 수 있는 초의 상한)
+MAX_RETRY_AFTER_SECONDS = 120
 
 
 async def call_twice[T](make: Callable[[], Awaitable[T]]) -> T:
@@ -137,7 +139,7 @@ def router(rt: Runtime) -> APIRouter:
 
         async with rt.store.transaction() as tx:
             if await tx.count_start_failures(who.subject, window_start) >= rt.limits.start_failure_limit:
-                raise ApiError(429, retry_after=rt.limits.start_failure_window_seconds)
+                raise ApiError(429, retry_after=min(rt.limits.start_failure_window_seconds, MAX_RETRY_AFTER_SECONDS))
             code = body.start_code.root
             record = await tx.get_start_code(code)
             verdict = start_code.evaluate(record, who.subject, now)

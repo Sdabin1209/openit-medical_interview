@@ -1,6 +1,7 @@
 """시험 도구: 가짜 model-runtime, 임시 DB 로 만든 앱, 서명한 토큰.
 
-왜 가짜 이웃: 다른 영역 없이 혼자 시험해야 한다(D22). 가짜는 계약 타입으로 만든 정해진 출력, 출력 불가, 시간 초과를 낸다.
+왜 가짜 이웃: 다른 영역 없이 혼자 시험해야 한다(D22). 가짜는 계약 타입으로 만든 정해진 출력, 출력 불가, 시간
+초과를 낸다.
 DB 는 실제 SQLAlchemy 저장소를 임시 SQLite 파일(빠른 시험)이나 PostgreSQL 16 컨테이너(`-m postgres`)에 연다.
 """
 
@@ -26,7 +27,8 @@ from survey_service.contract.models import (
     ResponseResult,
 )
 from survey_service.link.auth import Authenticator, MachineCredential
-from survey_service.main import create_app, limits_of
+from survey_service.main import create_app
+from survey_service.settings import limits_of
 from survey_service.store.engine import make_engine, migrate
 from survey_service.store.repository import SqlStore
 from survey_service.types import AlertRecord, ModelCallError, ModelCallFailure, Runtime
@@ -71,7 +73,9 @@ class FakeModel:
         item = self.extractions.popleft()
         if isinstance(item, ModelCallError):
             raise item
-        return ExtractionResult.model_validate({"package_digest": DIGEST, "output": item.model_dump(mode="json", exclude_none=True)})
+        return ExtractionResult.model_validate(
+            {"package_digest": DIGEST, "output": item.model_dump(mode="json", exclude_none=True)}
+        )
 
     async def respond(self, request: ResponseGenerationRequest) -> ResponseResult:
         self.respond_requests.append(request)
@@ -109,7 +113,17 @@ class Keys:
     async def __call__(self, kid: str | None) -> Any:  # noqa: ANN401
         return self.private.public_key()
 
-    def token(self, roles: list[str], *, sub: str = "user-1", audience: str = "survey-service", typ: str = "at+jwt", exp_in: int = 600, issuer: str = ISSUER, now: float | None = None) -> str:
+    def token(
+        self,
+        roles: list[str],
+        *,
+        sub: str = "user-1",
+        audience: str = "survey-service",
+        typ: str = "at+jwt",
+        exp_in: int = 600,
+        issuer: str = ISSUER,
+        now: float | None = None,
+    ) -> str:
         issued = int(now if now is not None else time.time())
         claims = {
             "iss": issuer, "aud": audience, "sub": sub, "exp": issued + exp_in, "iat": issued, "jti": uuid.uuid4().hex,
@@ -201,6 +215,7 @@ def sqlite_url(directory: Path) -> str:
 
 def question_set(questionnaire_id: str = "national-health", title: str = "국가건강검진 문진표") -> dict[str, Any]:
     """시험용 문항 세트 업로드 본문: 질환(Q1), 음주 여부(Q2), 음주량(Q2_1). Q2 가 아니오이면 Q2_1 을 건너뛴다."""
+
     def spec(item: str, name: str, data_type: str, **extra: Any) -> dict[str, Any]:
         return {"item_id": item, "field_name": name, "data_type": data_type, **extra}
 
@@ -213,7 +228,8 @@ def question_set(questionnaire_id: str = "national-health", title: str = "국가
     ]  # fmt: skip
     rules = [
         {"item_id": "Q1", "branches": [{"next_item": "Q2"}]},
-        {"item_id": "Q2", "branches": [{"when": {"slot": "Q2.answer", "operator": "EQ", "value": False}, "next_item": "END"}, {"next_item": "Q2_1"}]},
+        {"item_id": "Q2", "branches": [{"when": {"slot": "Q2.answer", "operator": "EQ", "value": False},
+        "next_item": "END"}, {"next_item": "Q2_1"}]},
         {"item_id": "Q2_1", "branches": [{"next_item": "END"}]},
     ]  # fmt: skip
     return {
@@ -225,7 +241,13 @@ def question_set(questionnaire_id: str = "national-health", title: str = "국가
 
 def value(key: str, val: object, status: str = "ANSWERED", precision: str = "exact") -> dict[str, Any]:
     """추출 출력의 값 하나."""
-    return {"key": key, "value": val, "precision": precision, "status": status, "save": status in {"ANSWERED", "CORRECTION"}}
+    return {
+        "key": key,
+        "value": val,
+        "precision": precision,
+        "status": status,
+        "save": status in {"ANSWERED", "CORRECTION"},
+    }
 
 
 def extraction(action: str, next_item: str, values: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
