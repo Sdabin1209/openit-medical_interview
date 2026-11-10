@@ -1,0 +1,13 @@
+.conversation { display: flex; flex-direction: column; align-items: stretch; gap: 1rem; width: min(52rem, 100%); }
+.questionnaire-title { margin: 0; color: var(--muted); text-align: center; }
+.sentence { margin: 0; padding: 1.5rem; font-size: 2.25rem; font-weight: 700; line-height: 1.4; background: var(--surface); border: 3px solid var(--border); border-radius: 1rem; }
+.staff-help { margin: 0; padding: 1rem 1.5rem; background: var(--accent-soft); border-radius: 0.75rem; font-size: 1.5rem; font-weight: 700; }
+.label { font-size: 1.5rem; font-weight: 700; }
+.utterance { font: inherit; font-size: 1.75rem; padding: 1rem; border: 3px solid var(--border); border-radius: 0.75rem; resize: none; }
+.counter { margin: 0; text-align: right; color: var(--muted); }
+.listening, .progress { margin: 0; padding: 0.75rem 1.25rem; background: var(--accent-soft); border-radius: 0.5rem; font-weight: 700; }
+.actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+.overlay { position: fixed; inset: 0; background: rgb(17 24 39 / 70%); }
+.dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(40rem, 90vw); display: flex; flex-direction: column; gap: 1.25rem; padding: 2rem; background: var(--surface); border: 3px solid var(--border); border-radius: 1rem; }
+.dialog [role="heading"], .dialog h2 { margin: 0; font-size: 2rem; }
+.dialog p { margin: 0; }
