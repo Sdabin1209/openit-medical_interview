@@ -4,7 +4,7 @@
 
 // BEGIN SERVICES
 variable "SERVICES" {
-  default = ["_example", "survey-service"]
+  default = ["_example", "model-runtime", "survey-service"]
 }
 // END SERVICES
 
