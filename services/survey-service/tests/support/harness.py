@@ -5,9 +5,9 @@
 DB 는 실제 SQLAlchemy 저장소를 임시 SQLite 파일(빠른 시험)이나 PostgreSQL 16 컨테이너(`-m postgres`)에 연다.
 """
 
-import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -112,7 +112,8 @@ class FakeNotifier:
 class Keys:
     """시험용 RSA 키로 접근 토큰을 서명한다(IdP 대신)."""
 
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], datetime]) -> None:
+        self.clock = clock
         self.private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
     async def __call__(self, kid: str | None) -> Any:
@@ -130,7 +131,7 @@ class Keys:
         now: float | None = None,
         client_id: str = "admin-console",
     ) -> str:
-        issued = int(now if now is not None else time.time())
+        issued = int(now if now is not None else self.clock().timestamp())
         claims = {
             "iss": issuer, "aud": audience, "sub": sub, "exp": issued + exp_in, "iat": issued, "jti": uuid.uuid4().hex,
             "client_id": client_id, "realm_access": {"roles": roles},
@@ -186,7 +187,8 @@ async def build_harness(
     """앱을 만든다. 스키마는 마이그레이션으로 올린다(운영과 같은 경로)."""
     engine = make_engine(database_url)
     await migrate(engine)
-    clock, model, notifier, keys = Clock(), FakeModel(), FakeNotifier(), Keys()
+    clock, model, notifier = Clock(), FakeModel(), FakeNotifier()
+    keys = Keys(clock)
     counter = {"n": 0}
     ids: list[uuid.UUID] = []
 
@@ -212,7 +214,7 @@ async def build_harness(
         fhir_canonical_base_url="https://example.org/fhir/Questionnaire", risk_detection_enabled=risk,
         device_placements=placements or {}, vapid_public_key="B" + "A" * 86,
     )  # fmt: skip
-    authenticator = Authenticator(issuer=ISSUER, audience="survey-service", key_for=keys, machines=MACHINES)
+    authenticator = Authenticator(issuer=ISSUER, audience="survey-service", key_for=keys, machines=MACHINES, now=clock)
     app = create_app(runtime, authenticator, readiness={"database": runtime.store.ping})
     return Harness(app, runtime, model, notifier, clock, keys, engine, ids)
 

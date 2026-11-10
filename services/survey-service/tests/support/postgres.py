@@ -18,6 +18,10 @@ from pathlib import Path
 IMAGE = "postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74"
 
 
+STARTUP_LIMIT_SECONDS = 60  # 측정하지 않았다. 이미지 기동에 넉넉한 상한(기존 값 유지)
+READY_LINE = "database system is ready to accept connections"
+
+
 def docker_env() -> dict[str, str]:
     env = {key: os.environ[key] for key in ("PATH", "DOCKER_HOST", "DOCKER_CONTEXT") if key in os.environ}
     config = os.environ.get("DOCKER_CONFIG")
@@ -29,11 +33,11 @@ def docker_env() -> dict[str, str]:
     return env
 
 
-def docker(*args: str, check: bool = True) -> str:
+def docker(*args: str, check: bool = True, with_stderr: bool = False) -> str:
     result = subprocess.run(["docker", *args], env=docker_env(), capture_output=True, text=True, check=False)  # noqa: S603, S607
     if check and result.returncode != 0:
         raise RuntimeError(f"docker {args[0]} 실패 rc={result.returncode}: {result.stderr[-300:]}")
-    return result.stdout.strip()
+    return (result.stdout + result.stderr if with_stderr else result.stdout).strip()
 
 
 class PostgresContainer:
@@ -48,17 +52,14 @@ class PostgresContainer:
         )  # fmt: skip
         mapping = docker("port", self.cid, "5432/tcp").splitlines()[0]
         self.port = int(mapping.rsplit(":", 1)[1])
-        deadline = time.monotonic() + 60
-        while (
-            docker("exec", self.cid, "pg_isready", "-U", "postgres", "-h", "127.0.0.1", check=False).find("accepting")
-            < 0
-        ):
+        # 왜 로그의 준비 문구를 두 번 센다: 초기화 중 임시 서버가 먼저 준비되고 재시작한다(공식 이미지 동작, testcontainers 도 같은 방식).
+        # 기동 대기는 상한 안에서 상태를 보는 것이고 시험 판정의 시간이 아니다
+        deadline = time.monotonic() + STARTUP_LIMIT_SECONDS
+        while docker("logs", self.cid, check=False, with_stderr=True).count(READY_LINE) < 2:
             if time.monotonic() > deadline:
-                logs = docker("logs", "--tail", "30", self.cid, check=False)
+                logs = docker("logs", "--tail", "30", self.cid, check=False, with_stderr=True)
                 raise RuntimeError(f"PostgreSQL 이 준비되지 않았다: {logs}")
             time.sleep(0.5)
-        # 왜 한 번 더 기다리나: 초기화 중 임시 서버가 pg_isready 에 먼저 답하고 재시작한다
-        time.sleep(1.5)
 
     def url(self, database: str) -> str:
         return f"postgresql+asyncpg://postgres:{self.password}@127.0.0.1:{self.port}/{database}"

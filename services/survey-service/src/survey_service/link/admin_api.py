@@ -6,7 +6,7 @@
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -72,12 +72,18 @@ def _marker(name: str, sequence: int) -> str:
 
 
 async def stream_frames(
-    rt: Runtime, kinds: tuple[AlertKind, ...], last_event_id: int | None, *, poll_seconds: float = STREAM_POLL_SECONDS
+    rt: Runtime,
+    kinds: tuple[AlertKind, ...],
+    last_event_id: int | None,
+    *,
+    poll_seconds: float = STREAM_POLL_SECONDS,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> AsyncGenerator[str]:
     """알림 스트림(SSE)의 글을 끝없이 낸다. 새 이벤트가 없으면 heartbeat 간격마다 heartbeat 를 낸다.
 
     새 연결은 지금 순번부터 받고(지난 알림은 목록으로 읽는다), Last-Event-ID 가 있으면 그 뒤를 이어 받는다.
     서버가 모르는 순번이면 resync 를 먼저 보낸다.
+    sleep 은 폴링 사이의 대기다. 왜 주입: 시험이 실제 시간을 기다리지 않고 "폴링에 들어갔다"는 신호로 순서를 맞춘다.
     """
     async with rt.store.transaction() as tx:
         latest = await tx.latest_alert_sequence()
@@ -98,7 +104,7 @@ async def stream_frames(
             yield alert.sse_frame(AlertEventName(event.event), body, event.sequence)
             idle = 0.0
         if not events:
-            await asyncio.sleep(poll_seconds)
+            await sleep(poll_seconds)
             idle += poll_seconds
             if idle >= rt.limits.heartbeat_seconds:
                 yield alert.sse_frame(AlertEventName.heartbeat, _marker("heartbeat", position), None)

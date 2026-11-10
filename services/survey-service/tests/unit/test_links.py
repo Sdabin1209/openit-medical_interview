@@ -285,15 +285,15 @@ async def test_machine_token_failures_are_token_errors(tmp_path: Path) -> None:
 def _certificate(
     name: str, key: ec.EllipticCurvePrivateKey, issuer: tuple[str, ec.EllipticCurvePrivateKey] | None
 ) -> x509.Certificate:
-    now = datetime.datetime.now(datetime.UTC)
+    # 왜 고정한 넓은 기간: TLS 라이브러리는 실제 시각으로 유효 기간을 본다. 시험이 지금 시각에 기대지 않게 한다
     builder = (
         x509.CertificateBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
         .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, issuer[0] if issuer else name)]))
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(hours=1))
+        .not_valid_before(datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC))
+        .not_valid_after(datetime.datetime(2100, 1, 1, tzinfo=datetime.UTC))
         .add_extension(x509.BasicConstraints(ca=issuer is None, path_length=None), critical=True)
     )
     return builder.sign(issuer[1] if issuer else key, hashes.SHA256())

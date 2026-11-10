@@ -15,6 +15,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -66,6 +67,20 @@ class Authenticator:
     audience: str
     key_for: KeyFor
     machines: dict[str, frozenset[str]]
+    # 왜 주입: exp·iat 를 이 시계로 가른다. 시험이 실제 시각 없이 만료를 정한다(PyJWT 는 시계를 주입받지 않는다)
+    now: Callable[[], datetime] = lambda: datetime.now(UTC)
+
+    def _check_times(self, claims: dict[str, Any]) -> None:
+        """exp 가 지났거나 iat·nbf 가 아직 오지 않았으면 거부한다(RFC 7519 4.1.4~4.1.6, 여유 시간 0)."""
+        at = self.now().timestamp()
+        exp, iat, nbf = claims["exp"], claims["iat"], claims.get("nbf")
+        for value in (exp, iat) if nbf is None else (exp, iat, nbf):
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise jwt.InvalidTokenError("시각 클레임이 숫자가 아니다")
+        if exp <= at:
+            raise jwt.ExpiredSignatureError("exp")
+        if iat > at or (nbf is not None and nbf > at):
+            raise jwt.ImmatureSignatureError("iat/nbf")
 
     async def _claims(self, token: str) -> dict[str, Any]:
         """JWT 접근 토큰 검증(RFC 9068). 서명·iss·aud·exp·헤더 중 하나라도 어기면 401."""
@@ -75,14 +90,21 @@ class Authenticator:
             if header.alg.root.lower() == "none":
                 raise ValueError("alg none")
             key = await self.key_for(raw_header.get("kid"))
-            return jwt.decode(
+            claims: dict[str, Any] = jwt.decode(
                 token,
                 key,
                 algorithms=[header.alg.root],
                 audience=self.audience,
                 issuer=self.issuer,
-                options={"require": ["exp", "iat", "iss", "aud", "sub", "jti", "client_id"]},
+                options={
+                    "require": ["exp", "iat", "iss", "aud", "sub", "jti", "client_id"],
+                    "verify_exp": False,
+                    "verify_iat": False,
+                    "verify_nbf": False,
+                },
             )
+            self._check_times(claims)
+            return claims
         except (jwt.PyJWTError, ValidationError, ValueError, KeyError) as error:
             raise ApiError(401, authenticate=INVALID_TOKEN) from error
 

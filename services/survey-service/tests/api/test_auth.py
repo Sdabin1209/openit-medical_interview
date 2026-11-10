@@ -2,7 +2,6 @@
 
 import base64
 import json
-import time
 
 import jwt
 import pytest
@@ -34,7 +33,7 @@ async def test_missing_token_is_401_with_challenge(harness: Harness) -> None:
 )
 async def test_bad_tokens_are_401(harness: Harness, case: str) -> None:
     keys = harness.keys
-    now = time.time()
+    now = harness.clock().timestamp()
     token = {
         "expired": lambda: keys.token(["staff"], exp_in=-10, now=now - 100),
         "wrong_audience": lambda: keys.token(["staff"], audience="model-runtime"),
@@ -63,7 +62,7 @@ async def test_bad_tokens_are_401(harness: Harness, case: str) -> None:
 
 
 async def test_forged_signature_is_401(harness: Harness) -> None:
-    other = type(harness.keys)()
+    other = type(harness.keys)(harness.clock)
     async with harness.client() as c:
         r = await c.get("/v1/staff-alerts", headers={"Authorization": f"Bearer {other.token(['staff'])}"})
     assert r.status_code == 401
@@ -124,7 +123,7 @@ async def test_machine_caller_is_a_jwt_checked_against_the_caller_table(harness:
 )
 async def test_bad_machine_tokens_are_401(harness: Harness, case: str) -> None:
     h = harness
-    now = time.time()
+    now = h.clock().timestamp()
     token = {
         "wrong_audience": lambda: h.keys.token(
             ["result-reader"], client_id="machine-hospital", audience="model-runtime"

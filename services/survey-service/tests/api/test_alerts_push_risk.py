@@ -125,9 +125,16 @@ async def test_stream_sends_new_events_heartbeat_and_resync(harness: Harness) ->
     async with h.client() as c:
         await activate(h, c)
         sid = await start(h, c)
-        stream = stream_frames(h.runtime, alert_component.STAFF_KINDS, None, poll_seconds=0.05)
+        polling = asyncio.Event()
+
+        async def yield_to_loop(_seconds: float) -> None:
+            # 왜 실제로 재우지 않는다: 폴링에 들어갔다는 신호만 낸다(시작 순번을 읽은 뒤에 첫 폴링이 온다)
+            polling.set()
+            await asyncio.sleep(0)
+
+        stream = stream_frames(h.runtime, alert_component.STAFF_KINDS, None, poll_seconds=0.05, sleep=yield_to_loop)
         pending = asyncio.ensure_future(anext(stream))
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(polling.wait(), 5)
         await c.post(f"/v1/sessions/{sid}/staff-calls", headers=KIOSK)
         frame = await asyncio.wait_for(pending, 5)
         lines = frame.strip().split("\n")
