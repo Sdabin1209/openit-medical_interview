@@ -5,10 +5,10 @@
 
 ## 2. 받는 계약·내는 계약
 - 내는 HTTP 계약: [`contracts/openapi/survey-service.yaml`](../../contracts/openapi/survey-service.yaml)(작업 26개와 `/healthz`·`/readyz`·`/metrics`). 키오스크(기기 mTLS), 직원·의사·관리자(OIDC), 기계 토큰(병원 시스템, 위험 감지기, model-lab)이 부른다.
-- 부르는 HTTP 계약: [`contracts/openapi/model-runtime.yaml`](../../contracts/openapi/model-runtime.yaml)의 `extractAction`, `generateResponse`, `getModelStatus`. 시험에서는 계약 타입으로 만든 가짜 model-runtime 이 대신한다.
+- 부르는 HTTP 계약: [`contracts/openapi/model-runtime.yaml`](../../contracts/openapi/model-runtime.yaml)의 `extractAction`, `generateResponse`, `getModelStatus`(계약 8.0.0: 구조화된 값만 보낸다). 시험에서는 계약 타입으로 만든 가짜 model-runtime 이 대신한다.
 - 받는 환경 입력: 계약 `SurveyServiceEnv`(비밀은 `NAME_FILE` 경로, ADR 0005).
 - 타입은 `src/survey_service/contract/models.py` 로 생성한다(손으로 고치지 않는다). 생성 대상은 `pyproject.toml` 의 `[tool.openit.contract]` 가 정한다.
-- 이 영역이 낸 변경 요청: [`docs/change-requests/survey-service-001~007`](../../docs/change-requests/)(001 은 처리됨).
+- 이 영역이 낸 변경 요청: [`docs/change-requests/survey-service-001~007`](../../docs/change-requests/)(001·002·003 은 처리됨).
 
 ## 3. 컴포넌트
 컴포넌트는 `types.py` 와 계약 타입만 알고, DB 는 `store/`, 이웃·HTTP 는 `link/` 에서만 쓴다(경계는 import-linter 가 지킨다, ADR 0009).
@@ -66,12 +66,12 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 | `deploy/deploy build survey-service`(Trivy 포함) | 통과 |
 | `tools/smoke service survey-service` | 통과 — 6개 |
 
-확인하지 못한 것: 실제 Keycloak·model-runtime·브라우저 푸시 서비스와의 연동(시험은 서명한 시험 토큰, 가짜 model-runtime, RFC 8291 시험 벡터), 운영 부하와 응답 시간(측정하지 않았다), 한도 값(시작 코드 실패 10회·5분, 알림 폴링 1초 등)의 적정성. 영역 밖 결정이 필요한 것은 변경 요청 002~007 이다.
+확인하지 못한 것: 실제 Keycloak·model-runtime·브라우저 푸시 서비스와의 연동(시험은 서명한 시험 토큰, 가짜 model-runtime, RFC 8291 시험 벡터), 운영 부하와 응답 시간(측정하지 않았다), 한도 값(시작 코드 실패 10회·5분, 알림 폴링 1초 등)의 적정성. 영역 밖 결정이 필요한 것은 변경 요청 004~007 이다.
 
 ## 6. ADR 목록
 - [0001 템플릿에서 시작](docs/adr/0001-템플릿에서-시작.md)
 - [0002 시작 코드 실패 시도 한도와 충돌 처리](docs/adr/0002-시작-코드-실패-시도-한도와-충돌-처리.md)
-- [0003 모델 입력의 글 조각은 문항 세트에서만 만든다](docs/adr/0003-모델-입력의-글-조각은-문항-세트에서만-만든다.md)
+- [0003 모델 입력의 글 조각은 문항 세트에서만 만든다](docs/adr/0003-모델-입력의-글-조각은-문항-세트에서만-만든다.md)(0013 이 대체)
 - [0004 알림 스트림은 DB 폴링 SSE](docs/adr/0004-알림-스트림은-DB-폴링-SSE.md)
 - [0005 웹 푸시는 직접 조립한다](docs/adr/0005-웹-푸시는-직접-조립한다.md)
 - [0006 접근 토큰 검증과 JWKS 캐시](docs/adr/0006-접근-토큰-검증과-JWKS-캐시.md)
@@ -81,3 +81,4 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 - [0010 잡 명령과 선언](docs/adr/0010-잡-명령과-선언.md)
 - [0011 시험 방식](docs/adr/0011-시험-방식.md)
 - [0012 범위와 켜지지 않는 기능](docs/adr/0012-범위와-켜지지-않는-기능.md)
+- [0013 모델 입력의 글은 model-runtime 이 만들고 서비스는 구조화된 값만 보낸다](docs/adr/0013-모델-입력-글은-model-runtime-이-만든다.md)

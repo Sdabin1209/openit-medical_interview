@@ -46,7 +46,7 @@ async def test_one_survey_end_to_end(harness: Harness) -> None:
         assert started.status_code == 201, started.text
         sid = started.json()["session_id"]
         assert started.json()["current_item_id"] == "Q1"
-        assert h.model.respond_requests[0].input.action.value == "START"
+        assert h.model.respond_requests[0].action.value == "START"
         assert not h.model.extract_requests
 
         # 3. 같은 기기가 같은 코드로 다시 시작하면 같은 세션을 200 으로 받는다

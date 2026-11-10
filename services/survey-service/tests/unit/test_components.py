@@ -131,7 +131,7 @@ def test_next_moves_item_and_saves_values() -> None:
         and t.session.previous_item_id == "Q1"
         and t.session.asked_items == ("Q1", "Q2")
     )
-    assert t.session.answers["Q1.diagnosed"].value is True and t.saved_keys == ("Q1.diagnosed",) and not t.limit_skip
+    assert t.session.answers["Q1.diagnosed"].value is True and not t.limit_skip
 
 
 def test_correct_overwrites_and_clears_blank() -> None:
@@ -141,7 +141,6 @@ def test_correct_overwrites_and_clears_blank() -> None:
     )
     t = apply(current, extraction("CORRECT", "Q2", [value("Q1.diagnosed", True, "CORRECTION")]))
     assert t.session.answers["Q1.diagnosed"].value is True and t.session.blanks == ()
-    assert t.previous_answers["Q1.diagnosed"].value is False
 
 
 def test_hold_and_skip_record_blanks_with_reasons() -> None:
@@ -233,21 +232,27 @@ def test_lifecycle_pause_resume_end_expire() -> None:
 # ---------------------------------------------------------------- turn
 
 
-def test_value_text_and_requests() -> None:
-    assert (
-        turn.value_text(CONTENT, "Q1.diagnosed", True) == "예"
-        and turn.value_text(CONTENT, "Q1.diagnosed", False) == "아니오"
-    )
-    assert (
-        turn.value_text(CONTENT, "Q2_1.amount", 3.0) == "3잔"
-        and turn.value_text(CONTENT, "Q2_1.amount", 2.5) == "2.5잔"
-    )
-    assert (
-        turn.value_text(CONTENT, "Q1.diagnosed", None) == "모름" and turn.value_text(CONTENT, "Q1.x", "문장") == "문장"
-    )
-    current = make_session()
+def test_requests_carry_structured_values_only() -> None:
+    answers = {
+        "Q1.diagnosed": AnswerRecord(key="Q1.diagnosed", value=True, precision="exact", status="ANSWERED"),
+        "Q1.on_medication": AnswerRecord(key="Q1.on_medication", value=None, precision="unspecified", status="UNCLEAR"),
+    }
+    current = make_session(answers=answers, previous_item_id="Q0", current_item_id="Q2")
     request = turn.extraction_request(current, CONTENT, "네")
-    assert request.input.state.root == {} and request.state_key_order.root == []
+    body = request.model_dump(mode="json", exclude_none=True)
+    assert body["question_id"] == "Q2" and body["previous_question_id"] == "Q0" and body["user_utterance"] == "네"
+    assert body["current_question"] == "안녕하세요"
+    assert [s["key"] for s in body["slots"]] == ["Q1.diagnosed", "Q1.on_medication"]  # 넣은 순서가 state 순서다
+    assert body["slots"][1] == {"key": "Q1.on_medication", "value": None, "status": "UNCLEAR"}
+    assert "topic" not in body and "state" not in body and len(body["fields"]) == 4
+    first = make_session()
+    assert "previous_question_id" not in turn.extraction_request(first, CONTENT, "네").model_dump(exclude_none=True)
+    start = turn.start_response_request(CONTENT, "Q1", 1).model_dump(mode="json", exclude_none=True)
+    assert start == {
+        "runtime_contract_version": 1,
+        "action": "START",
+        "next": {"type": "NEXT", "question_id": "Q1", "text": "뇌졸중으로 진단받으셨거나 약을 드시나요?"},
+    }
     assert turn.limit_skip_text(CONTENT, "END").endswith("감사합니다.") and "한 번에 몇 잔" in turn.limit_skip_text(
         CONTENT, "Q2_1"
     )
@@ -280,17 +285,36 @@ def test_response_request_for_each_action_matches_contract_rules() -> None:
             transition=transition,
             utterance="말",
         )
-        assert request.input.action.value == action  # 계약 ResponseRequest 의 조건부 규칙은 모델 검증이 이미 통과했다
-    confirm = turn.response_request(
+        body = request.model_dump(mode="json", exclude_none=True)
+        assert body["action"] == action  # 계약의 조건부 규칙은 모델 검증이 이미 통과했다
+        assert body["values"] == ExtractedValuesDump.dump(extracted) and body["slots"][0]["key"] == "Q1.diagnosed"
+        assert ("note" in body) is (action == "REDIRECT") and ("targets" in body) is (
+            action in {"REASK", "CONFIRM", "HOLD", "SKIP"}
+        )
+    same = turn.response_request(
         session=current, content=CONTENT, extraction=ActionExtraction.model_validate(cases["CONFIRM"]),
-        transition=session.apply_extraction(current.model_copy(update={"answers": answers}), ActionExtraction.model_validate(cases["CONFIRM"]), skip_target="Q2", reask_limit=2, now=NOW),
+        transition=session.apply_extraction(current, ActionExtraction.model_validate(cases["CONFIRM"]), skip_target="Q2", reask_limit=2, now=NOW),
         utterance="말",
     )  # fmt: skip
     assert (
-        confirm.input.current is not None
-        and confirm.input.current.root == "아니오"
-        and confirm.input.next.type.value == "SAME"
+        same.next.type.value == "SAME"
+        and same.next.text is not None
+        and same.next.text.root == "뇌졸중으로 진단받으셨거나 약을 드시나요?"
     )
+    end = turn.response_request(
+        session=current, content=CONTENT, extraction=ActionExtraction.model_validate(cases["HOLD"]),
+        transition=session.apply_extraction(current, ActionExtraction.model_validate(cases["HOLD"]), skip_target="Q2", reask_limit=2, now=NOW),
+        utterance="말",
+    )  # fmt: skip
+    assert end.next.type.value == "END" and end.next.question_id is None
+
+
+class ExtractedValuesDump:
+    """추출 출력의 values 를 요청에 실리는 모양으로 낸다."""
+
+    @staticmethod
+    def dump(extracted: ActionExtraction) -> list[dict[str, object]]:
+        return extracted.values.model_dump(mode="json", exclude_none=True)
 
 
 # ---------------------------------------------------------------- result

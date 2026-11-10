@@ -96,7 +96,8 @@ async def test_versions_idempotency_and_activation(harness: Harness) -> None:
         h.model.will_extract(extraction("NEXT", "Q2", [value("Q1.diagnosed", True)]))
         h.model.will_respond("술은 드시나요?")
         await c.post(f"/v1/sessions/{sid}/turns", json=turn_body(), headers=KIOSK)
-        assert h.model.respond_requests[-1].input.topic.root == "뇌졸중으로 진단받으셨거나 약을 드시나요?"
+        sent_text = h.model.respond_requests[-1].next.text
+        assert sent_text is not None and sent_text.root == "술을 드시나요?"
         assert (await c.get(f"/v1/question-set-versions/{uuid.uuid4()}", headers=h.human("author"))).status_code == 404
         assert (
             await c.post(f"/v1/question-set-versions/{uuid.uuid4()}/activation", headers=h.human("author"))

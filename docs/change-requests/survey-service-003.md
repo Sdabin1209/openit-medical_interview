@@ -1,5 +1,7 @@
 # survey-service-003: 계약의 UserIdentityClaims 가 realm_access.roles 를 UserRole 로만 받아 실제 Keycloak 토큰이 거절된다
 
+처리됨(계약 8.0.0, bb16c28): platform 이 토큰에 계약 역할만 싣게 설정한다. 영역은 모르는 역할을 버리는 코드를 지우고 계약 모델로 그대로 검증한다(영역 ADR 0006 수정).
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: 헤드.
 

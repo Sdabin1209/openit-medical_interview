@@ -1,5 +1,7 @@
 # survey-service-002: 모델 입력의 글 조각(topic, known, ask, previous, current, hold)과 state 의 참조 문항을 만들 정본이 계약에 없다
 
+처리됨(계약 8.0.0, bb16c28): 모델 입력 글 조각은 model-runtime 이 만든다. 영역은 구조화된 값만 보낸다(영역 ADR 0013, ADR 0003 대체).
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: 헤드.
 

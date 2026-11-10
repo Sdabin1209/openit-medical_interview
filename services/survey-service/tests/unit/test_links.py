@@ -25,8 +25,10 @@ def extraction_request() -> ExtractionRequest:
     return ExtractionRequest.model_validate(
         {
             "runtime_contract_version": 1,
-            "input": {"question_id": "Q1", "current_question": "질문", "user_utterance": "네", "state": {}},
-            "state_key_order": [],
+            "question_id": "Q1",
+            "current_question": "질문",
+            "user_utterance": "네",
+            "slots": [],
             "flow": {"start_item": "Q1", "rules": [{"item_id": "Q1", "branches": [{"next_item": "END"}]}]},
             "fields": [{"item_id": "Q1", "field_name": "answer", "data_type": "boolean"}],
         }
@@ -56,11 +58,8 @@ async def test_model_client_posts_contract_bodies_with_bearer_token() -> None:
         ResponseGenerationRequest.model_validate(
             {
                 "runtime_contract_version": 1,
-                "input": {
-                    "action": "START",
-                    "topic": "주제",
-                    "next": {"type": "NEXT", "question_id": "Q1", "text": "질문"},
-                },
+                "action": "START",
+                "next": {"type": "NEXT", "question_id": "Q1", "text": "질문"},
             }
         )
     )

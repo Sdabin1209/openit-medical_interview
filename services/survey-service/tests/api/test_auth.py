@@ -78,13 +78,13 @@ async def test_role_is_checked_403(harness: Harness) -> None:
         assert (await c.get("/v1/case-exports", headers=harness.machine("hospital"))).status_code == 403
 
 
-async def test_unknown_realm_roles_are_ignored_not_rejected(harness: Harness) -> None:
-    """Keycloak 이 기본으로 붙이는 역할(offline_access 등)이 있어도 토큰은 유효하고 권한은 늘지 않는다."""
+async def test_roles_outside_the_contract_make_the_token_invalid(harness: Harness) -> None:
+    """토큰에는 계약의 역할(UserRole)만 실린다(platform 설정, 변경 요청 003). 모르는 역할이 있으면 계약 모델이 거절한다."""
     async with harness.client() as c:
-        token = harness.keys.token(["offline_access", "uma_authorization", "staff"])
-        assert (await c.get("/v1/staff-alerts", headers={"Authorization": f"Bearer {token}"})).status_code == 200
-        only_default = harness.keys.token(["offline_access"])
-        assert (await c.get("/v1/staff-alerts", headers={"Authorization": f"Bearer {only_default}"})).status_code == 403
+        mixed = harness.keys.token(["offline_access", "staff"])
+        assert (await c.get("/v1/staff-alerts", headers={"Authorization": f"Bearer {mixed}"})).status_code == 401
+        clean = harness.keys.token(["staff"])
+        assert (await c.get("/v1/staff-alerts", headers={"Authorization": f"Bearer {clean}"})).status_code == 200
 
 
 async def test_device_header_is_required_and_parsed(harness: Harness) -> None:

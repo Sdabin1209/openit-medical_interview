@@ -184,8 +184,6 @@ class SessionTransition(_Value):
     limit_skip: bool = Field(
         description="되묻기 한도에 닿아 서비스가 문항을 건너뛰었는지(이때 모델 응답을 쓰지 않는다)"
     )
-    saved_keys: tuple[str, ...] = Field(description="이번 턴에 저장한 칸들(모델 응답 입력의 known 을 만든다)")
-    previous_answers: dict[str, AnswerRecord] = Field(description="이번 턴에 바뀌기 전의 값들(CONFIRM 의 이전 값)")
 
 
 class TurnOutcome(StrEnum):

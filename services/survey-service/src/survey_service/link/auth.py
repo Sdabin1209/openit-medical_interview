@@ -15,7 +15,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 import httpx
 import jwt
@@ -89,7 +89,7 @@ class Authenticator:
                 issuer=self.issuer,
                 options={"require": ["exp", "iat", "iss", "aud", "sub", "jti", "client_id"]},
             )
-            checked = UserIdentityClaims.model_validate(_known_roles_only(claims))
+            checked = UserIdentityClaims.model_validate(claims)
         except (jwt.PyJWTError, ValidationError, ValueError, KeyError) as error:
             raise ApiError(401, authenticate=INVALID_TOKEN) from error
         return Principal(
@@ -108,22 +108,6 @@ class Authenticator:
         if found is None:
             return None
         return Principal(kind=PrincipalKind.MACHINE, subject=found.client, roles=found.roles)
-
-
-def _known_roles_only(claims: dict[str, Any]) -> dict[str, Any]:
-    """계약의 역할 목록(UserRole)에 없는 역할(Keycloak 이 기본으로 붙이는 offline_access 등)은 버린다.
-
-    왜: UserIdentityClaims 의 realm_access.roles 는 UserRole 만 받는데 실제 Keycloak 토큰에는 그 밖의 역할이 함께 온다
-    (변경 요청 survey-service-003). 버려도 권한이 늘지 않는다(요구 역할은 UserRole 에서만 고른다).
-    """
-    access: object = claims.get("realm_access")
-    if isinstance(access, dict):
-        roles: object = cast("dict[str, object]", access).get("roles")
-        if isinstance(roles, list):
-            known = {role.value for role in UserRole}
-            kept = [r for r in cast("list[object]", roles) if isinstance(r, str) and r in known]
-            claims = {**claims, "realm_access": {**cast("dict[str, object]", access), "roles": kept}}
-    return claims
 
 
 def device_id_of(forwarded_client_cert: str | None) -> str:

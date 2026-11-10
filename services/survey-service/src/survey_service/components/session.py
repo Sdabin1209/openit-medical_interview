@@ -103,15 +103,12 @@ def apply_extraction(
     action = extraction.action
     current = session.current_item_id
     answers = dict(session.answers)
-    previous = {key: value for key, value in answers.items()}
     blanks = list(session.blanks)
-    saved: list[str] = []
     for item in extraction.values.root:
         key = item.key.root
         raw = unwrap(item.value)
         if item.save.root:
             answers[key] = _answer_for(key, raw, item.precision.value, "ANSWERED")
-            saved.append(key)
             blanks = [b for b in blanks if b.key != key]
         elif item.status in (ValueStatus.MISSING, ValueStatus.UNCLEAR):
             # 왜 자리만 남기나: 다음 턴 모델 입력 state 에 '다시 물은 칸'(값 null)으로 실어야 한다
@@ -158,8 +155,6 @@ def apply_extraction(
         session=session.model_copy(update=update),
         next_item_id=next_item,
         limit_skip=limit_skip,
-        saved_keys=tuple(saved),
-        previous_answers=previous,
     )
 
 
