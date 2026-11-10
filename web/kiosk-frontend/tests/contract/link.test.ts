@@ -9,7 +9,7 @@ import { CODES, createFakeSurveyService, SESSION_ID } from "../fakes/survey-serv
 const fake = createFakeSurveyService({ questionnaires: [{ questionnaire_id: "a", title: "A 문진표" }] });
 const server = mswServerFor(fake);
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "error" });
+  server.listen({ onUnhandledFrame: "error" });
 });
 afterEach(() => {
   server.resetHandlers();
