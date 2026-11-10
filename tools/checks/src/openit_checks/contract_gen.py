@@ -173,12 +173,15 @@ def target_path(folder: Path) -> Path:
 
 
 def contract_folders(root: Path) -> list[Path]:
-    """계약 설정이 있는 파이썬 영역(서비스, 잡, 라이브러리와 그 템플릿) 폴더."""
+    """계약 설정이 있는 파이썬 영역(서비스, 잡, 라이브러리와 그 템플릿, 그리고 platform) 폴더."""
     found: list[Path] = []
     for group in ("services", "jobs", "libs", "templates"):
         base = root / group
         if base.is_dir():
             found += [p for p in sorted(base.iterdir()) if p.is_dir() and read_config(p) is not None]
+    # 왜 따로: platform 은 영역 폴더 하나가 리포 최상위에 있다(docs/design.md 5절)
+    if read_config(root / "platform") is not None:
+        found.append(root / "platform")
     return found
 
 

@@ -22,9 +22,6 @@ def dockerenv() -> ModuleType:
     return _load("dockerenv_under_test", REPO / "deploy" / "dockerenv.py")
 
 
-@pytest.fixture(scope="session")
-def pki() -> ModuleType:
-    return _load("pki_under_test", REPO / "deploy" / "pki.py")
 
 
 @pytest.fixture
