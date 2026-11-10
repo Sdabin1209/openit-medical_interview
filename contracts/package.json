@@ -4,7 +4,7 @@
   "description": "영역 사이를 오가는 모든 값의 정본이다. 정본은 사람이 쓴 YAML 네 파일이고, 계약 파일(JSON Schema, OpenAPI)은 생성기가 만든다. 생성물은 손으로 고치지 않는다.",
   "scripts": {
     "lint": "spectral lint -r lint/ruleset.yaml components.yaml openapi/*.yaml",
-    "test": "node --test lint/tests/"
+    "test": "node --test lint/tests/*.test.mjs"
   },
   "keywords": [],
   "author": "",

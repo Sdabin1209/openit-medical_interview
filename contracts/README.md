@@ -11,7 +11,7 @@
 
 ```
 npx spectral lint -r lint/ruleset.yaml components.yaml openapi/*.yaml   # 계약 린트(표준 spectral:oas + openit 규칙)
-node --test lint/tests/                                                 # 규칙이 위반을 실제로 잡는지
+node --test lint/tests/*.test.mjs                                              # 규칙이 위반을 실제로 잡는지
 ```
 
 코드 타입은 표준 생성기로 만든다: Python `datamodel-code-generator`, TypeScript `openapi-typescript`. 생성물은 고치지 않는다.
