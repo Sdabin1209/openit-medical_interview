@@ -24,12 +24,7 @@ const val = (key, value, status = 'ANSWERED', save = true, precision = 'exact') 
 test('모든 컴포넌트의 examples 가 스키마를 만족한다(린트와 같은 검증을 시험에서도)', () => {
   let n = 0;
   for (const [name, s] of Object.entries(doc.components.schemas)) if (Array.isArray(s.examples)) { n++; s.examples.forEach((e, i) => ok(name, e, `${name}.examples[${i}]`)); }
-  assert.ok(n >= 130, `예시를 단 컴포넌트가 ${n}개뿐이다`);
-});
-test('Repr-Digest: RFC 9530 의 실제 예시를 받고 길이가 어긋난 값을 거부한다', () => {
-  ok('ReprDigestValue', 'sha-256=:d435Qo+nKZ+gLcUHn7GQtQ72hiBVAgqoLsZnZPiTGPk=:');
-  no('ReprDigestValue', 'sha-256=:d435Qo+nKZ+gLcUHn7GQtQ72hiBVAgqoLsZnZPiTGPk:');
-  no('ReprDigestValue', 'sha-256=:d435Qo+nKZ+gLcUHn7GQtQ72hiBVAgqoLsZnZPiTGPk=:x');
+  assert.ok(n >= 110, `예시를 단 컴포넌트가 ${n}개뿐이다`);
 });
 test('시작 코드는 6자리 숫자만 받는다', () => { ok('StartCodeValue', '482910'); no('StartCodeValue', '48291'); no('StartCodeValue', '48291A'); });
 test('FHIR QuestionnaireResponse 는 status 가 없으면 거부한다', () => {
@@ -45,7 +40,7 @@ test('JWT 클레임은 RFC 9068 필수 클레임이 빠지면 거부하고 그 �
   const full = { iss: 'https://platform/realms/openit', sub: 'u1', aud: 'survey-service', exp: 1783684200, iat: 1783680600, jti: 'j1', client_id: 'admin-console', realm_access: { roles: ['staff'] } };
   ok('UserIdentityClaims', { ...full, scope: 'openid', azp: 'x' });
   for (const k of ['iat', 'jti', 'client_id', 'aud', 'exp', 'iss', 'sub']) { const c = { ...full }; delete c[k]; no('UserIdentityClaims', c, `${k} 없는 클레임`); }
-  ok('UserIdentityClaims', { ...full, aud: ['survey-service', 'release-gate'] }); no('UserIdentityClaims', { ...full, aud: 'unknown-service' });
+  ok('UserIdentityClaims', { ...full, aud: ['survey-service', 'model-runtime'] }); no('UserIdentityClaims', { ...full, aud: 'unknown-service' });
 });
 test('JOSE 헤더: typ 이 at+jwt 또는 application/at+jwt 가 아니거나 alg 가 none 이면 거부한다', () => {
   ok('AccessTokenHeader', { typ: 'at+jwt', alg: 'RS256', kid: 'k1' }); ok('AccessTokenHeader', { typ: 'application/at+jwt', alg: 'ES256' }); no('AccessTokenHeader', { typ: 'application/jwt', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'JWT', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'at+jwt', alg: 'none' });
@@ -80,24 +75,57 @@ test('ActionExtraction: 정본 행은 받고 행동별 reason·targets·note 규
   no('ActionExtraction', { action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', next_item: 'Q1.D01', values: [] }, 'OUT_OF_SCHEMA 에 note 없음');
   no('ActionExtraction', { action: 'NEXT', next_item: 'Q1.D02', values: [v1], extra: 1 }, '모르는 칸');
 });
-test('ExtractedValue: save 와 status, 값 없음과 precision 의 관계를 어기면 거부한다', () => {
-  no('ExtractedValue', val('Q1.D01.diagnosed', true, 'ANSWERED', false)); no('ExtractedValue', val('Q1.D01.diagnosed', null, 'UNKNOWN', true, 'unspecified'));
-  no('ExtractedValue', val('Q1.D01.diagnosed', null, 'UNKNOWN', false, 'exact')); no('ExtractedValue', val('Q1.D01.diagnosed', true, 'ANSWERED', true, 'unspecified'));
+test('ExtractedValue: 값 없음과 precision 의 관계를 어기면 거부한다(status 와 save 의 짝은 ActionExtractionRules 가 정한다)', () => {
+  no('ExtractedValue', val('Q1.D01.diagnosed', true, 'ANSWERED', true, 'unspecified')); no('ExtractedValue', val('Q1.D01.diagnosed', null, 'UNKNOWN', false, 'exact'));
   ok('ExtractedValue', val('Q7_1[soju].amount', 2, 'CORRECTION')); ok('ExtractedValue', val('Q1.D01.diagnosed', null, 'UNKNOWN', false, 'unspecified'));
 });
+const RULES = { saved_statuses: ['ANSWERED', 'CORRECTION'], null_value_statuses: ['MISSING', 'UNCLEAR', 'UNKNOWN', 'REJECTED'], actions_with_targets: ['REASK', 'CONFIRM', 'HOLD', 'SKIP'],
+  next_item_rules: [{ action: 'NEXT', rule: 'SEQUENCE_AFTER_SAVED' }], current_item_rule: { allowed_scopes: ['CURRENT_ITEM', 'ITEM_RANGE_TO_NEXT_ITEM', 'ITEM_FAMILY'], exempt_actions: ['CORRECT'], exempt_statuses: ['CORRECTION'] } };
+test('ActionExtractionRules: 합격 조건 데이터를 받고, 현재 문항 규칙이 없거나 모르는 칸이 있으면 거부한다', () => {
+  ok('ActionExtractionRules', RULES);
+  const { current_item_rule, ...noCur } = RULES; no('ActionExtractionRules', noCur, '현재 문항 규칙 없음');
+  const { null_value_statuses, ...noNull } = RULES; no('ActionExtractionRules', noNull, '값 없음 상태 목록 없음');
+  no('ActionExtractionRules', { ...RULES, actions_without_reason: ['NEXT'] }, '옛 칸(스키마가 정한다)');
+  no('CurrentItemRule', { ...RULES.current_item_rule, allowed_scopes: ['ANY_ITEM'] }, '모르는 자리 종류');
+});
+test('ViolationCode: 합격 조건 하나가 코드 하나이고 ActionExtractionRules 의 칸과 모양에서 나온다', () => {
+  const S = doc.components.schemas;
+  const codes = S.ViolationCode.enum;
+  assert.deepEqual(codes, ['OUTPUT_SCHEMA', 'SAVE_RULE', 'TARGET_NOT_IN_VALUES', 'NEXT_ITEM_MISMATCH', 'UNKNOWN_ITEM', 'UNKNOWN_SLOT', 'VALUE_TYPE_MISMATCH', 'VALUE_NOT_IN_OPTIONS', 'VALUE_OUT_OF_RANGE', 'OUT_OF_CURRENT_ITEM']);
+  assert.equal(new Set(codes).size, codes.length);
+  assert.deepEqual(Object.keys(S.ViolationCode['x-enum-descriptions']).sort(), [...codes].sort());
+  const from = { SAVE_RULE: ['saved_statuses', 'null_value_statuses'], TARGET_NOT_IN_VALUES: ['actions_with_targets'], NEXT_ITEM_MISMATCH: ['next_item_rules'], OUT_OF_CURRENT_ITEM: ['current_item_rule'] };
+  for (const [code, keys] of Object.entries(from)) for (const k of keys) assert.ok(S.ActionExtractionRules.properties[k], `${code}: ActionExtractionRules.${k} 가 없다`);
+  assert.deepEqual(Object.keys(S.ActionExtractionRules.properties).sort(), Object.values(from).flat().sort(), '합격 조건 칸마다 코드가 있어야 한다');
+  assert.ok(S.QuestionFieldSpec.properties.data_type && S.QuestionFieldSpec.properties.options && S.QuestionFieldSpec.properties.minimum && S.QuestionFieldSpec.properties.maximum && S.QuestionFieldSpec.properties.exclusive_minimum);
+  assert.ok(S.ActionExtraction.properties && S.QuestionFlowTable.properties.rules);
+});
+const D = (n) => 'sha256:' + n.repeat(64);
+const blob = (mediaType, n = 'a') => ({ mediaType, digest: D(n), size: 10 });
 test('모델 패키지: LORA_A 와 LORA_B 가 하나씩이 아니면 거부한다', () => {
-  const ref = { artifact_id: U, sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', size_bytes: 10 };
-  const ad = (role) => ({ role, weights: ref, system_prompt: ref, serving_config: { max_new_tokens: 512, temperature: 0, constrained_decoding: true } });
-  const m = (adapters) => ({ model_package_id: U, base_model: 'Qwen/Qwen3-8B', runtime_contract_version: 1, model_io_version: 'model-io-v2', model_runtime_version: '0.11.10', adapters, lineage: { dataset_version_id: U, base_model: 'Qwen/Qwen3-8B', training_run_ids: [U] }, evaluation: { dataset_version_id: U, metrics: [], created_at: '2026-11-10T09:30:00+09:00' }, created_at: '2026-11-10T09:30:00+09:00' });
+  const w = blob('application/vnd.openit.model.adapter.weights.v1'), sp = blob('application/vnd.openit.model.adapter.system-prompt.v1', 'b');
+  const ad = (role) => ({ role, weights: w, system_prompt: sp, serving_config: { max_new_tokens: 512, temperature: 0, constrained_decoding: true } });
+  const m = (adapters) => ({ base_model: 'Qwen/Qwen3-8B', runtime_contract_version: 1, model_io_version: 'model-io-v2', model_runtime_version: '0.11.10', adapters, lineage: { dataset_version_id: U, base_model: 'Qwen/Qwen3-8B', training_run_ids: [U] }, evaluation: { dataset_version_id: U, metrics: [], created_at: '2026-11-10T09:30:00+09:00' }, created_at: '2026-11-10T09:30:00+09:00' });
   ok('ModelPackageManifest', m([ad('LORA_A'), ad('LORA_B')]));
   no('ModelPackageManifest', m([ad('LORA_A'), ad('LORA_A')]), 'A 둘'); no('ModelPackageManifest', m([]), '빈 배열'); no('ModelPackageManifest', m([ad('LORA_A')]), 'A 하나');
   no('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_io_version: 'model-io-v3' }, 'v3 는 활성이 아니다');
+  no('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_package_id: U }, '패키지 식별자는 OCI digest 다');
 });
-test('학습 결과: 성공인데 어댑터나 실행 기록이 없으면 거부한다', () => {
-  const ref = { artifact_id: U, sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', size_bytes: 10 };
-  const base = { training_run_id: U, finished_at: '2026-11-10T09:30:00+09:00' };
-  ok('TrainingRunResult', { ...base, outcome: 'SUCCEEDED', adapter: ref, run_record: ref }); ok('TrainingRunResult', { ...base, outcome: 'FAILED' });
-  no('TrainingRunResult', { ...base, outcome: 'SUCCEEDED' }); no('TrainingRunResult', { ...base, outcome: 'SUCCEEDED', run_record: ref });
+test('모델 패키지 OCI 매니페스트: artifactType 과 미디어 유형과 digest 형식을 어기면 거부한다(OCI Image Spec 1.1)', () => {
+  const cfg = blob('application/vnd.openit.model.package.config.v1+json', 'c');
+  const layers = [blob('application/vnd.openit.model.adapter.weights.v1', '1'), blob('application/vnd.openit.model.adapter.system-prompt.v1', '2'), blob('application/vnd.openit.model.adapter.weights.v1', '3'), blob('application/vnd.openit.model.adapter.system-prompt.v1', '4')];
+  const m = { schemaVersion: 2, mediaType: 'application/vnd.oci.image.manifest.v1+json', artifactType: 'application/vnd.openit.model.package.v1', config: cfg, layers };
+  ok('ModelPackageOciManifest', m);
+  no('ModelPackageOciManifest', { ...m, artifactType: 'application/vnd.example.other' }, '다른 artifactType'); no('ModelPackageOciManifest', { ...m, schemaVersion: 1 }, 'schemaVersion 1');
+  no('ModelPackageOciManifest', { ...m, layers: layers.slice(0, 3) }, 'layer 셋'); no('ModelPackageOciManifest', { ...m, config: { ...cfg, digest: 'sha256:ABC' } }, '대문자 digest');
+  no('ModelPackageOciManifest', { ...m, config: { ...cfg, mediaType: 'application/octet-stream' } }, '모르는 미디어 유형');
+  ok('OciDigest', D('0')); no('OciDigest', 'sha512:' + '0'.repeat(64)); no('OciDigest', 'sha256:' + '0'.repeat(63)); no('OciDigest', 'sha256:' + 'G'.repeat(64));
+});
+test('모델 활성화와 롤백: 신원은 본문에 없고 digest 로 가리킨다', () => {
+  ok('ActivationRequest', { package_digest: D('a'), reason: '평가 보고서를 확인했다' }); no('ActivationRequest', { package_digest: D('a'), reason: '' }, '사유 없음'); no('ActivationRequest', { package_digest: D('a'), reason: 'x', approved_by: 'u1' }, '본문의 신원');
+  ok('RollbackCommand', { target_package_digest: D('b'), reason: '출력 불가가 늘었다' }); no('RollbackCommand', { target_package_digest: D('b') }, '사유 없음');
+  ok('ModelStatus', { state: 'READY', package_digest: D('a'), previous_package_digest: D('b'), runtime_contract_version: 1, model_io_version: 'model-io-v2', activated_by: 'u1', activated_at: '2026-11-10T09:30:00+09:00', loaded_at: '2026-11-10T09:31:00+09:00' }); ok('ModelStatus', { state: 'NOT_LOADED' });
+  no('ExtractionRequest', { input: {}, state_key_order: [], flow: { start_item: 'Q1.D01', rules: [] }, fields: [] }, '문항 은행 버전 없음');
 });
 test('실패 사례: 기계 독자용 모양에는 발화 원문이 없고, CONFIRMED 에는 기대 출력이 있어야 한다', () => {
   const base = { case_id: U, case_version: 1, kind: 'EXTRACT_FAILED', questionnaire_id: 'national-health', item_id: 'Q1.D01', created_at: '2026-11-10T09:30:00+09:00' };
@@ -111,14 +139,6 @@ test('실패 사례: 기계 독자용 모양에는 발화 원문이 없고, CONF
 test('지표: 비율 단위의 값은 1 을 넘으면 거부한다', () => {
   ok('EvaluationMetric', { name: 'value_precision', value: 0.93, unit: 'ratio', sample_count: 400 }); no('EvaluationMetric', { name: 'value_precision', value: 1.2, unit: 'ratio', sample_count: 400 });
   ok('EvaluationMetric', { name: 'length_p95_ms', value: 1800, unit: 'milliseconds', sample_count: 400 });
-  no('MetricComparison', { name: 'value_recall', unit: 'ratio', candidate_value: 1.5 }); ok('MetricComparison', { name: 'value_recall', unit: 'ratio', candidate_value: 0.9, active_value: 0.8 });
-});
-test('업무 로그: event_id 가 없거나 필요한 행위자가 없으면 거부한다', () => {
-  const e = { event_id: U, kind: 'SESSION_STARTED', session_id: U, occurred_at: '2026-11-10T09:30:00+09:00' };
-  ok('BusinessLogEntry', e); const { event_id, ...noId } = e; no('BusinessLogEntry', noId);
-  no('BusinessLogEntry', { ...e, kind: 'RESULT_PULLED' }, '당겨 감에 actor_client 없음'); ok('BusinessLogEntry', { ...e, kind: 'RESULT_PULLED', actor_client: 'hospital-his' });
-  no('BusinessLogEntry', { event_id: U, kind: 'SESSION_ENDED', occurred_at: '2026-11-10T09:30:00+09:00' }, '세션 사건에 session_id 없음');
-  no('TraceDelivery', {}); ok('TraceDelivery', { business_logs: [e] });
 });
 test('결과 빈칸은 반복 키까지 칸을 가린다', () => {
   ok('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount', reason: 'REASK_LIMIT' }); ok('ResultBlank', { item_id: 'Q9_2', reason: 'NOT_ASKED' }); no('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount' });
@@ -127,9 +147,18 @@ test('구조의 숫자가 서로 맞는다(같은 구조에서 산출)', () => {
   const S = doc.components.schemas;
   const envMax = Math.max(...Object.entries(S).filter(([n]) => /Env$/.test(n)).map(([, s]) => Object.keys(s.properties).length));
   assert.ok(S.ContainerInputs.properties.env.maxItems >= envMax, `환경 입력 선언 상한 ${S.ContainerInputs.properties.env.maxItems} < 환경 입력 칸 수 ${envMax}`);
-  assert.equal(S.DatasetImport.properties.pending_artifact_ids.maxItems, S.DatasetFiles.maxItems);
+  const opCount = Math.max(...['survey-service', 'model-runtime'].map((a) => ops.filter((x) => x.file === `${a}.yaml`).length));
+  assert.ok(S.Exposure.properties.routes.maxItems >= opCount, `노출 경로 상한 ${S.Exposure.properties.routes.maxItems} < 작업 수 ${opCount}`);
+  assert.equal(S.RealmAccessClaim.properties.roles.maxItems, S.UserRole.enum.length); assert.equal(S.MachineTokenEntry.properties.roles.maxItems, S.MachineRole.enum.length);
+  assert.equal(S.TokenAudienceClaim.oneOf[1].maxItems, S.ServiceName.enum.length); assert.equal(S.JobsDeclaration.properties.jobs.maxItems, S.JobName.enum.length);
   assert.deepEqual(S.Exposure.properties.egress.items, { $ref: '#/components/schemas/EgressTarget' }); assert.equal(S.Exposure.properties.egress.maxItems, 32);
   for (const [n, s] of Object.entries(S)) if (s.format === 'uuid') assert.ok(s.pattern && s.maxLength === 36, `${n}: uuid 에 pattern 과 maxLength 가 없다`);
+});
+test('영역 구성: x-owner 는 영역 7개와 head 이고 없어진 영역의 이름은 계약에 남지 않는다', () => {
+  const areas = parse(readFileSync(path.join(root, 'areas.yaml'), 'utf8')).areas; assert.equal(areas.length, 8);
+  for (const [n, s] of Object.entries(doc.components.schemas)) assert.ok(areas.includes(s['x-owner']), `${n}: ${s['x-owner']}`);
+  for (const { file, path: p, op } of ops) assert.ok(areas.includes(op['x-owner']), `${file} ${p}`);
+  assert.ok(!readdirSync(path.join(root, 'openapi')).some((f) => /^(release-gate|ops-feedback|question-authoring|synthetic-data|model-lab)\.yaml$/.test(f)));
 });
 test('보안: 역할마다 별도 요구이고(OR), 원문 경로에 기계 토큰이 없다', () => {
   for (const { file, path: p, method, op } of ops) for (const req of op.security ?? []) for (const [scheme, roles] of Object.entries(req)) {
@@ -138,8 +167,11 @@ test('보안: 역할마다 별도 요구이고(OR), 원문 경로에 기계 토�
   for (const id of ['listFailureCases', 'getFailureCase', 'getDeidentifiedTrace']) {
     const o = ops.find((x) => x.op.operationId === id).op; assert.ok(o.security.every((r) => !('machine_token' in r)), `${id} 에 기계 토큰이 있다`);
   }
-  const rb = ops.find((x) => x.op.operationId === 'createRollbackRequest').op;
-  assert.ok(rb.security.some((r) => r.oidc?.[0] === 'reviewer') && rb.security.some((r) => r.oidc?.[0] === 'operator') && rb.security.some((r) => r.machine_token?.[0] === 'rollback-requester'));
+  const find = (id) => ops.find((x) => x.op.operationId === id).op;
+  assert.deepEqual(find('activateModelPackage').security, [{ oidc: ['release-approver'] }]);
+  assert.ok(find('rollbackModelPackage').security.every((r) => !('machine_token' in r)));
+  assert.deepEqual(find('listFailureCaseExports').security, [{ area_mtls: [], machine_token: ['case-reader'] }]);
+  for (const id of ['activateModelPackage', 'rollbackModelPackage', 'uploadQuestionSet', 'activateQuestionSet']) { const o = find(id); assert.ok(!JSON.stringify(o.requestBody ?? {}).includes('approved_by'), id); }
   assert.ok(!ops.some((x) => 'x-required-roles' in x.op), 'x-required-roles 가 남아 있다');
 });
 test('작업: 역할을 요구하면 403 이 있고 401 에는 WWW-Authenticate 가 있다', () => {
@@ -151,11 +183,8 @@ test('작업: 역할을 요구하면 403 이 있고 401 에는 WWW-Authenticate 
 });
 test('작업: 멱등 키는 필요한 작업에만 있고 위험 신호는 자연 키를 쓴다', () => {
   const has = (id) => (ops.find((x) => x.op.operationId === id).op.parameters ?? []).some((q) => q.$ref?.endsWith('parameters/IdempotencyKey'));
-  for (const id of ['issueStartCode', 'createSubmission', 'createRollbackRequest', 'createDatasetImport']) assert.ok(has(id), `${id} 에 Idempotency-Key 가 없다`);
-  assert.ok(!has('receiveRiskSignal'));
-});
-test('작업: 업로드에는 Repr-Digest 와 413 이 있다', () => {
-  for (const id of ['uploadDatasetFile', 'uploadTrainingArtifact']) { const o = ops.find((x) => x.op.operationId === id).op; assert.ok((o.parameters ?? []).some((q) => q.$ref?.endsWith('parameters/ReprDigest')), id); assert.ok(o.responses['413'], id); }
+  for (const id of ['issueStartCode', 'uploadQuestionSet']) assert.ok(has(id), `${id} 에 Idempotency-Key 가 없다`);
+  assert.ok(!has('receiveRiskSignal')); assert.ok(!has('activateModelPackage'), '활성화는 digest 가 자연 키다');
 });
 test('모델 입출력 v3 의존 기능은 v3 이상에서만 켜진다고 표로 정의한다', () => {
   ok('ModelIoFeatureRequirements', [{ feature: 'CONFIRMING_STATE', minimum_model_io_version: 'model-io-v3' }, { feature: 'MEANING_ASKED_EXEMPTION', minimum_model_io_version: 'model-io-v3' }, { feature: 'STAFF_HELP_AFTER_EXPLAIN', minimum_model_io_version: 'model-io-v3' }]);
@@ -173,10 +202,10 @@ test('v3 의존 기능 표: 기능마다 정확히 하나이고 중복과 누락
   no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION')], '누락(길이 2)');
   no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION'), f('MEANING_ASKED_EXEMPTION')], '하나 누락과 중복');
 });
-test('지표 slice 는 기준=값 표기만 받고 위반 코드는 정본에 이름이 있는 것만 받는다', () => {
+test('지표 slice 는 기준=값 표기만 받고 위반 코드는 계약의 합격 조건에서 나온 것만 받는다', () => {
   ok('MetricSlice', 'action=REASK'); ok('MetricSlice', 'violation_code=OUT_OF_CURRENT_ITEM'); ok('MetricSlice', 'constrained_decoding=on');
   no('MetricSlice', 'Q8_1.days'); no('MetricSlice', 'color=red'); no('MetricSlice', 'action=');
-  ok('ViolationCode', 'UNKNOWN_ITEM'); no('ViolationCode', 'MADE_UP_CODE');
+  ok('ViolationCode', 'UNKNOWN_ITEM'); ok('ViolationCode', 'VALUE_NOT_IN_OPTIONS'); no('ViolationCode', 'MADE_UP_CODE'); no('ViolationCode', 'VALUE_INVALID', '옛 코드');
 });
 test('예시가 스키마를 어기면 린트가 실패하고 위치(경로)를 알린다', () => {
   const dir = path.join(root, 'build/contract-tests'); mkdirSync(dir, { recursive: true });

@@ -3,7 +3,7 @@ info:
   title: openit v7 문진 서비스(survey-service) API
   version: 7.0.0
   description: >-
-    문진 세션과 턴, 직원 알림과 개입, 시작 코드, 결과(의사 화면·설치처의 의료 정보 시스템 당겨 가기·FHIR)를 낸다. 값은 모두 ../components.yaml 의 정의를 참조한다.
+    문진 세션과 턴, 직원 알림과 개입, 시작 코드, 결과(의사 화면·설치처의 의료 정보 시스템 당겨 가기·FHIR), 문항 세트 올리기와 활성화, 실패 사례 검토와 비식별 내보내기(model-lab 이 당겨 감)를 낸다. 턴 기록과 업무 로그는 이 영역 안의 컴포넌트가 저장하므로 영역 사이 작업이 없다. 값은 모두 ../components.yaml 의 정의를 참조한다.
   contact: { name: head }
 servers:
   - url: "https://survey-service"
@@ -16,6 +16,8 @@ tags:
   - { name: push, description: 웹 푸시 구독 }
   - { name: results, description: 문진 결과(의사 화면과 설치처의 의료 정보 시스템의 당겨 가기) }
   - { name: risk, description: 외부 위험 감지기의 신호 }
+  - { name: question-sets, description: 문항 세트 올리기와 활성화 }
+  - { name: failure-cases, description: 실패 사례 검토와 비식별 내보내기 }
   - { name: health, description: 건강 상태와 지표 }
 paths:
   /v1/questionnaires:
@@ -318,6 +320,165 @@ paths:
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../components.yaml#/components/responses/Conflict" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/cases:
+    get:
+      operationId: listFailureCases
+      tags: [failure-cases]
+      summary: 실패 사례 목록
+      description: 실패 사례를 쪽으로 나누어 준다. 검토자가 화면에서 검토할 사례를 고른다. 환자 발화 원문은 검토용이라 검토자 역할에만 나간다. model-lab 은 listFailureCaseExports 로 읽는다(F46, D15, L12).
+      x-owner: survey-service
+      security: [ { oidc: [reviewer] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+        - { name: review_status, in: query, required: false, description: 이 검토 상태의 사례만, schema: { $ref: "../components.yaml#/components/schemas/ReviewStatus" } }
+        - { name: questionnaire_id, in: query, required: false, description: 이 문진표의 사례만, schema: { $ref: "../components.yaml#/components/schemas/QuestionnaireId" } }
+      responses:
+        "200": { description: 사례 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCasePage" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/case-exports:
+    get:
+      operationId: listFailureCaseExports
+      tags: [failure-cases]
+      summary: 비식별 실패 사례 목록(기계 독자용)
+      description: model-lab 이 review_status=CONFIRMED 로 당겨 가 회귀 평가 집합으로 쓴다(N09). 환자 발화 원문과 모델 출력은 담지 않고 검토자가 개인정보를 빼고 고쳐 쓴 문장과 기대 출력만 담는다(F19, F20, D15, D52(2), L17).
+      x-owner: survey-service
+      security: [ { area_mtls: [], machine_token: [case-reader] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+        - { name: review_status, in: query, required: false, description: 이 검토 상태의 사례만, schema: { $ref: "../components.yaml#/components/schemas/ReviewStatus" } }
+        - { name: questionnaire_id, in: query, required: false, description: 이 문진표의 사례만, schema: { $ref: "../components.yaml#/components/schemas/QuestionnaireId" } }
+      responses:
+        "200": { description: 사례 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCaseExportPage" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/cases/{case_id}:
+    parameters:
+      - { name: case_id, in: path, required: true, description: 읽을 사례, schema: { $ref: "../components.yaml#/components/schemas/CaseId" } }
+    get:
+      operationId: getFailureCase
+      tags: [failure-cases]
+      summary: 실패 사례 읽기
+      description: 사례 하나의 최신 검토 버전을 검토자에게 준다. 환자 발화 원문이 들어 있다(F46, D71, L12).
+      x-owner: survey-service
+      security: [ { oidc: [reviewer] } ]
+      responses:
+        "200": { description: 사례, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCase" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/cases/{case_id}/reviews:
+    parameters:
+      - { name: case_id, in: path, required: true, description: 검토할 사례, schema: { $ref: "../components.yaml#/components/schemas/CaseId" } }
+    post:
+      operationId: reviewFailureCase
+      tags: [failure-cases]
+      summary: 실패 사례 검토 결과 게시
+      description: 검토자가 사례의 검토 상태와 기대 출력과 고쳐 쓴 발화를 확정해 게시한다. 최신 버전과 내용이 모두 같으면 200 으로 변화 없음을, 하나라도 다르면 새 버전을 만들어 201 로 답한다(멱등). 검토자는 개인 계정으로 기록되며 승인자와 역할이 다르다(F45, D52(1), D71). 본문의 base_case_version 이 최신이 아니면 409 CASE_VERSION_MISMATCH 다.
+      x-owner: survey-service
+      security: [ { oidc: [reviewer] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/CaseReview" } } }
+      responses:
+        "200": { description: 변화 없음(같은 검토), content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCase" } } } }
+        "201": { description: 새 검토 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCase" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/deidentified-traces/{case_id}:
+    parameters:
+      - { name: case_id, in: path, required: true, description: 기록이 속한 사례, schema: { $ref: "../components.yaml#/components/schemas/CaseId" } }
+    get:
+      operationId: getDeidentifiedTrace
+      tags: [failure-cases]
+      summary: 비식별 턴 기록 읽기
+      description: 검토자가 사례를 검토하며 읽는, 비식별을 마친 턴 기록을 준다(F46, D71, D15).
+      x-owner: survey-service
+      security: [ { oidc: [reviewer] } ]
+      responses:
+        "200": { description: 비식별 턴 기록, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DeidentifiedTrace" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/question-set-versions:
+    post:
+      operationId: uploadQuestionSet
+      tags: [question-sets]
+      summary: 문항 세트 올리기
+      description: 시스템 밖에서 만든 문항 세트(제목, 문항 은행, 순서표)를 올려 새 버전으로 저장한다. 올린 사람은 인증된 사용자(OIDC 접근 토큰의 sub)에서 얻는다. 같은 문진표의 버전 순번은 서버가 올리고 한 번 저장한 버전은 바뀌지 않는다. 저장만 하고 활성으로 만들지는 않는다(N05, ADR 0019). 같은 Idempotency-Key 로 다시 보내면 앞서 저장한 버전을 돌려준다.
+      x-owner: survey-service
+      security: [ { oidc: [author] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetUpload" } } }
+      responses:
+        "201": { description: 저장한 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+    get:
+      operationId: listQuestionSetVersions
+      tags: [question-sets]
+      summary: 문항 세트 버전 목록
+      description: 저장한 문항 세트 버전을 최근 것이 먼저 나오게 쪽으로 나누어 준다. 올린 사람이 활성화할 버전을 고를 때 쓴다(N06).
+      x-owner: survey-service
+      security: [ { oidc: [author] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+        - { name: questionnaire_id, in: query, required: false, description: 이 문진표의 버전만, schema: { $ref: "../components.yaml#/components/schemas/QuestionnaireId" } }
+      responses:
+        "200": { description: 문항 세트 버전 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersionPage" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/question-set-versions/{question_set_version_id}:
+    parameters:
+      - { name: question_set_version_id, in: path, required: true, description: 읽을 문항 세트 버전, schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersionId" } }
+    get:
+      operationId: getQuestionSetVersion
+      tags: [question-sets]
+      summary: 문항 세트 버전 읽기
+      description: 저장한 문항 세트 버전의 내용(문항 은행과 순서표)을 준다(N06).
+      x-owner: survey-service
+      security: [ { oidc: [author] } ]
+      responses:
+        "200": { description: 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/question-set-versions/{question_set_version_id}/activation:
+    parameters:
+      - { name: question_set_version_id, in: path, required: true, description: 활성으로 만들 문항 세트 버전, schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersionId" } }
+    post:
+      operationId: activateQuestionSet
+      tags: [question-sets]
+      summary: 문항 세트 버전 활성화
+      description: 저장한 문항 세트 버전을 그 문진표의 활성 버전으로 만든다. 새 세션부터 이 버전을 쓰고 진행 중인 세션은 시작할 때의 버전을 그대로 쓴다. 활성화한 사람은 인증된 사용자에서 얻는다. 이미 활성인 버전을 다시 활성화해도 결과는 같다(N05). 모델과의 호환은 이 작업이 확인하지 않고 model-runtime 이 추출 요청마다 문항 은행 버전(runtime_contract_version)으로 확인한다.
+      x-owner: survey-service
+      security: [ { oidc: [author] } ]
+      responses:
+        "200": { description: 활성 문항 세트, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveQuestionSet" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /healthz:
     get:

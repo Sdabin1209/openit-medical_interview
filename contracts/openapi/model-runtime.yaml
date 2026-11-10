@@ -3,7 +3,7 @@ info:
   title: openit v7 추론 서버(model-runtime) API
   version: 7.0.0
   description: >-
-    활성 릴리스를 스스로 읽어 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고 적재 상태를 낸다.
+    레지스트리의 모델 패키지(OCI 아티팩트)를 digest 로 받아 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고, 적재 상태와 모델 패키지 활성화 승인·롤백을 받는다. 승인한 사람의 신원은 OIDC 접근 토큰(RFC 9068)의 sub 클레임에서 얻는다.
   contact: { name: head }
 servers:
   - url: "https://model-runtime"
@@ -11,6 +11,7 @@ servers:
 tags:
   - { name: inference, description: "LoRA-A 추출과 LoRA-B 응답 생성" }
   - { name: model, description: "모델 적재 상태" }
+  - { name: activation, description: "모델 패키지 활성화 승인과 롤백" }
   - { name: health, description: "건강 상태와 지표" }
 paths:
   /v1/extractions:
@@ -18,14 +19,14 @@ paths:
       operationId: extractAction
       tags: [inference]
       summary: LoRA-A 로 값과 행동 추출
-      description: 환자 발화와 문항 순서표와 칸 규격을 받아 LoRA-A 로 행동과 칸 값을 뽑는다. 출력은 규칙 보증(값 범위, targets 가 values 의 부분집합, 다음 문항이 순서표와 맞음)을 마친 값이며 받는 쪽은 다시 검증하지 않는다. 끝내 형식을 못 지키면 값을 지어내지 않고 503 OUTPUT_INVALID 로 낸다(F33, F34, D74, D75(1), D104(3), D115, D108). 요청의 release_id 가 적재한 릴리스와 다르면 409 RELEASE_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다.
+      description: 환자 발화와 문항 순서표와 칸 규격과 문항 은행 버전을 받아 LoRA-A 로 행동과 칸 값을 뽑는다. 출력은 ActionExtractionRules 의 합격 조건(출력 스키마, 저장 규칙, targets 가 values 의 부분집합, 다음 문항이 순서표와 맞음, 문항·칸이 있음, 값이 칸 규격에 맞음, 현재 문항 규칙)을 이 작업이 한 번 검사하고 마친 값이며 받는 쪽은 다시 검증하지 않는다(R7). 끝내 지키지 못하면 값을 지어내지 않고 503 OUTPUT_INVALID 로 낸다(D74, D75(1), D75(3), D104(3), D115, D108). 요청의 runtime_contract_version 이 적재한 패키지의 값과 다르면 409 QUESTION_BANK_VERSION_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다(N03).
       x-owner: model-runtime
       security: [ { area_mtls: [], machine_token: [inference-caller] } ]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionRequest" } } }
       responses:
-        "200": { description: 보증을 마친 추출 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionResult" } } } }
+        "200": { description: 검증을 마친 추출 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionResult" } } } }
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
@@ -36,7 +37,7 @@ paths:
       operationId: generateResponse
       tags: [inference]
       summary: LoRA-B 로 응답 문장 만들기
-      description: 행동과 사유와 모은 값과 다음 자리를 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(F33, F34, D74, D77). 요청의 release_id 가 적재한 릴리스와 다르면 409 RELEASE_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다.
+      description: 행동과 사유와 모은 값과 다음 자리와 문항 은행 버전을 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(D74, D77). 요청의 runtime_contract_version 이 적재한 패키지의 값과 다르면 409 QUESTION_BANK_VERSION_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다(N03).
       x-owner: model-runtime
       security: [ { area_mtls: [], machine_token: [inference-caller] } ]
       requestBody:
@@ -54,13 +55,70 @@ paths:
       operationId: getModelStatus
       tags: [model]
       summary: 모델 적재 상태 읽기
-      description: 추론 서버가 지금 적재한 릴리스와 적재 상태를 준다. 적재는 추론 서버가 활성 릴리스를 스스로 읽어 일으키며 문진 서비스는 이 상태를 읽기만 한다(F35, C05, U45, D46).
+      description: 지금 적재한 모델 패키지와 적재 상태와 직전 패키지를 준다. survey-service 는 읽기만 하고, admin-console 은 활성화 승인 뒤 적재가 끝났는지 이 작업으로 본다(N04, N07).
       x-owner: model-runtime
-      security: [ { area_mtls: [], machine_token: [inference-caller] } ]
+      security: [ { area_mtls: [], machine_token: [inference-caller] }, { oidc: [operator] }, { oidc: [release-approver] } ]
       responses:
         "200": { description: 모델 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/model-packages/{package_digest}:
+    parameters:
+      - { name: package_digest, in: path, required: true, description: 읽을 모델 패키지의 매니페스트 digest, schema: { $ref: "../components.yaml#/components/schemas/OciDigest" } }
+    get:
+      operationId: getModelPackage
+      tags: [activation]
+      summary: 모델 패키지의 목록표와 평가 보고서 읽기
+      description: 레지스트리에 게시된 모델 패키지(OCI 아티팩트)의 목록표와 평가 보고서를 digest 로 받아 준다. 승인자가 활성화를 승인하기 전에 평가 보고서를 본다(N07, N10). 이 작업은 패키지를 적재하거나 활성화하지 않는다. 레지스트리에 없으면 404, artifactType 이나 목록표가 계약과 다르면 422 PACKAGE_INVALID 다.
+      x-owner: model-runtime
+      security: [ { oidc: [operator] }, { oidc: [release-approver] } ]
+      responses:
+        "200": { description: 모델 패키지 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageManifest" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "422": { $ref: "../components.yaml#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/model-activations:
+    post:
+      operationId: activateModelPackage
+      tags: [activation]
+      summary: 모델 패키지 활성화 승인
+      description: 승인자가 평가 보고서를 본 모델 패키지를 digest 로 지정해 활성으로 만든다. 승인한 사람은 OIDC 접근 토큰의 sub 클레임에서 얻고 본문에 신원을 싣지 않는다. 적재는 이어서 일어나므로 202 로 답하고 끝났는지는 getModelStatus 로 본다. 적재가 실패하면 이전 패키지를 유지한다(N07, D46). 이미 활성인 digest 를 다시 보내도 결과는 같아 200 으로 지금 상태를 돌려준다.
+      x-owner: model-runtime
+      security: [ { oidc: [release-approver] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActivationRequest" } } }
+      responses:
+        "200": { description: 이미 활성인 패키지의 지금 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
+        "202": { description: 활성화를 받아 적재를 시작했다, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../components.yaml#/components/responses/Conflict" }
+        "422": { $ref: "../components.yaml#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/model-rollbacks:
+    post:
+      operationId: rollbackModelPackage
+      tags: [activation]
+      summary: 이전 모델 패키지로 롤백
+      description: 운영자나 승인자가 활성 패키지를 이전에 활성이었던 패키지로 되돌린다. 하는 사람은 OIDC 접근 토큰의 sub 클레임에서 얻는다. 되돌아갈 패키지가 이전에 활성이었던 것이 아니면 409 ROLLBACK_TARGET_INVALID 다. 적재는 이어서 일어나므로 202 로 답한다(N07).
+      x-owner: model-runtime
+      security: [ { oidc: [operator] }, { oidc: [release-approver] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackCommand" } } }
+      responses:
+        "202": { description: 롤백을 받아 적재를 시작했다, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../components.yaml#/components/responses/Conflict" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
   /healthz:
     get:
@@ -103,5 +161,6 @@ paths:
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
 components:
   securitySchemes:
+    oidc: { $ref: "../components.yaml#/components/securitySchemes/oidc" }
     machine_token: { $ref: "../components.yaml#/components/securitySchemes/machine_token" }
     area_mtls: { $ref: "../components.yaml#/components/securitySchemes/area_mtls" }
