@@ -18,3 +18,16 @@ ecosystem = "npm"
 name = "reserved"
 license = "UNKNOWN"
 reason = "package-lock 에 license 칸이 없다. reserved@0.1.2 타르볼의 package.json 은 licenses 에 LICENSE-MIT 를 가리키고 README 가 MIT 라고 적는다(npm pack 으로 직접 확인, 2026-11-10)"
+
+# name 은 fnmatch 패턴을 쓸 수 있다(플랫폼별 패키지 묶음용).
+[[override]]
+ecosystem = "npm"
+name = "lightningcss*"
+license = "MPL-2.0"
+reason = "Vite 의 개발·빌드 도구(devDependency)이며 화면 이미지에 들어가지 않는다. MPL-2.0 는 파일 단위 약한 복사 의무로 수정 없이 도구로만 쓰고, GPL 계열이 아니다. 헤드 확인 항목으로 보고했다(2026-11-10)"
+
+[[override]]
+ecosystem = "npm"
+name = "caniuse-lite"
+license = "CC-BY-4.0"
+reason = "브라우저 지원 데이터(devDependency 안의 browserslist 가 읽는 데이터). 화면 이미지에 들어가지 않는다. CC-BY-4.0 은 출처 표시 의무뿐이고 복사 의무(GPL 계열)가 아니다. 헤드 확인 항목으로 보고했다(2026-11-10)"

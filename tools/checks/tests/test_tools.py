@@ -83,6 +83,18 @@ def test_example_service_matches_template(repo: Path, tmp_path: Path) -> None:
             assert other.is_file() and other.read_bytes() == path.read_bytes(), path
 
 
+def test_example_web_matches_template(repo: Path, tmp_path: Path) -> None:
+    """web/_example 은 템플릿에서 나온 그대로다(package-lock.json 과 설치·빌드 산출물 제외)."""
+    root = _sandbox(repo, tmp_path, "r")
+    assert _new_area(repo, root, "web", "_example").returncode == 0
+    ignore = {"node_modules", "dist", "test-results", "playwright-report", "package-lock.json"}
+    made, kept = root / "web/_example", repo / "web/_example"
+    for path in made.rglob("*"):
+        if path.is_file() and not ignore & set(path.relative_to(made).parts):
+            other = kept / path.relative_to(made)
+            assert other.is_file() and other.read_bytes() == path.read_bytes(), path
+
+
 def _deploy(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([str(repo / "deploy" / "deploy"), *args], capture_output=True, text=True, check=False)
 

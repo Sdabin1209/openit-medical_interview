@@ -54,6 +54,25 @@ def test_extensionless_python_script_is_checked(tmp_path: Path) -> None:
     assert len(docker_isolation.run(tmp_path)) == 1
 
 
+HEAD = 'import { spawnSync } from "node:child_process";\n'
+
+
+def test_js_docker_call_without_env_is_violation(tmp_path: Path) -> None:
+    write(tmp_path, "smoke.mjs", HEAD + 'spawnSync("docker", ["ps"], { encoding: "utf8" });\n')
+    found = docker_isolation.run(tmp_path)
+    assert len(found) == 1 and "env" in found[0].message
+
+
+def test_js_docker_call_with_env_is_ok(tmp_path: Path) -> None:
+    write(tmp_path, "smoke.mjs", HEAD + 'spawnSync("docker", ["ps"], { env, encoding: "utf8" });\n')
+    assert docker_isolation.run(tmp_path) == []
+
+
+def test_js_non_docker_spawn_is_ignored(tmp_path: Path) -> None:
+    write(tmp_path, "a.mjs", 'import { spawnSync } from "node:child_process";\nspawnSync("git", ["status"]);\n')
+    assert docker_isolation.run(tmp_path) == []
+
+
 # ---- 이미지 고정 ----
 def test_unpinned_from_is_violation(tmp_path: Path) -> None:
     write(tmp_path, "services/a/Dockerfile", "FROM python:3.12-slim\n")

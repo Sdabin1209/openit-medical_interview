@@ -22,6 +22,21 @@ CODE_SUFFIXES = {".py", ".sh", ".yaml", ".yml", ".hcl", ".toml", ".mjs", ".ts", 
 SELF_DIR = ("tools", "checks")  # 이 점검의 정의·시험은 금지 패턴을 문자열로 담는다
 
 
+JS_SUFFIXES = {".mjs", ".js", ".cjs", ".ts", ".tsx"}
+JS_DOCKER_CALL = re.compile(r"""\b(?:spawn|spawnSync|execFile|execFileSync)\(\s*["']docker["']""")
+
+
+def check_js(text: str, display: str) -> list[Violation]:
+    """node 의 child_process 로 docker 를 부르는 호출은 같은 문장 안에 env 를 넘겨야 한다."""
+    found: list[Violation] = []
+    for match in JS_DOCKER_CALL.finditer(text):
+        statement = text[match.start() : match.start() + 400].split(";", 1)[0]
+        if not re.search(r"\benv\b", statement):
+            line = text.count("\n", 0, match.start()) + 1
+            found.append(Violation(CHECK, f"{display}:{line}", "docker 호출에 env 가 없다(격리 환경을 넘기지 않음)"))
+    return found
+
+
 def _starts_with_docker(node: ast.expr) -> bool:
     if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
         first = node.elts[0]
@@ -67,6 +82,8 @@ def run(root: Path) -> list[Violation]:
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
+            if path.suffix in JS_SUFFIXES:
+                violations += check_js(text, display)
             for number, line in enumerate(text.splitlines(), 1):
                 if not is_python and not line.lstrip().startswith("#") and SHELL_USER_DOCKER_DIR.search(line):
                     violations.append(Violation(CHECK, f"{display}:{number}", "사용자 전역 ~/.docker 를 가리킨다"))

@@ -20,7 +20,7 @@ from pathlib import Path
 NAME_RE = re.compile(r"^_?[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 KINDS = {"service": ("services", "SERVICES"), "web": ("web", "WEBS")}
 TEXT_SUFFIXES = {".py", ".toml", ".md", ".txt", ".json", ".ts", ".tsx", ".html", ".css", ".mjs", ".cjs", ".js", ".yaml", ".yml", ".conf", ""}
-SKIP_DIRS = {"node_modules", ".venv", "__pycache__", "dist"}
+SKIP_DIRS = {"node_modules", ".venv", "__pycache__", "dist", "test-results", "playwright-report", ".pytest_cache", ".ruff_cache"}
 
 
 def package_name(name: str) -> str:
@@ -80,9 +80,10 @@ def main() -> int:
         print(f"오류: {dst} 가 이미 있다", file=sys.stderr)
         return 1
     copy_template(template, dst, args.name)
-    if args.kind == "service" and not args.no_lock:
-        # 왜: Dockerfile 이 uv.lock 을 요구한다. 의존 버전은 uv 가 잠금 파일에 고정한다
-        subprocess.run(["uv", "lock"], cwd=dst, check=True)
+    if not args.no_lock:
+        # 왜: Dockerfile 이 잠금 파일(uv.lock, package-lock.json)을 요구한다. 의존 버전은 uv·npm 이 잠금 파일에 고정한다
+        lock_command = ["uv", "lock"] if args.kind == "service" else ["npm", "install"]
+        subprocess.run(lock_command, cwd=dst, check=True)
     update_bake(args.root / "docker-bake.hcl", var, args.name)
     print(f"만들었다: {dst.relative_to(args.root)}")
     return 0

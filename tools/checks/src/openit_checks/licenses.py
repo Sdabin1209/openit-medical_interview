@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import subprocess
@@ -104,7 +105,11 @@ def judge(
 ) -> list[Violation]:
     violations: list[Violation] = []
     for name, license_text in packages:
-        if (ecosystem, name) in overrides and overrides[(ecosystem, name)] == license_text:
+        reviewed = (
+            eco == ecosystem and fnmatch.fnmatchcase(name, pattern) and lic == license_text
+            for (eco, pattern), lic in overrides.items()
+        )
+        if any(reviewed):
             continue
         kind = classify(license_text)
         if kind == "copyleft":

@@ -10,7 +10,7 @@ variable "SERVICES" {
 
 // BEGIN WEBS
 variable "WEBS" {
-  default = []
+  default = ["_example"]
 }
 // END WEBS
 

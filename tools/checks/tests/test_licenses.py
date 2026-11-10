@@ -83,6 +83,12 @@ def test_override_allows_reviewed_unknown() -> None:
     assert licenses.judge("npm", "w", [("x", "GPL-3.0")], overrides) != []  # 라이선스가 바뀌면 예외가 풀린다
 
 
+def test_override_pattern_matches_platform_packages() -> None:
+    overrides = {("npm", "lightningcss*"): "MPL-2.0"}
+    pkgs = [("lightningcss", "MPL-2.0"), ("lightningcss-linux-x64-gnu", "MPL-2.0"), ("other", "MPL-2.0")]
+    assert [v.message.split(":")[0] for v in licenses.judge("npm", "w", pkgs, overrides)] == ["npm other"]
+
+
 def test_python_environment_with_gpl_package_is_caught(tmp_path: Path) -> None:
     """실제 pip-licenses 로 가짜 GPL 패키지가 든 가상환경을 읽는다."""
     venv = tmp_path / "venv"

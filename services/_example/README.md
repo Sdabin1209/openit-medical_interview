@@ -19,7 +19,7 @@ uv run lint-imports      # 경계 점검
 uv run pyright           # 타입 검사(strict)
 uv run ruff check        # 린트
 deploy/deploy build _example   # 이미지 빌드
-tools/smoke _example           # 이미지 스모크(/healthz, /readyz)
+tools/smoke service _example           # 이미지 스모크(/healthz, /readyz)
 ```
 
 ## 5. 시험 상태
