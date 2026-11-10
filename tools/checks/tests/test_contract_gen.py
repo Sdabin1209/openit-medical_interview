@@ -147,3 +147,13 @@ def test_gen_contract_entry_point_exists(repo: Path) -> None:
         capture_output=True, text=True, check=False,
     )  # fmt: skip
     assert result.returncode == 0
+
+
+@pytest.mark.parametrize("area", sorted(p.stem for p in (Path(__file__).resolve().parents[3] / "contracts" / "openapi").glob("*.yaml")))
+def test_every_real_area_openapi_closes_and_generates(area: str) -> None:
+    """실제 계약의 영역 파일마다 참조 닫힘과 모델 생성이 된다(securitySchemes 등 스키마가 아닌 참조 포함)."""
+    contracts = Path(__file__).resolve().parents[3] / "contracts"
+    config = Config(openapi=(area,), schemas=())
+    names = contract_gen.collect_schema_names(contracts, config)
+    assert names, f"{area}: 닿는 스키마가 없다"
+    assert "class " in contract_gen.generate_models(contracts, config)

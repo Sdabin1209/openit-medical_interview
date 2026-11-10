@@ -41,7 +41,11 @@ GENERATOR_ARGS = [
     "--output-datetime-class", "AwareDatetime",
     "--disable-timestamp", "--formatters", "builtin",
 ]  # fmt: skip
-REF = re.compile(r"^(?P<file>[^#]*)#/components/(?P<kind>schemas|responses|parameters|headers)/(?P<name>[^/]+)$")
+# 왜 10종: OpenAPI 3.1.0 4.8.7 Components Object 가 정한 종류 전부. 스키마가 아닌 종류(securitySchemes 등)도 참조를 따라가야 한다
+REF = re.compile(
+    r"^(?P<file>[^#]*)#/components/"
+    r"(?P<kind>schemas|responses|parameters|examples|requestBodies|headers|securitySchemes|links|callbacks|pathItems)/(?P<name>[^/]+)$"
+)
 
 
 class ContractGenError(Exception):
