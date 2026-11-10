@@ -285,7 +285,11 @@ async def test_questionnaire_and_extraction_request_content(harness: Harness) ->
         assert resp.action.value == "NEXT" and resp.next.question_id is not None and resp.next.question_id.root == "Q2"
         assert resp.next.text is not None and resp.next.text.root == "술을 드시나요?"  # 질문 문장은 문항 세트의 것이다
         assert resp.question_id is not None and resp.question_id.root == "Q1" and resp.values is not None
-        assert [v.key.root for v in resp.values.root] == ["Q1.diagnosed", "Q1.on_medication"] and resp.slots is not None and resp.slots.root == []
+        assert (
+            [v.key.root for v in resp.values.root] == ["Q1.diagnosed", "Q1.on_medication"]
+            and resp.slots is not None
+            and resp.slots.root == []
+        )
         h.model.will_extract(extraction("NEXT", "END", [value("Q2.answer", False)]))
         h.model.will_respond("끝")
         await c.post(f"/v1/sessions/{sid}/turns", json=turn_body("안 마셔요"), headers=KIOSK)
