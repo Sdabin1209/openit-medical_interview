@@ -12,6 +12,7 @@ streamStaffAlerts 는 끝나지 않는 응답이라 Schemathesis 가 읽을 수 
 
 # schemathesis 는 일부 타입이 제네릭 인자 없이 열려 있어 그 경계에서만 pyright 의 Unknown 보고를 끈다
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false
 
 import uuid
 from pathlib import Path
@@ -27,7 +28,6 @@ from schemathesis.specs.openapi.checks import (
     response_schema_conformance,
     status_code_conformance,
 )
-
 from tests.support.harness import Harness, extraction, question_set, value, xfcc
 
 pytestmark = pytest.mark.anyio
@@ -101,6 +101,19 @@ async def seed_case(h: Harness) -> str:
     return page["items"][0]["case_id"]
 
 
+def collect_cases(operation: Any) -> list[Case[Any]]:
+    """작업의 계약에서 시험 입력을 만든다(네트워크 없음)."""
+    collected: list[Case[Any]] = []
+
+    @settings(deadline=None, max_examples=EXAMPLES, suppress_health_check=list(HealthCheck), database=None)  # pyright: ignore[reportArgumentType]
+    @given(case=operation.as_strategy())
+    def collect(case: Case[Any]) -> None:
+        collected.append(case)
+
+    collect()
+    return collected
+
+
 async def run_conformance(h: Harness, ids: dict[str, str]) -> dict[str, set[int]]:
     schema = schemathesis.openapi.from_path(CONTRACT)
     operations = [r.ok() for r in schema.get_all_operations() if r.ok().label.split()[0] != ""]
@@ -111,14 +124,7 @@ async def run_conformance(h: Harness, ids: dict[str, str]) -> dict[str, set[int]
             if operation.definition.raw.get("operationId") in EXCLUDED:
                 continue
             security = operation.definition.raw.get("security")
-            collected: list[Case[Any]] = []
-
-            @settings(deadline=None, max_examples=EXAMPLES, suppress_health_check=list(HealthCheck), database=None)  # pyright: ignore[reportArgumentType]
-            @given(case=operation.as_strategy())
-            def collect(case: Case[Any]) -> None:
-                collected.append(case)
-
-            collect()
+            collected = collect_cases(operation)
             for case in collected:
                 if ids and case.path_parameters:
                     case.path_parameters = {k: ids.get(k, v) for k, v in case.path_parameters.items()}

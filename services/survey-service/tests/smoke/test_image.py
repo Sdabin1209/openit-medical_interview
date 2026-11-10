@@ -31,7 +31,7 @@ def _docker(*args: str) -> str:
         env=_docker_env(),
         capture_output=True,
         text=True,
-        check=False,  # noqa: S607
+        check=False,
     )
     if result.returncode != 0:
         pytest.fail(f"docker {args[0]} 실패 rc={result.returncode}: {result.stderr[-500:]}")

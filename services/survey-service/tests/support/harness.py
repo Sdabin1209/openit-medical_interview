@@ -23,8 +23,10 @@ from survey_service.contract.models import (
     ActionExtraction,
     ExtractionRequest,
     ExtractionResult,
+    PushSubscription,
     ResponseGenerationRequest,
     ResponseResult,
+    SurveyServiceEnv,
 )
 from survey_service.link.auth import Authenticator, MachineCredential
 from survey_service.main import create_app
@@ -32,7 +34,6 @@ from survey_service.settings import limits_of
 from survey_service.store.engine import make_engine, migrate
 from survey_service.store.repository import SqlStore
 from survey_service.types import AlertRecord, ModelCallError, ModelCallFailure, Runtime
-from survey_service.contract.models import PushSubscription, SurveyServiceEnv
 
 DIGEST = "sha256:" + "a" * 64
 ISSUER = "https://platform/realms/openit"
@@ -56,10 +57,12 @@ class Clock:
 class FakeModel:
     """가짜 model-runtime. 정해진 추출 출력과 응답 문장을 차례로 내고, 출력 불가나 시간 초과도 낸다."""
 
-    extractions: deque[ActionExtraction | ModelCallError] = field(default_factory=deque)
-    responses: deque[str | ModelCallError] = field(default_factory=deque)
-    extract_requests: list[ExtractionRequest] = field(default_factory=list)
-    respond_requests: list[ResponseGenerationRequest] = field(default_factory=list)
+    extractions: deque[ActionExtraction | ModelCallError] = field(
+        default_factory=lambda: deque[ActionExtraction | ModelCallError]()
+    )
+    responses: deque[str | ModelCallError] = field(default_factory=lambda: deque[str | ModelCallError]())
+    extract_requests: list[ExtractionRequest] = field(default_factory=lambda: list[ExtractionRequest]())
+    respond_requests: list[ResponseGenerationRequest] = field(default_factory=lambda: list[ResponseGenerationRequest]())
     version: str | None = "model-io-v2"
 
     def will_extract(self, body: dict[str, Any] | ModelCallError) -> None:
@@ -96,7 +99,9 @@ DEADLINE = ModelCallError(ModelCallFailure.DEADLINE)
 class FakeNotifier:
     """가짜 푸시 전달자. 보낸 알림을 모으고 지정한 주소는 사라졌다고 답한다."""
 
-    sent: list[tuple[AlertRecord, tuple[PushSubscription, ...]]] = field(default_factory=list)
+    sent: list[tuple[AlertRecord, tuple[PushSubscription, ...]]] = field(
+        default_factory=lambda: list[tuple[AlertRecord, tuple[PushSubscription, ...]]]()
+    )
     gone: tuple[str, ...] = ()
 
     async def push(self, record: AlertRecord, subscriptions: tuple[PushSubscription, ...]) -> tuple[str, ...]:
@@ -110,7 +115,7 @@ class Keys:
     def __init__(self) -> None:
         self.private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    async def __call__(self, kid: str | None) -> Any:  # noqa: ANN401
+    async def __call__(self, kid: str | None) -> Any:
         return self.private.public_key()
 
     def token(

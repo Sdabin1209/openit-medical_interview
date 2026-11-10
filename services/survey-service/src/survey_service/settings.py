@@ -7,10 +7,14 @@
 import os
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import AnyUrl, TypeAdapter, UrlConstraints
 
 from survey_service.contract.models import ServiceName, SurveyServiceEnv
 from survey_service.types import Limits
 
+_HTTPS = TypeAdapter(Annotated[AnyUrl, UrlConstraints(allowed_schemes=["https"])])
 SERVICE = ServiceName.survey_service
 # 왜 이 값들: 한도는 계약이 값을 const 로 못박은 것(ReaskLimit 2, KioskIdleResetSeconds 60, SurveyTurnLimitSeconds 50,
 # ExtractClientLimitSeconds 21, RespondClientLimitSeconds 26, AlertStreamHeartbeatSeconds 15,
@@ -59,7 +63,11 @@ def read_secret(name: str, environ: Mapping[str, str] | None = None) -> str:
 def load_env(environ: Mapping[str, str]) -> SurveyServiceEnv:
     """환경 변수에서 계약 SurveyServiceEnv 를 읽어 검증한다(모르는 변수는 건너뛴다. 모양이 틀리면 ValidationError)."""
     fields = set(SurveyServiceEnv.model_fields)
-    return SurveyServiceEnv.model_validate({key: value for key, value in environ.items() if key in fields})
+    env = SurveyServiceEnv.model_validate({key: value for key, value in environ.items() if key in fields})
+    # 왜 따로 확인하나: 계약 PeerBaseUrl 은 pattern "^https://" 인데 생성기가 format uri 와 같이 있는 pattern 을 버린다
+    # (변경 요청 survey-service-004). 영역 사이 호출은 항상 TLS 라는 계약 조건을 여기서 지킨다
+    _HTTPS.validate_python(str(env.OPENIT_MODEL_RUNTIME_URL.root))
+    return env
 
 
 def limits_of(env: SurveyServiceEnv) -> Limits:

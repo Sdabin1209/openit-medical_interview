@@ -6,7 +6,7 @@
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from survey_service.components import alert, failure_case, question_bank, session, start_code, turn
 from survey_service.contract.models import (
     AlertEventName,
+    AlertKind,
     CaseReview,
     InterventionAction,
     InterventionDecision,
@@ -62,6 +63,45 @@ def _version_body(stored: StoredQuestionSet) -> QuestionSetVersion:
             "created_at": stored.created_at.isoformat(),
         }
     )
+
+
+def _marker(name: str, sequence: int) -> str:
+    """alert 가 없는 이벤트(heartbeat, resync)의 data. id 는 싣지 않아 재개 위치를 바꾸지 않는다(D87)."""
+    return StaffAlertEvent.model_validate({"event": name, "sequence": sequence}).model_dump_json(exclude_none=True)
+
+
+async def stream_frames(
+    rt: Runtime, kinds: tuple[AlertKind, ...], last_event_id: int | None, *, poll_seconds: float = STREAM_POLL_SECONDS
+) -> AsyncGenerator[str]:
+    """알림 스트림(SSE)의 글을 끝없이 낸다. 새 이벤트가 없으면 heartbeat 간격마다 heartbeat 를 낸다.
+
+    새 연결은 지금 순번부터 받고(지난 알림은 목록으로 읽는다), Last-Event-ID 가 있으면 그 뒤를 이어 받는다.
+    서버가 모르는 순번이면 resync 를 먼저 보낸다.
+    """
+    async with rt.store.transaction() as tx:
+        latest = await tx.latest_alert_sequence()
+    position = latest
+    if last_event_id is not None:
+        if last_event_id > latest:
+            # 왜 resync: 서버가 모르는 순번이다(복구 등으로 순번이 되돌아갔다). 화면이 목록을 다시 읽어야 한다
+            yield alert.sse_frame(AlertEventName.resync, _marker("resync", latest), None)
+        else:
+            position = last_event_id
+    idle = 0.0
+    while True:
+        async with rt.store.transaction() as tx:
+            events = await tx.alert_events_after(position, kinds, STREAM_BATCH)
+        for event in events:
+            position = event.sequence
+            body = alert.event_body(event).model_dump_json(exclude_none=True)
+            yield alert.sse_frame(AlertEventName(event.event), body, event.sequence)
+            idle = 0.0
+        if not events:
+            await asyncio.sleep(poll_seconds)
+            idle += poll_seconds
+            if idle >= rt.limits.heartbeat_seconds:
+                yield alert.sse_frame(AlertEventName.heartbeat, _marker("heartbeat", position), None)
+                idle = 0.0
 
 
 def router(rt: Runtime) -> APIRouter:
@@ -149,42 +189,11 @@ def router(rt: Runtime) -> APIRouter:
 
     @api.get("/v1/staff-alerts/stream", tags=["staff"])
     async def stream_staff_alerts(who: authn.StaffOrClinician, last_event_id: LastEventId = None) -> StreamingResponse:  # pyright: ignore[reportUnusedFunction]
-        kinds = alert.kinds_for(who.roles)
-
-        def marker(name: str, sequence: int) -> str:
-            """alert 가 없는 이벤트(heartbeat, resync)의 data. id 는 싣지 않아 재개 위치를 바꾸지 않는다(D87)."""
-            return StaffAlertEvent.model_validate({"event": name, "sequence": sequence}).model_dump_json(
-                exclude_none=True
-            )
-
-        async def frames() -> AsyncIterator[str]:
-            async with rt.store.transaction() as tx:
-                latest = await tx.latest_alert_sequence()
-            position = latest
-            if last_event_id is not None:
-                if last_event_id > latest:
-                    # 왜 resync: 서버가 모르는 순번이다(복구 등으로 순번이 되돌아갔다). 화면이 목록을 다시 읽어야 한다
-                    yield alert.sse_frame(AlertEventName.resync, marker("resync", latest), None)
-                else:
-                    position = last_event_id
-            idle = 0.0
-            while True:
-                async with rt.store.transaction() as tx:
-                    events = await tx.alert_events_after(position, kinds, STREAM_BATCH)
-                    latest = await tx.latest_alert_sequence()
-                for event in events:
-                    position = event.sequence
-                    body = alert.event_body(event).model_dump_json(exclude_none=True)
-                    yield alert.sse_frame(AlertEventName(event.event), body, event.sequence)
-                    idle = 0.0
-                if not events:
-                    await asyncio.sleep(STREAM_POLL_SECONDS)
-                    idle += STREAM_POLL_SECONDS
-                    if idle >= rt.limits.heartbeat_seconds:
-                        yield alert.sse_frame(AlertEventName.heartbeat, marker("heartbeat", position), None)
-                        idle = 0.0
-
-        return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+        return StreamingResponse(
+            stream_frames(rt, alert.kinds_for(who.roles), last_event_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store"},
+        )
 
     # ------------------------------------------------------------ 푸시
     @api.get("/v1/push-config", tags=["push"])

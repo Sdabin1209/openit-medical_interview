@@ -177,7 +177,7 @@ def require_any(
                 kind=PrincipalKind.DEVICE, subject=device_id_of(x_forwarded_client_cert), roles=frozenset()
             )
         token = _bearer(authorization)
-        principal = auth.machine(token) if machines else None
+        principal = auth.machine(token)  # 왜 항상 보나: 이 작업에 권한이 없는 기계 토큰은 401 이 아니라 403 이다
         if principal is not None:
             if principal.roles & {role.value for role in machines}:
                 return principal

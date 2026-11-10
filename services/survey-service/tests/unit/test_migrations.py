@@ -11,7 +11,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine
 
-from survey_service.store.engine import _alembic_config, migrate, make_engine  # pyright: ignore[reportPrivateUsage]
+from survey_service.store.engine import _alembic_config, make_engine, migrate  # pyright: ignore[reportPrivateUsage]
 from survey_service.store.models import Base
 
 pytestmark = pytest.mark.anyio

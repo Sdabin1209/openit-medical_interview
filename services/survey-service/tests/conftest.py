@@ -2,9 +2,9 @@ import uuid
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
-import asyncpg
 import pytest
-
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 from tests.support.harness import Harness, build_harness, sqlite_url
 from tests.support.postgres import PostgresContainer
 
@@ -32,11 +32,12 @@ async def database_url(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncG
         return
     server: PostgresContainer = request.getfixturevalue("postgres_server")
     name = f"t_{uuid.uuid4().hex[:12]}"
-    admin = await asyncpg.connect(server.url("postgres").replace("+asyncpg", ""))
+    admin = create_async_engine(server.url("postgres"), isolation_level="AUTOCOMMIT")
     try:
-        await admin.execute(f'CREATE DATABASE "{name}"')
+        async with admin.connect() as connection:
+            await connection.execute(text(f'CREATE DATABASE "{name}"'))
     finally:
-        await admin.close()
+        await admin.dispose()
     yield server.url(name)
 
 

@@ -8,7 +8,6 @@
 import uuid
 
 import pytest
-
 from tests.support.harness import Harness, extraction, question_set, value, xfcc
 
 pytestmark = pytest.mark.anyio

@@ -70,7 +70,9 @@ extend-exclude = ["src/survey_service/contract"]  # 생성 코드는 생성기�
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ANN"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # 왜: pytest 는 assert 문이 표준 사용법이다
+"tests/**" = ["S101", "S108", "E501", "ANN401"]
+# 왜: S101 은 pytest 의 assert 가 표준 사용법이라서, S108 은 시험이 쓰는 가짜 경로 값(/tmp/..., 실제로 열지 않는다)이라서,
+# E501 은 긴 시험 자료(계약 JSON, RFC 시험 벡터)를 한 줄로 두는 것이 읽기 쉬워서, ANN401 은 JSON 본문을 만드는 도우미의 **extra 라서
 "src/*/store/migrations/**" = ["ANN", "I001"]  # 왜: Alembic 틀이 만드는 모양(리비전 파일)을 그대로 둔다
 
 [tool.pyright]
