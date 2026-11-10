@@ -1,0 +1,12 @@
+# 계약 타입 생성 설정(ADR 0020). openapi-typescript 가 읽는다(npm run generate:contract, 점검은 npm run check:contract).
+# 이 화면이 부르는 계약마다 apis 에 한 줄씩 더한다(이웃 서비스의 계약 포함). 출력은 src/contract/ 에만 둔다.
+# 왜 platform 은 뺐나: admin-console 이 부르는 서버 작업은 survey-service(N05)와 model-runtime(N07)뿐이다.
+apis:
+  survey-service:
+    root: ../../contracts/openapi/survey-service.yaml
+    x-openapi-ts:
+      output: ./src/contract/survey-service.d.ts
+  model-runtime:
+    root: ../../contracts/openapi/model-runtime.yaml
+    x-openapi-ts:
+      output: ./src/contract/model-runtime.d.ts
