@@ -145,9 +145,12 @@ def test_deploy_job_without_target_is_rc3(repo: Path) -> None:
     assert result.returncode == 3 and "대상 없음" in result.stderr
 
 
-def test_deploy_e2e_without_suite_is_rc3(repo: Path) -> None:
-    result = _deploy(repo, "e2e")
-    assert result.returncode == 3 and "대상 없음" in result.stderr
+def test_deploy_e2e_usage_errors_are_rc2_before_anything_starts(repo: Path) -> None:
+    """E2E 는 ADR 0025 로 구현되었다. 실제로 돌리지 않고(몇십 분, docker·GPU) 인자 오류가 아무것도 시작하기 전에 rc=2 로 끝나는 것만 본다."""
+    assert _deploy(repo, "e2e").returncode == 2  # --mode 가 필요하다
+    assert _deploy(repo, "e2e", "--mode", "full").returncode == 2  # pipeline 또는 product
+    product = _deploy(repo, "e2e", "--mode", "product")  # 어댑터와 프로파일이 필요하다(도구가 거절한다)
+    assert product.returncode == 2 and "--adapters-a" in product.stderr
 
 
 def test_deploy_restore_requires_yes_and_valid_folder(repo: Path, tmp_path: Path) -> None:
