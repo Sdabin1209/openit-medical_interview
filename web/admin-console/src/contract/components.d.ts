@@ -1943,6 +1943,11 @@ export interface components {
             snapshot_id?: components["schemas"]["BackupSnapshotId"];
         };
         /**
+         * @description 비 root 프로세스가 열 수 있는 TCP 포트 번호(1024 이상). 입구(Envoy)와 영역 게이트웨이(Caddy)는 비 root 로 돌아 낮은 포트를 열지 못한다
+         * @example 8443
+         */
+        UnprivilegedListenPort: number;
+        /**
          * @description 서비스가 요청을 받는 TCP 포트 번호
          * @example 8080
          */
@@ -2288,7 +2293,7 @@ export interface components {
         /** @description deploy 가 platform 에 주는 환경 입력 */
         PlatformEnv: {
             /** @description 공개 입구가 요청을 받는 포트. 필요한 컴포넌트: gateway */
-            OPENIT_LISTEN_PORT: components["schemas"]["ListenPort"];
+            OPENIT_LISTEN_PORT: components["schemas"]["UnprivilegedListenPort"];
             /** @description 로그 수준. 필요한 컴포넌트: 모든 컴포넌트 */
             OPENIT_LOG_LEVEL?: components["schemas"]["LogLevel"];
             /** @description 사람 인증(OIDC) 발급자 주소. 서비스가 접근 토큰의 iss 를 확인할 때 쓴다. 필요한 컴포넌트: identity, identity_proxy, gateway */
@@ -2328,7 +2333,7 @@ export interface components {
             /** @description 조직이 발급한 입구 인증서의 개인키 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway */
             OPENIT_INGRESS_PRIVATE_KEY_FILE?: components["schemas"]["SecretFilePath"];
             /** @description 입구와 감시가 영역 서비스(https://<서비스 이름>)에 접속하는 포트(선택). 모든 영역 서비스가 같은 포트를 쓰며, 서비스 컨테이너가 영역 안 평문 HTTP 로 듣는 OPENIT_LISTEN_PORT 와는 별개다(요청은 영역 게이트웨이가 받는다). 필요한 컴포넌트: gateway, monitoring */
-            OPENIT_SERVICE_PORT?: components["schemas"]["ListenPort"];
+            OPENIT_SERVICE_PORT?: components["schemas"]["UnprivilegedListenPort"];
             /** @description 감시 경보 메일을 내보낼 SMTP 서버(OPENIT_ALERT_RECEIVER_URL 이 mailto 일 때 필수, 선택). 필요한 컴포넌트: monitoring */
             OPENIT_ALERT_SMTP_SMARTHOST?: components["schemas"]["SmtpSmarthost"];
             /** @description 생존 신호(Watchdog 경보)를 보내는 간격(선택). 필요한 컴포넌트: monitoring */

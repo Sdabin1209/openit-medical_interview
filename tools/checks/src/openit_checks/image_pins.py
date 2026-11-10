@@ -48,6 +48,9 @@ def dockerfile_images(path: Path, display: str) -> tuple[list[tuple[str, str]], 
     return refs, violations
 
 
+AREA_IMAGE_VARIABLE = "${OPENIT_IMAGE_"  # 영역 이미지 참조 변수(deploy/compose.yaml, ADR 0023)
+
+
 def run(root: Path) -> list[Violation]:
     violations: list[Violation] = []
     all_refs: list[tuple[str, str]] = []
@@ -61,6 +64,10 @@ def run(root: Path) -> list[Violation]:
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if match := COMPOSE_IMAGE.match(line):
                     ref = match.group(1)
+                    if ref.startswith(AREA_IMAGE_VARIABLE):
+                        # 왜 변수를 받아들이나: 영역 이미지는 이 저장소에서 빌드하며 digest 는 빌드가 images.lock 에 쓴다. ./deploy 가 lock 에서
+                        # generated/images.env 를 만들고(openit/<대상>@sha256:…) up 이 lock 에 없거나 엔진에 없는 이미지를 막는다(ADR 0023)
+                        continue
                     if not DIGEST.search(ref):
                         violations.append(Violation(CHECK, f"{rel}:{number}", f"이미지 '{ref}' 가 digest 로 고정되지 않았다"))
                     else:

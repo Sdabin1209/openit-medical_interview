@@ -228,3 +228,10 @@ def test_declarations_check_accepts_contract_shapes_and_rejects_others(tmp_path:
     (area / "exposure.json").write_text('{"routes":[{"path_prefix":"v1","methods":["GET"],"audience":"HUMAN_OIDC"}],"egress":[]}', encoding="utf-8")
     violations = declarations.run(tmp_path)
     assert violations and "Exposure" in violations[0].message
+
+
+def test_compose_area_image_variable_is_accepted_but_other_variables_are_not(tmp_path: Path) -> None:
+    """영역 이미지 변수(${OPENIT_IMAGE_*}, digest 는 images.lock)는 받아들이고 다른 변수 참조는 digest 가 없으니 위반이다."""
+    write(tmp_path, "deploy/compose.yaml", "services:\n  a:\n    image: ${OPENIT_IMAGE_SURVEY_SERVICE}\n  b:\n    image: ${OTHER}\n")
+    found = image_pins.run(tmp_path)
+    assert len(found) == 1 and "OTHER" in found[0].message

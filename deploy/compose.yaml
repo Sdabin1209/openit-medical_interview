@@ -505,8 +505,11 @@ services:
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    # 왜 command: 공식 이미지의 서버 인자다(영역 이미지가 아니다). 기반 모델은 프로파일(OPENIT_MODEL_PROFILE)에 맞춰 설치처가 OPENIT_BASE_MODEL 로 준다
-    command: ["--model", "${OPENIT_BASE_MODEL}", "--enable-lora", "--lora-modules-dir-readonly", "--host", "0.0.0.0", "--port", "8000"]
+    # 왜 command: 공식 이미지의 서버 인자다(영역 이미지가 아니다). --model 은 프로파일의 기반 모델이다(OPENIT_BASE_MODEL, --served-model-name 으로 바꾸지 않는다:
+    # model-runtime 의 /readyz 가 GET /v1/models 에서 프로파일의 기반 모델을 찾는다, model-runtime ADR 0007). 어댑터는 런타임 LoRA 갱신 API 로 올린다
+    command: ["--model", "${OPENIT_BASE_MODEL}", "--enable-lora", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      VLLM_ALLOW_RUNTIME_LORA_UPDATING: "True" # 왜: /v1/load_lora_adapter 는 이 설정이 있어야 열린다(vLLM 문서). model-runtime 의 link/engine.py 가 이 API 를 쓴다
     deploy:
       resources:
         reservations:

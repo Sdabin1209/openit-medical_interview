@@ -296,21 +296,46 @@ def write_lock(lock: dict[str, str]) -> None:
 # ---------------------------------------------------------------- platform 준비(platform ADR 0001~0005)
 
 
+def install_egress_targets(service: str) -> list[dict[str, object]]:
+    """설치 설정이 정하는 나가는 호출 상대(ExternalEgressTarget). 호스트가 설치처마다 달라 영역 이미지의 노출 선언에 못 박지 못한다(변경 요청 model-runtime-005).
+
+    model-runtime 은 레지스트리(OPENIT_REGISTRY_HOST 의 443 번 또는 external 레지스트리 주소), survey-service 는 웹 푸시 서비스(OPENIT_PUSH_SERVICE_HOSTS)다.
+    """
+    env = env_values()
+    hosts: list[str] = []
+    if service == "model-runtime":
+        if env["OPENIT_REGISTRY_MODE"] == "external":
+            hosts.append(env["OPENIT_REGISTRY_ADDRESS"].split("/")[0])
+        else:
+            hosts.append(f"{env['OPENIT_REGISTRY_NAMES'].split(',')[0].strip()}:443")
+    if service == "survey-service":
+        hosts += [item.strip() for item in env["OPENIT_PUSH_SERVICE_HOSTS"].split(",") if item.strip()]
+    targets: list[dict[str, object]] = []
+    for item in hosts:
+        host, _, port = item.partition(":")
+        targets.append({"host": host, "port": int(port or 443)})  # 왜 443: 레지스트리·웹 푸시는 TLS 이고 https 의 기본 포트다(RFC 9110 4.2.2)
+    return targets
+
+
 def sync_exposures() -> None:
-    """이미지 라벨 io.openit.exposure 의 노출 선언을 OPENIT_EXPOSURES_DIR 에 <서비스 이름>.json 으로 쓴다. 라벨이 없는 이미지는 건너뛴다."""
+    """이미지 라벨 io.openit.exposure 의 노출 선언에 설치 설정의 나가는 상대를 더해 OPENIT_EXPOSURES_DIR 에 <서비스 이름>.json 으로 쓴다. 라벨이 없는 이미지는 건너뛴다."""
     from openit_platform.contract.models import ServiceName  # noqa: PLC0415
 
     allowed = {item.value for item in ServiceName}
     folder = pki.resolve_path(DEPLOY, env_values()["OPENIT_EXPOSURES_DIR"])
+    lock = read_lock()
     for name in area_targets():
         service = name.removeprefix("web-")
         if service not in allowed:
             continue
-        label = docker(["image", "inspect", "--format", '{{ index .Config.Labels "io.openit.exposure" }}', f"{local_image(name)}:local"], capture_output=True)
+        reference = f"{local_image(name)}@{lock[name]}" if name in lock else f"{local_image(name)}:local"
+        label = docker(["image", "inspect", "--format", '{{ index .Config.Labels "io.openit.exposure" }}', reference], capture_output=True)
         text = label.stdout.strip()
         if label.returncode != 0 or text in ("", "<no value>"):
             continue
-        write_if_changed(folder / f"{service}.json", text + "\n")
+        declaration = json.loads(text)
+        declaration["egress"] = [*declaration["egress"], *install_egress_targets(service)]
+        write_if_changed(folder / f"{service}.json", json.dumps(declaration, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def validate_device_ca(path: Path | None) -> None:
