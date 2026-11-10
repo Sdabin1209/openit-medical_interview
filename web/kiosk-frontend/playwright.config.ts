@@ -26,7 +26,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${String(port)}` },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `npx vite build && npx vite preview --host 127.0.0.1 --port ${String(port)} --strictPort`,
+    command: `npx vite build && npx vite preview --config vite.e2e.config.ts --host 127.0.0.1 --port ${String(port)} --strictPort`,
     url: `http://127.0.0.1:${String(port)}/`,
     reuseExistingServer: false,
     timeout: 120_000,

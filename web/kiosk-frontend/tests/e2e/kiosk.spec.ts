@@ -114,3 +114,9 @@ test("없는 경로도 처음 화면으로 간다(SPA 라우팅)", async ({ page
   await page.goto("/talk");
   await expect(page.getByRole("heading", { name: "시작 코드를 입력해 주세요" })).toBeVisible();
 });
+
+test("보안 헤더: 연결은 같은 출처로만 허용한다(CSP connect-src 'self')", async ({ page }) => {
+  await stubSpeech(page, { available: false });
+  const response = await page.goto("/");
+  expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'");
+});

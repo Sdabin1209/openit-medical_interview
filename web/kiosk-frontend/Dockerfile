@@ -29,6 +29,8 @@ LABEL org.opencontainers.image.revision="${REVISION}" \
 USER 0:0
 RUN apk upgrade --no-cache
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+# 왜 .inc: conf.d 의 *.conf 는 nginx 가 자동으로 읽는다. 헤더 조각은 http 수준이 아니라 location 안에서 include 한다
+COPY nginx/security-headers.inc /etc/nginx/conf.d/security-headers.inc
 COPY --from=build /src/dist /usr/share/nginx/html
 # 왜: 번들된 JavaScript 는 브라우저로 배포되므로 고지를 이미지 문서 폴더와 서버(/THIRD_PARTY_NOTICES.txt) 두 곳에 둔다(ADR 0018)
 COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES

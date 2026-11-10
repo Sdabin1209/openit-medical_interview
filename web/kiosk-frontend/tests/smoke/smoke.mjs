@@ -29,6 +29,12 @@ const cid = docker(
   "--security-opt", "no-new-privileges", "-p", "127.0.0.1::8080", image,
 );
 
+async function getWithHeaders(path) {
+  const hostPort = docker("port", cid, "8080/tcp").split("\n")[0];
+  const response = await fetch(`http://${hostPort}${path}`, { signal: AbortSignal.timeout(3000) });
+  return response.headers;
+}
+
 async function get(path) {
   const hostPort = docker("port", cid, "8080/tcp").split("\n")[0];
   const deadline = Date.now() + 30_000;
@@ -53,10 +59,15 @@ try {
   check("/healthz 200", healthz.status === 200 && JSON.parse(healthz.body).status === "pass");
   const readyz = await get("/readyz");
   check("/readyz 200 pass", readyz.status === 200 && JSON.parse(readyz.body).status === "pass");
+  const metrics = await get("/metrics");
+  check("/metrics 가 Prometheus 텍스트를 낸다", metrics.status === 200 && metrics.body.includes("# TYPE kiosk_frontend_up gauge"));
   const index = await get("/");
   check("/ 에 화면(index.html)이 있다", index.status === 200 && index.body.includes('id="root"'));
-  const spa = await get("/about");
+  const spa = await get("/talk");
   check("없는 경로는 index.html 로(SPA 라우팅)", spa.status === 200 && spa.body.includes('id="root"'));
+  const headers = await getWithHeaders("/");
+  check("CSP: 연결은 같은 출처로만(connect-src 'self')", (headers.get("content-security-policy") ?? "").includes("connect-src 'self'"));
+  check("정적 파일에도 보안 헤더", ((await getWithHeaders("/healthz")).get("x-content-type-options") ?? "") === "nosniff");
   check("비root 로 실행", docker("exec", cid, "id", "-u") !== "0");
   check("루트 파일시스템 읽기 전용", docker("inspect", "-f", "{{.HostConfig.ReadonlyRootfs}}", cid) === "true");
   check("HEALTHCHECK 가 healthy", await waitHealthy());

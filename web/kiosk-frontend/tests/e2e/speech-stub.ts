@@ -1,5 +1,5 @@
 // 브라우저의 Web Speech API 를 시험용 대역으로 바꾼다. 왜: Playwright 공식 이미지(headless Chromium)에서는
-// SpeechRecognition.available() 를 부르면 렌더러가 죽는다(이 영역에서 재현·확인, 영역 ADR 0004). 그래서 실제 소리와 모델은 시험하지 않고
+// SpeechRecognition.available() 를 부르면 렌더러가 죽는다(이 영역에서 재현·확인, 영역 ADR 0002). 그래서 실제 소리와 모델은 시험하지 않고
 // "기기 안 처리가 가능하다고 답하는 브라우저"와 "가능하지 않다고 답하는 브라우저"의 두 경우로 우리 코드를 시험한다.
 import type { Page } from "@playwright/test";
 
