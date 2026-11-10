@@ -23,7 +23,8 @@ paths:
       summary: 활성 릴리스 읽기
       description: 지금 활성인 릴리스의 목록표와 활성화 기록을 준다. survey-service 는 새 세션부터 이 릴리스의 문항을 쓰고, 추론 서버는 시작할 때와 릴리스가 바뀔 때 스스로 읽어 모델을 적재하며, ops-feedback 잡도 읽는다(F11, F12, F13, C05, D46).
       x-owner: release-gate
-      security: [ { machine_token: [release-reader, model-serving] }, { oidc: [operator, release-approver] } ]
+      security: [ { machine_token: [] }, { oidc: [] } ]
+      x-required-roles: { machine_token: [release-reader, model-serving], oidc: [operator, release-approver] }
       responses:
         "200": { description: 활성 릴리스, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveRelease" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -37,7 +38,8 @@ paths:
       summary: 릴리스 목록
       description: 만들어진 릴리스를 최근 것이 먼저 나오게 쪽으로 나누어 준다. 운영자가 활성화나 롤백 대상을 고를 때 쓴다(F10).
       x-owner: release-gate
-      security: [ { oidc: [operator, release-approver] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [operator, release-approver] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -56,7 +58,8 @@ paths:
       summary: 릴리스 목록표 읽기
       description: 릴리스 하나의 목록표를 준다. 문항 세트는 내용 해시로, 모델 패키지는 식별자로 고정되어 있다(F11, D27).
       x-owner: release-gate
-      security: [ { machine_token: [release-reader, model-serving] }, { oidc: [operator, release-approver] } ]
+      security: [ { machine_token: [] }, { oidc: [] } ]
+      x-required-roles: { machine_token: [release-reader, model-serving], oidc: [operator, release-approver] }
       responses:
         "200": { description: 릴리스 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ReleaseManifest" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -73,7 +76,8 @@ paths:
       summary: 릴리스에 든 문항 세트 읽기
       description: 릴리스에 묶인 문항 세트 버전의 내용을 준다. survey-service 가 세트별로 읽어 적재한다. 릴리스가 규칙 세대나 서빙 구성의 버전이 설치본과 맞지 않으면 받는 쪽이 적재를 거부하고 이전 릴리스를 유지한다(F11, D46, U85).
       x-owner: release-gate
-      security: [ { machine_token: [release-reader] } ]
+      security: [ { machine_token: [] } ]
+      x-required-roles: { machine_token: [release-reader] }
       responses:
         "200": { description: 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -89,7 +93,8 @@ paths:
       summary: 릴리스의 모델 패키지 목록표 읽기
       description: 릴리스에 든 모델 패키지의 목록표(어댑터, 짝이 되는 시스템 프롬프트, 서빙 설정)를 준다. 추론 서버가 스스로 읽어 적재한다(F12, C05, D72, D75(4)).
       x-owner: release-gate
-      security: [ { machine_token: [model-serving, release-reader] } ]
+      security: [ { machine_token: [] } ]
+      x-required-roles: { machine_token: [model-serving, release-reader] }
       responses:
         "200": { description: 모델 패키지 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageManifest" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -106,7 +111,8 @@ paths:
       summary: 릴리스의 파일 내려받기
       description: 모델 패키지 목록표가 가리키는 파일을 내려준다. 받는 쪽은 목록표의 해시로 내용을 확인한다(F12, D49).
       x-owner: release-gate
-      security: [ { machine_token: [model-serving] } ]
+      security: [ { machine_token: [] } ]
+      x-required-roles: { machine_token: [model-serving] }
       responses:
         "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -122,7 +128,8 @@ paths:
       summary: 릴리스 활성화
       description: 운영자가 승인된 릴리스를 활성으로 바꾼다. 활성화한 사람은 개별 계정으로 기록된다. 이미 활성인 릴리스를 다시 활성화해도 결과는 같다(F10, D85(3), C07, U7).
       x-owner: release-gate
-      security: [ { oidc: [operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [operator] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActivationRequest" } } }
@@ -141,7 +148,8 @@ paths:
       summary: 이전 릴리스로 롤백
       description: 운영자가 활성 릴리스를 이전에 활성이었던 릴리스로 되돌린다. 롤백 요청을 처리하는 것이면 그 요청이 EXECUTED 가 된다(F10, F14, D85(3), C07).
       x-owner: release-gate
-      security: [ { oidc: [operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [operator] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackCommand" } } }
@@ -160,7 +168,8 @@ paths:
       summary: 가져온 후보 목록
       description: 게이트가 question-authoring 과 model-lab 에서 가져와 둔 후보를 쪽으로 나누어 준다. 승인자가 제출을 만들 때 고른다(F05, F06, F07).
       x-owner: release-gate
-      security: [ { oidc: [release-approver] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -178,7 +187,8 @@ paths:
       summary: 출고 제출
       description: 승인자가 함께 운영할 문진표 버전 목록과 모델 패키지를 묶어 제출한다. 게이트가 기술 호환(릴리스 구성의 버전, 문항·칸 구조와 모델의 일치, 평가 보고서 형식, 저자 확인)을 검사해 어긋나면 반려하고 통과하면 사람의 승인을 기다리는 상태에서 멈춘다. 구조가 다른 문진표 세트는 QUESTION_STRUCTURE_MISMATCH 로 거절한다(F06, U81, U85, D53).
       x-owner: release-gate
-      security: [ { oidc: [release-approver] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SubmissionRequest" } } }
@@ -196,7 +206,8 @@ paths:
       summary: 출고 제출 목록
       description: 제출을 최근 것이 먼저 나오게 쪽으로 나누어 준다. 승인 화면이 승인 대기 목록을 보여 줄 때 쓴다(F47, D68).
       x-owner: release-gate
-      security: [ { oidc: [release-approver, operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver, operator] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -216,7 +227,8 @@ paths:
       summary: 출고 제출 읽기
       description: 제출 하나의 상태와 검사 결과를 준다(F47, D68).
       x-owner: release-gate
-      security: [ { oidc: [release-approver, operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver, operator] }
       responses:
         "200": { description: 제출, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/Submission" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -232,7 +244,8 @@ paths:
       summary: 검토 보고서 읽기
       description: 후보와 현재 활성 릴리스를 같은 지표끼리 맞댄 보고서를 준다. 보고서 해시는 서버만 계산하고 승인 요청이 그대로 돌려보낸다(F08, F47, D53, D69).
       x-owner: release-gate
-      security: [ { oidc: [release-approver, operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver, operator] }
       responses:
         "200": { description: 검토 보고서, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ReviewReport" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -249,7 +262,8 @@ paths:
       summary: 출고 승인 또는 반려
       description: 승인자가 검토 보고서를 본 뒤 승인하거나 사유와 함께 반려한다. 승인자는 개인 계정으로 식별하며 본문이 아니라 인증된 사용자가 우선한다. 보고서 해시가 지금과 다르면 STALE_REPORT, 이미 사람이 결정했으면 ALREADY_DECIDED 로 409 를 낸다. 승인하면 릴리스가 만들어진다(F09, F47, F49, D53, D69, D88 U7).
       x-owner: release-gate
-      security: [ { oidc: [release-approver] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [release-approver] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ApprovalRequest" } } }
@@ -270,7 +284,8 @@ paths:
       summary: 자동 검사 재판정
       description: 정책 버전이 바뀐 뒤 운영자가 같은 제출에 새 판정을 더한다. 사람이 이미 결정한 제출은 다시 판정하지 않는다(ALREADY_DECIDED)(F09, D105(2)).
       x-owner: release-gate
-      security: [ { oidc: [operator] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [operator] }
       responses:
         "201": { description: 새 판정 기록, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/GateDecision" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -285,7 +300,8 @@ paths:
       summary: 게이트 판정 목록
       description: 판정을 쪽으로 나누어 준다. question-authoring 과 model-lab 은 자기 산출물(문항 세트 버전이나 모델 패키지)이 통과했는지 subject_id 로 걸러 읽는다(C17, D03, D53).
       x-owner: release-gate
-      security: [ { machine_token: [decision-reader] }, { oidc: [release-approver, operator] } ]
+      security: [ { machine_token: [] }, { oidc: [] } ]
+      x-required-roles: { machine_token: [decision-reader], oidc: [release-approver, operator] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -303,7 +319,8 @@ paths:
       summary: 롤백 요청
       description: ops-feedback 이 사람이 CONFIRMED 로 검토한 사례를 근거로 롤백을 요청한다. 자동 제출은 기본으로 끄고, 요청은 사람의 결정을 기다릴 뿐 활성 릴리스를 바꾸지 않는다(F14, L07, C21, D88 U11).
       x-owner: release-gate
-      security: [ { machine_token: [rollback-requester] } ]
+      security: [ { machine_token: [] } ]
+      x-required-roles: { machine_token: [rollback-requester] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackRequestCreate" } } }
@@ -320,7 +337,8 @@ paths:
       summary: 롤백 요청 목록
       description: 접수된 롤백 요청을 쪽으로 나누어 준다. 운영자가 보고 롤백을 결정한다(F10, F14).
       x-owner: release-gate
-      security: [ { oidc: [operator, release-approver] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [operator, release-approver] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -371,17 +389,15 @@ paths:
         "503": { $ref: "#/components/responses/Unavailable" }
 components:
   securitySchemes:
-    device_mtls:
-      type: mutualTLS
-      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
     oidc:
-      type: openIdConnect
-      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
-      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 사람은 OIDC(Keycloak)로 로그인하고 영역은 공개 입구가 검증해 넘기는 JWT 접근 토큰(RFC 9068, 클레임은 UserIdentityClaims)을 받는다. 발급자 주소는 설치처마다 달라 계약에 적지 않고 platform 의 환경 입력(OIDC 발급자 주소)으로 받는다. 필요한 역할(UserRole)은 작업의 x-required-roles.oidc 에 적는다(U82, D127).
     machine_token:
       type: http
       scheme: bearer
-      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 필요한 권한은 작업의 x-required-roles.machine_token 에 적는다(D122, D84).
   parameters:
     Limit:
       name: limit

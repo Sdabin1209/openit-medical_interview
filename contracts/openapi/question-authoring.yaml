@@ -21,7 +21,8 @@ paths:
       summary: 문항 자료 올리기
       description: 저자가 가져온 문항 자료 파일을 올리면 서버가 읽어 문항 초안과 미리보기를 만든다. 형식은 미리 정하지 않으며, 읽지 못하거나 확신하지 못하면 추정하지 않고 PARSE_FAILED 상태의 초안으로 알려서 화면 입력(createDraftFromForm)으로 이어 가게 한다(F01, F02, D31, D33, U89).
       x-owner: question-authoring
-      security: [ { oidc: [author] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author] }
       requestBody:
         required: true
         content: { multipart/form-data: { schema: { $ref: "../components.yaml#/components/schemas/MaterialUpload" } } }
@@ -38,7 +39,8 @@ paths:
       summary: 화면 양식으로 문항 초안 만들기
       description: 저자가 화면 양식에 입력한 문진표 내용으로 초안을 만든다. 자료를 읽지 못할 때도 등록이 언제나 가능하게 하는 길이다(F01, D33(3)).
       x-owner: question-authoring
-      security: [ { oidc: [author] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DraftFormInput" } } }
@@ -54,7 +56,8 @@ paths:
       summary: 문항 초안 목록
       description: 저자의 초안을 최근 것이 먼저 나오게 쪽으로 나누어 준다(F02).
       x-owner: question-authoring
-      security: [ { oidc: [author] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -73,7 +76,8 @@ paths:
       summary: 초안 미리보기 읽기
       description: 초안을 사람이 읽는 형태로 보여 준다. 저자는 개별 칸이 아니라 이 미리보기를 보고 확인한다(F02, D31).
       x-owner: question-authoring
-      security: [ { oidc: [author] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author] }
       responses:
         "200": { description: 미리보기, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DraftPreview" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -89,7 +93,8 @@ paths:
       summary: 저자 확인으로 문항 세트 버전 확정
       description: 저자가 미리보기를 보고 확인하면 문항 세트 버전이 확정된다. 확정은 본 미리보기의 해시에 묶이고 지금 초안과 다르면 409 로 거절한다. 2인 승인을 켠 설치에서는 검수자 승인이 끝나야 후보가 된다. 확정한 버전은 바뀌지 않는다(F03, D31, D30, D92, L13).
       x-owner: question-authoring
-      security: [ { oidc: [author] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author] }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DraftConfirmation" } } }
@@ -110,7 +115,8 @@ paths:
       summary: 문항 세트 버전 읽기
       description: 확정된 문항 세트 버전의 내용(문항 은행과 순서표)을 준다. model-lab 은 평가를 문항 유형·단위·범위별로 쪼개려고, synthetic-data 는 잡이 실행될 때 읽는다. 이웃은 읽기만 한다(F15, F16, D13, D49).
       x-owner: question-authoring
-      security: [ { machine_token: [question-reader, candidate-reader] }, { oidc: [author, clinical-reviewer] } ]
+      security: [ { machine_token: [] }, { oidc: [] } ]
+      x-required-roles: { machine_token: [question-reader, candidate-reader], oidc: [author, clinical-reviewer] }
       responses:
         "200": { description: 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -126,7 +132,8 @@ paths:
       summary: 임상 근거 승인
       description: 2인 승인을 켠 설치에서 저자와 다른 검수자가 임상 근거를 승인한다. 저자와 같은 사람이면 SAME_PERSON_APPROVAL 로 409 를 낸다. 2인 승인이 꺼져 있으면 이 작업은 없는 것과 같아 404 로 답한다(F04, D92, D88 U9, D124, L13).
       x-owner: question-authoring
-      security: [ { oidc: [clinical-reviewer] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [clinical-reviewer] }
       responses:
         "200": { description: 승인이 기록된 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -141,7 +148,8 @@ paths:
       summary: 후보 문항 세트 버전 목록
       description: 후보가 된 문항 세트 버전의 요약과 검수 기록과 변경 분류를 쪽으로 나누어 준다. release-gate 의 후보 수집 잡이 가져가고, model-lab 과 synthetic-data 가 어떤 버전이 있는지 찾는 데도 쓴다(F05, F15, F16, D49, U85).
       x-owner: question-authoring
-      security: [ { machine_token: [candidate-reader, question-reader] } ]
+      security: [ { machine_token: [] } ]
+      x-required-roles: { machine_token: [candidate-reader, question-reader] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -159,7 +167,8 @@ paths:
       summary: 개선 신호 목록
       description: 저자가 문항별 실패율과 혼동 사례를 읽는다. 서버는 ops-feedback 에서 읽어 둔 신호를 준다. 읽기만 있고 저자 경로는 별도 인증 뒤에서만 열린다(F21, F22, D124, U68, D88 U9).
       x-owner: question-authoring
-      security: [ { oidc: [author, clinical-reviewer] } ]
+      security: [ { oidc: [] } ]
+      x-required-roles: { oidc: [author, clinical-reviewer] }
       parameters:
         - { $ref: "#/components/parameters/Limit" }
         - { $ref: "#/components/parameters/Cursor" }
@@ -211,17 +220,15 @@ paths:
         "503": { $ref: "#/components/responses/Unavailable" }
 components:
   securitySchemes:
-    device_mtls:
-      type: mutualTLS
-      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
     oidc:
-      type: openIdConnect
-      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
-      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 사람은 OIDC(Keycloak)로 로그인하고 영역은 공개 입구가 검증해 넘기는 JWT 접근 토큰(RFC 9068, 클레임은 UserIdentityClaims)을 받는다. 발급자 주소는 설치처마다 달라 계약에 적지 않고 platform 의 환경 입력(OIDC 발급자 주소)으로 받는다. 필요한 역할(UserRole)은 작업의 x-required-roles.oidc 에 적는다(U82, D127).
     machine_token:
       type: http
       scheme: bearer
-      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 필요한 권한은 작업의 x-required-roles.machine_token 에 적는다(D122, D84).
   parameters:
     Limit:
       name: limit

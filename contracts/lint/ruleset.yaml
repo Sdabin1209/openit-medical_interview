@@ -89,4 +89,12 @@ rules:
     then:
       function: enumeration
       functionOptions:
-        values: [head, boundary-contracts, model-runtime, model-lab, synthetic-data, survey-service, release-gate, ops-feedback, question-authoring, kiosk-frontend, admin-console, platform, deploy, link]
+        values: [head, model-runtime, model-lab, synthetic-data, survey-service, release-gate, ops-feedback, question-authoring, kiosk-frontend, admin-console, platform, deploy]
+# 공유 값 라이브러리(components.yaml)는 서비스 문서가 아니라서 두 표준 규칙을 이 파일에만 끈다.
+# 왜: oas3-unused-component 는 같은 문서 안의 참조만 세는데 이 파일의 값은 서비스 openapi 가 참조한다.
+#     oas3-api-servers 는 서버 주소를 요구하는데 이 파일에는 주소가 없다. 서비스 문서(openapi/*.yaml)에는 두 규칙이 그대로 적용된다.
+overrides:
+  - files: ["components.yaml"]
+    rules:
+      oas3-unused-component: off
+      oas3-api-servers: off

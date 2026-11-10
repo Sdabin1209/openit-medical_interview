@@ -20,7 +20,7 @@
 | F14 | 구현 | createRollbackRequest (release-gate) | RollbackRequestCreate, RollbackRequest | 근거는 CONFIRMED 사례만, 자동 제출은 끈다(C21, L07). 요청이 나가는 기준 값은 정해지지 않았다 |
 | F15 | 구현 | getQuestionSetVersion, listCandidateQuestionSets (question-authoring) | QuestionBank, QuestionItem, QuestionFieldSpec | model-lab 이 question-reader 권한으로 읽기만 한다(D49) |
 | F16 | 구현 | getQuestionSetVersion, listCandidateQuestionSets (question-authoring) | QuestionBank, QuestionSetVersion | synthetic-data 가 question-reader 권한으로 읽기만 한다(D49) |
-| F17 | 구현 | createDatasetImport, uploadDatasetFile, completeDatasetImport, getDatasetImport (synthetic-data) | DatasetImportRequest, DatasetImport, DatasetRowA, DatasetRowB | 사용 허락 확인됨(C25). 리포에는 합성 시험 샘플만 둔다 |
+| F17 | 구현 | createDatasetImport, uploadDatasetFile, completeDatasetImport, getDatasetImport (synthetic-data) | DatasetImportRequest, DatasetImport, DatasetRow, ChatMessage | 사용 허락 확인됨(C25). 리포에는 합성 시험 샘플만 둔다 |
 | F18 | 구현 | listDatasetVersions, getDatasetVersion, downloadDatasetFile (synthetic-data) | DatasetManifest, DatasetFileDeclaration, ArtifactRef | 지정 버전을 model-lab 이 읽어 간다 |
 | F19 | 구현 | listFailureCases (ops-feedback), 잡 PUBLISH_SEEDS | FailureCase, FailureCasePage | case-reader 권한. 검토된 사례를 시드로 읽는다(L17) |
 | F20 | 구현 | listFailureCases (ops-feedback) | FailureCase, ReviewStatus | review_status=CONFIRMED 로 회귀 평가 집합을 읽는다(D52(2)) |
