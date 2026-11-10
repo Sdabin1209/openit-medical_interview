@@ -29,6 +29,8 @@ openit-v7/
 | 공통 점검 | `cd tools/checks && uv run openit-check all` |
 | 점검 자체 시험 | `cd tools/checks && uv run pytest` |
 | 배포 환경 확인 | `deploy/deploy doctor` |
+| 전체 시험 1회(샌드박스, ADR 0025, 결과는 [E2E_RESULTS](deploy/docs/E2E_RESULTS.md)) | `deploy/deploy e2e --mode pipeline` 또는 `--mode product --adapters-a <폴더> --adapters-b <폴더> --profile <프로파일>` |
+| 중립 어댑터 만들기(B 행렬 0) | `uv run --project tools/neutral-adapter neutral-adapter --profile gpu-12g --out <폴더>` |
 | 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
 | 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
@@ -56,3 +58,4 @@ openit-v7/
 - [0018 제3자 고지 THIRD_PARTY_NOTICES 자동 생성과 이미지 점검](docs/adr/0018-제3자-고지-THIRD_PARTY_NOTICES-자동-생성.md)
 - [0019 영역 구성 7개](docs/adr/0019-영역-구성-7개.md)
 - [0020 계약 타입 생성, 공유 라이브러리, 계약 적합성 시험, 잡 영역 틀](docs/adr/0020-계약-타입-생성-공유-라이브러리-계약-적합성-시험.md)
+- [0025 E2E 실행 규약과 두 모드](docs/adr/0025-E2E-실행-규약과-두-모드.md)

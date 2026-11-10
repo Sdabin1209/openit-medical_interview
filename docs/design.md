@@ -98,7 +98,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | release_view | 모델 패키지 평가 보고서 확인, 활성화 승인, 롤백 |
 
 ### deploy (도구)
-`./deploy` 명령(doctor, secrets, build, up, down, status, job, backup, restore, bootstrap, ca, pull)과 배치 설정. ADR 0004·0013.
+`./deploy` 명령(doctor, secrets, build, up, down, status, job, backup, restore, bootstrap, ca, pull, e2e)과 배치 설정. ADR 0004·0013, `e2e` 는 ADR 0025.
 
 ## 3. 영역 사이 흐름(계약 대상)
 

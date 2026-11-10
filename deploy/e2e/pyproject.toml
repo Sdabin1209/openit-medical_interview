@@ -1,0 +1,52 @@
+# E2E 실행 도구(`./deploy e2e` 가 부른다, ADR 0025). 샌드박스 설치를 만들어 한 건의 문진을 입구(Envoy)를 지나는 실제 HTTP 로 끝까지 시험한다.
+[project]
+name = "openit-e2e"
+version = "0.1.0"
+description = "openit E2E: 샌드박스 설치에서 게시·활성화·문진·결과 당겨 가기까지(D123)"
+requires-python = ">=3.12,<3.13"  # 왜: 영역 이미지(python:3.12)와 같은 minor 로 맞춘다(ADR 0006)
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+  "httpx",  # 입구에 요청하는 표준 HTTP 클라이언트(BSD-3-Clause). mTLS 와 쿠키·리디렉션을 지원한다
+  "jsonschema",  # 계약(OpenAPI 의 JSON Schema 2020-12)으로 응답을 검증한다(MIT)
+  "rfc3339-validator",  # format 단언: date-time(계약 README '시각·식별자·검증기')
+  "rfc3986-validator",  # format 단언: uri
+  "pyyaml",  # 계약 YAML 을 읽는다(MIT)
+  "cryptography",  # 시험용 기기 CA 와 기기 인증서(Apache-2.0·BSD)
+]
+
+[project.scripts]
+openit-e2e = "openit_e2e.cli:main"
+
+[dependency-groups]
+dev = ["pytest", "pyright", "ruff", "types-pyyaml"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openit_e2e"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 140
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+# 왜 E501 제외: 한글 주석은 글자 폭이 2 로 계산되어 같은 줄 길이 규칙을 지키면 '왜' 주석을 잘게 쪼개야 한다. 줄 길이는 ruff format 이 코드에 대해 지킨다
+"**" = ["E501"]
+# 왜: 도구는 PATH 의 표준 도구(nvidia-smi, uv)와 ./deploy 를 부른다. 경로를 박으면 설치처마다 깨진다(docker 는 dockerenv 만 지난다)
+"src/**" = ["S603", "S607"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+reportMissingTypeStubs = false
