@@ -1,4 +1,7 @@
-"""이미지가 영역 밖에서 주입받는 것의 선언(계약 ContainerInputs, D134): inputs.json 과 Dockerfile 라벨과 계약이 같은 말을 한다."""
+"""이미지가 영역 밖에서 주입받는 것의 선언(계약 ContainerInputs, D134).
+
+inputs.json 과 Dockerfile 라벨과 계약이 같은 말을 한다.
+"""
 
 import json
 import re
