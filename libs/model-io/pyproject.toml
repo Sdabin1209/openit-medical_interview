@@ -42,7 +42,7 @@ markers = ["dataset: 학습 서버 학습 파일(MODEL_IO_DATASET_DIR)이 필요
 [tool.ruff]
 line-length = 120
 src = ["src", "tests"]
-extend-exclude = ["src/model_io/contract"]  # 생성 코드는 생성기가 책임진다(ADR 0020)
+extend-exclude = ["src/model_io/contract"]  # 생성 코드는 생성기가 책임진다
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ANN"]
@@ -55,6 +55,7 @@ include = ["src", "tests"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 exclude = ["src/model_io/contract"]  # 생성 코드는 생성기가 책임진다
+ignore = ["src/model_io/core/labels_port.py"]  # 정본 labels.py 를 글자 그대로 옮긴 파일(형식을 고치지 않는다, ADR 0003)
 
 # 경계 점검(ADR 0003). 라이브러리는 영역도 통신도 모른다.
 [tool.importlinter]

@@ -182,8 +182,9 @@ def _semantic_found(out: Mapping[str, object], ctx: GuardContext) -> list[_Found
             found.append(_Found(Violation(ViolationCode.UNKNOWN_ITEM, f"{where}.key")))
             continue
         spec = ctx.fields.specs.get((item, field_name))
-        # 왜 빈 반복 키는 저장하지 않는 값에만: 술 종류를 모르는 보류·재질문 값은 키에 [술 종류]가 없고 저장하지 않는다(SQL.md 6장).
-        # 학습 파일 정답 Q7_1·Q7_2 칸 값 중 키 없는 6842개가 모두 save 거짓이다(실측, 저장하는 키 없는 값은 0개)
+        # 왜 빈 반복 키는 저장하지 않는 값에만: 술 종류를 모르는 보류·재질문 값은 키에 [술 종류]가 없고
+        # 저장하지 않는다(SQL.md 6장). 학습 파일 정답에서 키 없는 Q7_1·Q7_2 칸 값 6842개가 모두
+        # save 거짓이다(실측, 저장하는 키 없는 값은 0개)
         empty_key_allowed = repeat == "" and spec is not None and value.get("save") is False
         if spec is None or (repeat not in spec.repeat_keys and not empty_key_allowed):
             found.append(_Found(Violation(ViolationCode.UNKNOWN_SLOT, f"{where}.key")))

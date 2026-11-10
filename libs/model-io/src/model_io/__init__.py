@@ -4,6 +4,7 @@
 """
 
 from model_io.core.bank import END, FieldIndex, FlowIndex, build_field_index, build_flow_index
+from model_io.core.compose import compose_response_input, compose_start_input
 from model_io.core.evaluate import (
     ExtractionSample,
     ResponseSample,
@@ -31,6 +32,8 @@ __all__ = [
     "build_flow_index",
     "build_report",
     "check_extraction_output",
+    "compose_response_input",
+    "compose_start_input",
     "evaluate_extraction",
     "evaluate_responses",
     "expected_next_item",

@@ -14,6 +14,7 @@
 | `serialize_extraction_input` | `ActionExtractionInput` 의 dict, `state_key_order` | 글자 | LoRA-A 모델 입력 글자. 최상위 키 정렬, state 는 요청의 순서 |
 | `serialize_response_input` | `ResponseRequest` 의 dict | 글자 | LoRA-B 모델 입력 글자. 모든 수준 정렬 |
 | `build_flow_index`, `build_field_index` | 순서표, 칸 규격 | 색인 | 요청의 `flow`, `fields` 를 검증에 쓰는 색인으로 |
+| `compose_response_input`, `compose_start_input` | LoRA-A 출력·state·발화·다음 질문 문장, 또는 첫 질문 문장 | `ResponseRequest` 의 dict | 데이터셋 정본의 표와 문장 틀로 topic·known·ask·previous·current·hold 를 만든다 |
 | `check_extraction_output` | 모델 출력 글자, `GuardContext` | `GuardOutcome` | 위반 코드 10개를 한 번에 검사, D115 고쳐 쓰기, 검증된 출력 또는 출력 불가 |
 | `find_violations` | 모델 출력 글자, `GuardContext` | `Violation` 목록 | 고쳐 쓰기 전 출력의 위반만(의미 위반율 계산용) |
 | `expected_next_item` | action, 출력, `GuardContext` | 문항 또는 `None` | 계약 `NextItemRule` 이 정한 next_item |
@@ -37,3 +38,4 @@ uv run --project ../../tools/checks openit-gen-contract .   # 계약 타입 다�
 ## 6. ADR 목록
 - [0001 템플릿에서 시작](docs/adr/0001-템플릿에서-시작.md)
 - [0002 출력 검증과 직렬화의 구조](docs/adr/0002-출력-검증과-직렬화의-구조.md)
+- [0003 사람 말 표와 문장 틀을 정본에서 그대로 옮긴다](docs/adr/0003-사람-말-표와-문장-틀을-정본에서-그대로-옮긴다.md)

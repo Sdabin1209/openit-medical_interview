@@ -147,7 +147,10 @@ def test_unknown_slot_and_repeat_key() -> None:
 def test_empty_repeat_key_is_only_for_values_that_are_not_saved() -> None:
     """술 종류를 모르는 재질문의 칸은 키에 [술 종류]가 없고 저장하지 않는다. 저장하는 값에 키가 없으면 위반이다."""
     reask = out(
-        action="REASK", next_item="Q7_1", reason="MISSING", targets=["Q7_1.amount"],
+        action="REASK",
+        next_item="Q7_1",
+        reason="MISSING",
+        targets=["Q7_1.amount"],
         values=[gap("Q7_1.amount")],
     )
     assert check_extraction_output(reask, context("Q7_1")).valid

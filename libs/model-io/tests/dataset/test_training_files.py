@@ -13,7 +13,13 @@ from pathlib import Path
 import pytest
 
 from helpers import context
-from model_io import check_extraction_output, serialize_extraction_input, serialize_response_input
+from model_io import (
+    check_extraction_output,
+    compose_response_input,
+    compose_start_input,
+    serialize_extraction_input,
+    serialize_response_input,
+)
 
 pytestmark = pytest.mark.dataset
 
@@ -83,3 +89,35 @@ def test_gold_extraction_outputs_have_zero_violations() -> None:
         f"고쳐 쓰기 {rewritten}행, 위반 코드 {dict(codes)}"
     )
     assert (rows, violations, invalid, rewritten) == (46655, 0, 0, 0)
+
+
+def test_response_input_is_composed_from_structured_values_exactly() -> None:
+    """LoRA-A 정답 출력과 입력 state 와 다음 질문 문장에서 만든 LoRA-B 입력이 학습 파일의 B 입력과 같다(내용,
+    직렬화)."""
+    pairs: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
+    for kind in ("a", "b"):
+        for path in _files(kind):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(line)
+                messages = record["messages"]
+                key = (str(path.relative_to(str(ROOT))).replace(f"lora_{kind}_", "lora_x_"), record["scenario_id"])
+                pairs.setdefault(key, {})[kind] = (messages[1]["content"], messages[2]["content"])
+    composed = starts = different = bytes_equal = 0
+    for sides in pairs.values():
+        if "b" not in sides:
+            continue
+        expected = json.loads(sides["b"][0])
+        if expected["action"] == "START":
+            starts += 1
+            assert compose_start_input(expected["next"]["text"]) == expected
+            continue
+        payload = json.loads(sides["a"][0])
+        output = json.loads(sides["a"][1])
+        result = compose_response_input(
+            output, payload["question_id"], payload["user_utterance"], payload["state"], expected["next"].get("text")
+        )
+        composed += 1
+        different += result != expected
+        bytes_equal += serialize_response_input(result) == sides["b"][0]
+    print(f"\nB 입력 만들기: 같음 {composed - different}/{composed}, 바이트까지 같음 {bytes_equal}, START {starts}")
+    assert (composed, different) == (46655, 0) and bytes_equal == composed - 10
