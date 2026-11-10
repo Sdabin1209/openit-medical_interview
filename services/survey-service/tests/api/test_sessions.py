@@ -197,6 +197,8 @@ async def test_idle_session_expires(harness: Harness) -> None:
         assert (await c.get(f"/v1/sessions/{sid}/state", headers=KIOSK)).json()["status"] == "EXPIRED"
         late = await c.post(f"/v1/sessions/{sid}/turns", json=turn_body(), headers=KIOSK)
         assert late.status_code == 409 and late.json()["reason"] == "SESSION_NOT_ACTIVE"
+        ready = (await c.get("/v1/staff-alerts", headers=h.human("clinician"))).json()["items"]
+        assert [a["kind"] for a in ready] == ["RESULT_READY"]  # 만료로 생긴 부분 결과도 의사에게 알린다
 
 
 async def test_staff_call_pauses_and_resume_restores(harness: Harness) -> None:

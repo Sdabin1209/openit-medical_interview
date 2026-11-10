@@ -644,13 +644,16 @@ class SqlTx:
         count += cast("int", (await self._s.execute(old)).rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
         return count
 
-    async def mark_expired_sessions(self, idle_cutoff: datetime) -> int:
-        stmt = (
-            update(m.SessionRow)
-            .where(m.SessionRow.status == SessionStatus.ACTIVE.value, m.SessionRow.last_activity_at < idle_cutoff)
-            .values(status=SessionStatus.EXPIRED.value, ended_at=m.SessionRow.last_activity_at)
+    async def mark_expired_sessions(self, idle_cutoff: datetime) -> tuple[SessionRecord, ...]:
+        """유휴 시간을 넘긴 진행 중 세션을 EXPIRED 로 바꾸고 바뀐 세션들을 돌려준다(끝난 때는 마지막 활동 시각)."""
+        stmt = select(m.SessionRow).where(
+            m.SessionRow.status == SessionStatus.ACTIVE.value, m.SessionRow.last_activity_at < idle_cutoff
         )
-        return cast("int", (await self._s.execute(stmt)).rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
+        rows = list((await self._s.scalars(stmt.with_for_update())).all())
+        for row in rows:
+            row.status, row.ended_at = SessionStatus.EXPIRED.value, row.last_activity_at
+        await self._s.flush()
+        return tuple(self._session(r) for r in rows)
 
 
 def _new_uuid() -> UUID:

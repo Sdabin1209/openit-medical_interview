@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from prometheus_client import Histogram
 
-from survey_service.components import alert, question_bank, result, session, start_code, trace, turn
+from survey_service.components import alert, question_bank, session, start_code, trace, turn
 from survey_service.contract.models import (
     ActionExtraction,
     AlertKind,
@@ -30,7 +30,6 @@ from survey_service.link import auth as authn
 from survey_service.link.common import content_of, reply
 from survey_service.link.problem import ApiError
 from survey_service.types import (
-    DuplicateError,
     ModelCallError,
     ModelCallFailure,
     Runtime,
@@ -39,14 +38,11 @@ from survey_service.types import (
     StartCodeVerdict,
     TurnOutcome,
     Tx,
-    unwrap,
 )
 
 # 왜 이 지표: 계약 RequiredPrometheusMetric(turn_duration_seconds). 환자 턴 처리 시간 히스토그램(초, 목표
 # 2초 p95 경보의 근거)
 TURN_SECONDS = Histogram("turn_duration_seconds", "환자 턴 처리 시간(초)")
-# 왜 8: 100만 개 중 살아 있는 코드와 겹칠 확률이 극히 작아 몇 번이면 충분하다(측정하지 않았다)
-MAX_CODE_ATTEMPTS = 8
 # 왜 120: 계약 RetryAfterSeconds 의 최대(Retry-After 로 알릴 수 있는 초의 상한)
 MAX_RETRY_AFTER_SECONDS = 120
 
@@ -78,6 +74,8 @@ def router(rt: Runtime) -> APIRouter:
         if refreshed is not current:
             await tx.save_session(refreshed)
             await tx.log_event("session_expired", refreshed.session_id, rt.now(), {})
+            # 왜 알리나: 유휴로 만료된 문진도 결과(부분 결과)가 생긴다. 의사가 볼 수 있게 결과 도착 알림을 낸다
+            await raise_result_ready(tx, refreshed, content_of_title(await content_for(tx, refreshed)))
         return refreshed
 
     async def content_for(tx: Tx, current: SessionRecord) -> QuestionSetContent:
@@ -374,7 +372,6 @@ def router(rt: Runtime) -> APIRouter:
         await push(created.alert_id, AlertKind.CALL_STAFF)
         return reply(alert.to_contract(created), 201 if fresh else 200)
 
-    _ = (result, DuplicateError, unwrap)
     return api
 
 

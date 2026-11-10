@@ -1,7 +1,6 @@
 """링크 컴포넌트가 함께 쓰는 작은 도구: JSON 응답, 쪽 나누기 질의, 문항 세트 읽기."""
 
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import Query
 from fastapi.responses import JSONResponse
@@ -30,12 +29,4 @@ def invalid_cursor() -> ApiError:
     return ApiError(400, errors=[("/cursor", "서버가 만든 커서가 아니다")])
 
 
-def parse_uuid(value: str) -> UUID | None:
-    """UUID 글. 틀리면 None."""
-    try:
-        return UUID(value)
-    except ValueError:
-        return None
-
-
-__all__ = ["ApiError", "InvalidCursorError", "content_of", "invalid_cursor", "parse_uuid", "reply"]
+__all__ = ["ApiError", "InvalidCursorError", "content_of", "invalid_cursor", "reply"]

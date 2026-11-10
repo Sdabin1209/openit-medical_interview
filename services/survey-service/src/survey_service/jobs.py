@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from sqlalchemy.exc import OperationalError
 
-from survey_service.components import failure_case
+from survey_service.components import alert, failure_case
 from survey_service.contract.models import JobExitCode, JobName, JobRunInput, JobRunResult
 from survey_service.settings import limits_of, load_env, read_secret
 from survey_service.store.engine import database_url, make_engine
@@ -46,8 +46,12 @@ async def purge_expired(store: Store, now: datetime, *, retention_days: int, idl
     """유휴로 만료된 세션을 EXPIRED 로 바꾸고, 보존 기간(180일)이 지난 발화 원문과 쓰지 않는 시작 코드를 지운다."""
     async with store.transaction() as tx:
         expired = await tx.mark_expired_sessions(now - timedelta(seconds=idle_seconds))
+        for ended in expired:  # 왜 알리나: 유휴로 만료된 문진도 부분 결과가 생긴다. 의사 화면에 결과 도착 알림을 낸다
+            stored = await tx.get_question_set(ended.question_set_version_id)
+            title = str(stored.content["title"]) if stored is not None else None
+            await tx.create_alert(alert.result_ready(ended, uuid4(), now, title))
         purged = await tx.purge_expired(now, now - timedelta(days=retention_days))
-    return expired + purged
+    return len(expired) + purged
 
 
 async def run_job(job: JobName, requested_at: datetime, store: Store, *, retention_days: int, idle_seconds: int) -> int:

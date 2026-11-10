@@ -194,6 +194,8 @@ async def test_reask_limit_makes_a_case_and_purge_removes_old_utterances(harness
         assert "utterance" not in case
         status = (await c.get(f"/v1/results/{sid}", headers=h.human("clinician"))).json()["status"]
         assert status == "EXPIRED"  # 유휴로 끝난 세션은 잡이 만료로 바꾼다
+        ready = (await c.get("/v1/staff-alerts", headers=h.human("clinician"))).json()["items"]
+        assert [a["kind"] for a in ready] == ["RESULT_READY"]  # 만료로 생긴 부분 결과도 의사에게 알린다
 
 
 async def test_results_filters_fhir_errors_and_access_log(harness: Harness) -> None:
