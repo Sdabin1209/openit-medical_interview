@@ -3,6 +3,8 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "cryptography",
+#     "pydantic",
+#     "pyyaml",
 #     "typer",
 # ]
 # ///
@@ -14,6 +16,7 @@
 
 from __future__ import annotations
 
+import functools
 import gzip
 import http.client
 import json
@@ -33,10 +36,17 @@ import typer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dockerenv  # noqa: E402
-import pki  # noqa: E402
+
+# 왜 platform/src: 기성품 구성(입구·사람 인증·감시·사설 CA)의 설정은 platform 영역이 갖고 이 명령은 그 생성기를 부른다(design.md 5절, platform ADR 0001)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "src"))
+from openit_platform import generate as pf_generate  # noqa: E402
+from openit_platform import identity as pf_identity  # noqa: E402
+from openit_platform import pki  # noqa: E402
 
 ROOT = dockerenv.REPO_ROOT
 DEPLOY = ROOT / "deploy"
+PLATFORM = ROOT / "platform"
+GENERATED = DEPLOY / "generated"  # ./deploy 가 만드는 설정(git 제외)
 COMPOSE_FILE = DEPLOY / "compose.yaml"
 SECRETS_DIR = DEPLOY / "secrets"
 LOCK_FILE = DEPLOY / "images.lock"
@@ -53,6 +63,9 @@ TRIVY_SKIP_LOCAL = ["--skip-dirs", "**/.venv", "--skip-dirs", "**/node_modules"]
 # 왜 CRITICAL,HIGH 와 --ignore-unfixed: Trivy 공식 문서가 CI 실패 기준으로 보이는 일반 예시다. 고칠 수 없는 항목(수정판 없음)으로 막지 않는다(ADR 0016)
 TRIVY_SEVERITY = "CRITICAL,HIGH"
 STEP_IMAGE_SERVICE = "step-ca"  # 인증서 만들기에 쓰는 step CLI 는 step-ca 이미지(같은 digest)에 들어 있다
+# 왜 30일: 사람이 갈아 끼우는 인증서(organization 방식의 입구 인증서)는 갱신 절차에 시간이 걸린다. platform/monitoring/rules.yml 의 2592000 초와 같아야 한다(시험이 확인한다).
+# 근거가 되는 표준이 없는 선택값이고 측정하지 않았다(platform ADR 0005)
+ORGANIZATION_CERT_WARN_MINUTES = 30 * 24 * 60
 EXIT_FAIL = 1
 EXIT_NO_TARGET = 3
 
@@ -66,6 +79,7 @@ SECRET_NAMES: dict[str, int] = {
     "step_ca_password": 32,  # 중간 CA 개인 키의 암호
     "step_ca_root_password": 32,  # 루트 CA 개인 키의 암호(self 방식만 쓴다)
 }
+MACHINE_SECRETS_DIR = SECRETS_DIR / "machine-clients"  # 기계 호출자마다 파일 하나(이름 = 호출자 이름). Keycloak 기계 클라이언트의 비밀이다(platform ADR 0004)
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 secrets_app = typer.Typer(add_completion=False, no_args_is_help=True, help="비밀 파일 관리")
@@ -101,11 +115,36 @@ def project_name() -> str:
     return env_values()["OPENIT_PROJECT_NAME"]
 
 
+@functools.cache
+def platform_generated() -> pf_generate.Generated:
+    try:
+        return pf_generate.generate(pki.load_env(DEPLOY), DEPLOY, ROOT, registry_local=pki.load_env(DEPLOY)["OPENIT_REGISTRY_MODE"] == "local")
+    except (pki.ConfigError, OSError, ValueError) as error:
+        fail(f"platform 설정을 만들지 못했다: {error}")
+
+
+PENDING_CHANGES: set[str] = set()  # 이 실행에서 바뀐 생성 파일. up() 이 이것으로 돌고 있는 서비스를 다시 만든다
+
+
+def sync_generated() -> list[str]:
+    """platform 생성기가 만드는 파일을 generated/ 에 쓴다. 바뀐 파일 이름을 돌려준다(같은 입력이면 비어 있다)."""
+    generated = platform_generated()
+    changed: list[str] = []
+    for relative, text in generated.files.items():
+        changed += [relative] if write_if_changed(GENERATED / relative, text) else []
+    device_ca = pf_generate.device_ca_copy(generated.settings)
+    changed += ["gateway/device-ca.pem"] if write_if_changed(GENERATED / pf_generate.DEVICE_CA_PLACEHOLDER, device_ca) else []
+    PENDING_CHANGES.update(changed)
+    return changed
+
+
 def compose_args() -> list[str]:
     args = ["compose", "--project-name", project_name(), "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
             "--env-file", str(DEPLOY / "env.example")]
     if env_values()["OPENIT_REGISTRY_MODE"] == "local":
         args += ["--profile", "local-registry"]  # 왜: external 이면 레지스트리 서비스를 띄우지 않는다(ADR 0013)
+    sync_generated()  # 왜 여기서: compose 는 생성된 파생 값(generated/platform.env)과 입구 에이전트 이름(compose.platform.yaml)을 읽는다
+    args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env")]
     if (DEPLOY / ".env").exists():
         args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
     return args
@@ -163,6 +202,138 @@ def write_lock(lock: dict[str, str]) -> None:
     LOCK_FILE.write_text(header + "".join(f"{k} {v}\n" for k, v in sorted(lock.items())), encoding="utf-8")
 
 
+# ---------------------------------------------------------------- platform 준비(platform ADR 0001~0005)
+
+
+def sync_exposures() -> None:
+    """이미지 라벨 io.openit.exposure 의 노출 선언을 OPENIT_EXPOSURES_DIR 에 <서비스 이름>.json 으로 쓴다. 라벨이 없는 이미지는 건너뛴다."""
+    from openit_platform.contract.models import ServiceName  # noqa: PLC0415
+
+    allowed = {item.value for item in ServiceName}
+    folder = pki.resolve_path(DEPLOY, env_values()["OPENIT_EXPOSURES_DIR"])
+    for name in area_targets():
+        service = name.removeprefix("web-")
+        if service not in allowed:
+            continue
+        label = docker(["image", "inspect", "--format", '{{ index .Config.Labels "io.openit.exposure" }}', f"{local_image(name)}:local"], capture_output=True)
+        text = label.stdout.strip()
+        if label.returncode != 0 or text in ("", "<no value>"):
+            continue
+        write_if_changed(folder / f"{service}.json", text + "\n")
+
+
+def validate_device_ca(path: Path | None) -> None:
+    """기기 인증서를 검증할 조직 PKI 루트: 읽을 수 있고, CA 이고, 유효 기간 안이다."""
+    if path is None:
+        return
+    if not path.is_file():
+        fail(f"OPENIT_DEVICE_CA_CERTIFICATE_FILE 파일이 없다: {path}")
+    try:
+        certs = pki.load_certs(path)
+    except ValueError as error:
+        fail(f"기기 CA 파일이 PEM 인증서가 아니다: {error}")
+    for cert in certs:
+        problems = [item for item in pki.check_ca(cert)]
+        if problems:
+            fail(f"기기 CA {pki.subject_text(cert)} 를 쓸 수 없다: {', '.join(problems)}")
+
+
+def install_ingress_certificate(cfg: object) -> None:
+    """organization 방식: 조직이 준 입구 인증서를 검증하고 pki/ingress/ 에 복사한다(없으면 폴더만 만든다)."""
+    target = PKI_DIR / "ingress"
+    private_dir(PKI_DIR)
+    target.mkdir(exist_ok=True)
+    target.chmod(0o755)  # 왜 0755: 폴더째 컨테이너에 마운트된다. 호스트 쪽 접근은 부모 pki/(0700)가 막는다(ADR 0008)
+    settings = cfg  # type: ignore[assignment]
+    if settings.ingress_mode != "organization":  # type: ignore[attr-defined]
+        return
+    cert_file, key_file = settings.ingress_certificate_file, settings.ingress_private_key_file  # type: ignore[attr-defined]
+    for path in (cert_file, key_file):
+        if path is None or not path.is_file():
+            fail(f"organization 방식의 입구 인증서 파일이 없다: {path}")
+    chain = pki.load_certs(cert_file)
+    problems: list[str] = []
+    try:
+        if not pki.key_matches_cert(key_file, None, chain[0]):
+            problems.append("개인 키가 인증서와 짝이 아니다")
+    except (ValueError, TypeError) as error:
+        problems.append(f"개인 키를 열지 못했다(암호가 걸려 있거나 키가 아니다): {error}")
+    if not bundle_path().is_file():
+        fail("신뢰 목록이 없다(./deploy bootstrap 의 신뢰의 뿌리 단계가 먼저다)")
+    roots = pki.load_certs(bundle_path())
+    problems += pki.verify_server_chain(chain, roots, list(settings.public_names))  # type: ignore[attr-defined]
+    if problems:
+        fail("입구 인증서를 쓸 수 없다:\n  " + "\n  ".join(problems))
+    write_if_changed(target / "tls.crt", pki.pem_text(chain))
+    write_if_changed(target / "tls.key", key_file.read_text(encoding="utf-8"))
+    for name in ("tls.crt", "tls.key"):
+        (target / name).chmod(0o644)  # 왜 0644: 컨테이너 사용자가 읽는다(ADR 0008)
+
+
+def prepare_platform() -> None:
+    """생성 전에 갖출 것: 이미지 라벨의 노출 선언, 기기 CA 검증, 입구 인증서(organization). 마지막에 생성 파일을 맞춘다."""
+    secrets_init()  # 기계 호출자 비밀 파일 포함(이미 있는 것은 건드리지 않는다)
+    sync_exposures()
+    platform_generated.cache_clear()
+    cfg = platform_generated().settings
+    validate_device_ca(cfg.device_ca_file)
+    install_ingress_certificate(cfg)
+    sync_generated()
+
+
+def throwaway_certificate(directory: Path, paths: tuple[str, ...]) -> None:
+    """설정 검증용: 입구 설정이 읽는 자리(컨테이너 안 경로)마다 쓸모없는 자체 서명 인증서와 키를 둔다. 실제 인증서가 아니다."""
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "config-check")])
+    now = datetime.now(UTC)
+    cert = x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(1) \
+        .not_valid_before(now).not_valid_after(now.replace(year=now.year + 1)).sign(key, hashes.SHA256())
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    key_pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    for container_path in paths:
+        target = directory / container_path.lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(key_pem if container_path.endswith(".key") else cert_pem)
+    (directory / "throwaway.pem").write_bytes(cert_pem)
+
+
+def validate_platform_configs() -> list[tuple[str, bool, str]]:
+    """생성된 입구(Envoy)·입구 에이전트(Caddy)·경보(Alertmanager) 설정을 각 제품의 검증 명령으로 본다. (이름, 통과, 자세한 말) 목록."""
+    import tempfile  # noqa: PLC0415
+
+    generated = platform_generated()
+    results: list[tuple[str, bool, str]] = []
+    with tempfile.TemporaryDirectory(prefix="openit-pf-validate-") as tmp:
+        root = Path(tmp)
+        throwaway_certificate(root, generated.certificate_paths)
+        trust = bundle_path() if bundle_path().is_file() else root / "throwaway.pem"
+        device = GENERATED / pf_generate.DEVICE_CA_PLACEHOLDER
+        device_ca = device if device.is_file() and device.stat().st_size else root / "throwaway.pem"
+        run = ["run", "--rm", "--network", "none", "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL"]
+        org_dir = root / "etc/openit/ingress"
+        org_dir.mkdir(parents=True, exist_ok=True)
+        # 컨테이너 안 경로와 같은 자리에 마운트한다: /ingress-certs 아래와 /etc/openit/ingress
+        envoy = docker([*run, "--user", "10001:10001", "-v", f"{root / 'ingress-certs'}:/ingress-certs:ro", "-v", f"{org_dir}:/etc/openit/ingress:ro",
+                        "-v", f"{GENERATED / 'gateway' / 'envoy.yaml'}:/etc/envoy/envoy.yaml:ro", "-v", f"{trust}:/etc/openit/trust-list.pem:ro",
+                        "-v", f"{device_ca}:/etc/openit/device-ca.pem:ro", service_image("envoy"), "--mode", "validate", "-c", "/etc/envoy/envoy.yaml"],
+                       capture_output=True)
+        results.append(("입구(Envoy) 설정 검증", envoy.returncode == 0, (envoy.stdout + envoy.stderr).strip()[-400:]))
+        # 왜 tmpfs: 검증이 저장소에 쓴다. 호스트 폴더에 쓰게 하면 컨테이너 사용자 소유 파일이 남아 지워지지 않는다
+        caddy = docker([*run, "--user", "10001:10001", "--tmpfs", "/ingress-certs:uid=10001", "--tmpfs", "/data:uid=10001", "--tmpfs", "/config:uid=10001",
+                        "-v", f"{GENERATED / 'ingress' / 'Caddyfile'}:/etc/caddy/Caddyfile:ro", "-v", f"{trust}:/etc/openit/trust-list.pem:ro",
+                        service_image("ingress-acme"), "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"], capture_output=True)
+        results.append(("입구 인증서 에이전트(Caddyfile) 검증", caddy.returncode == 0, (caddy.stdout + caddy.stderr).strip()[-400:]))
+        amtool = docker([*run, "-v", f"{GENERATED / 'monitoring'}:/etc/alertmanager:ro", "--entrypoint", "amtool", service_image("alertmanager"),
+                         "check-config", "/etc/alertmanager/alertmanager.yml"], capture_output=True)
+        results.append(("경보 수신 설정 검증(amtool)", amtool.returncode == 0, (amtool.stdout + amtool.stderr).strip()[-400:]))
+    return results
+
+
 @app.command()
 def doctor() -> None:
     """필요한 도구·버전·포트·비밀 파일이 갖춰졌는지 확인한다."""
@@ -204,7 +375,7 @@ def doctor() -> None:
         unpinned = [n for n, s in model.get("services", {}).items() if "@sha256:" not in s.get("image", "")]
         check("compose 이미지 digest 고정", not unpinned, ", ".join(unpinned))
     monitoring = docker(
-        ["run", "--rm", "--network", "none", "--entrypoint", "sh", "-v", f"{DEPLOY / 'monitoring'}:/etc/prometheus:ro", prometheus_image(),
+        ["run", "--rm", "--network", "none", "--entrypoint", "sh", "-v", f"{PLATFORM / 'monitoring'}:/etc/prometheus:ro", prometheus_image(),
          "-c", "cd /etc/prometheus && promtool check config --lint=none prometheus.yml && promtool test rules rules.test.yml"],
         capture_output=True,
     )
@@ -215,6 +386,18 @@ def doctor() -> None:
         check("인증서·레지스트리 설정 검증", True)
     except pki.ConfigError as error:
         check("인증서·레지스트리 설정 검증", False, str(error))
+    generated = platform_generated()  # 노출 선언·허용 목록·기계 호출자 표를 계약으로 검증한다. 틀리면 여기서 멈춘다
+    check("platform 설정 생성(노출 선언·허용 목록·기계 호출자 표 검증)", True)
+    typer.echo("      " + generated.summary.replace("\n", "\n      "))
+    try:
+        validate_device_ca(generated.settings.device_ca_file)
+        check("기기 CA 파일", True)
+    except typer.Exit:
+        check("기기 CA 파일", False, "위 메시지를 본다")
+    for label, ok, detail in validate_platform_configs():
+        check(label, ok, detail)
+    if not generated.settings.alert_receiver_url:
+        typer.echo("[--] 경보 수신처(OPENIT_ALERT_RECEIVER_URL)가 비어 있다. 경보를 어디로도 보내지 않고 서버 중단도 알릴 수 없다")
     if problems:
         fail(f"doctor 실패: {len(problems)}건", EXIT_FAIL)
     typer.echo("doctor 통과")
@@ -237,6 +420,24 @@ def secrets_init() -> None:
         # 읽으려면 읽기 가능해야 하고, 호스트 쪽 접근은 0700 폴더가 막는다(ADR 0008)
         path.chmod(0o644)
         typer.echo(f"만듦: {name}")
+    ensure_machine_secrets()
+
+
+def ensure_machine_secrets() -> None:
+    """기계 호출자(MachineTokenTable)마다 Keycloak 기계 클라이언트의 비밀 파일을 만든다. 이미 있는 파일은 건드리지 않는다. 값은 출력하지 않는다."""
+    table_file = pki.resolve_path(DEPLOY, env_values()["OPENIT_MACHINE_TOKENS_FILE"])
+    try:
+        table = pf_identity.load_machine_table(table_file)
+    except pki.ConfigError as error:
+        fail(str(error))
+    MACHINE_SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    MACHINE_SECRETS_DIR.chmod(0o755)  # 왜 0755: 폴더째 컨테이너에 마운트되므로 컨테이너 사용자가 들어갈 수 있어야 한다. 호스트 쪽 접근은 부모 secrets/(0700)가 막는다(ADR 0008)
+    for entry in table.tokens:
+        path = MACHINE_SECRETS_DIR / entry.client.root
+        if not path.exists():
+            path.write_text(pysecrets.token_hex(32), encoding="utf-8")
+            typer.echo(f"만듦: machine-clients/{entry.client.root}")
+        path.chmod(0o644)
 
 
 def trivy(args: list[str], stage: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -348,14 +549,47 @@ def build(
         typer.echo(f"빌드됨: {name} {lock[name]}")
 
 
+# 생성 파일 -> 바뀌면 다시 만들어야 하는 서비스(이미 돌고 있을 때). 파일은 시작할 때 한 번 읽는 서비스들이다.
+# 왜 identity/openit-realm.json 이 없나: Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다(`./deploy identity sync` 가 반영한다, platform ADR 0004)
+RECREATE_ON_CHANGE: dict[str, tuple[str, ...]] = {
+    "gateway/envoy.yaml": ("envoy",),
+    "gateway/device-ca.pem": ("envoy",),
+    "ingress/Caddyfile": ("ingress-acme",),
+    "compose.platform.yaml": ("ingress-acme",),
+    "monitoring/alertmanager.yml": ("alertmanager",),
+    "monitoring/receiver-url": ("alertmanager",),
+}
+TRUST_LIST_USERS = ("ingress-acme", "registry", "blackbox", "prometheus", "oauth2-proxy")  # 신뢰 목록 파일을 시작할 때 읽는 서비스
+
+
+def is_running(service: str) -> bool:
+    return bool(compose(["ps", "--quiet", "--status", "running", service], capture_output=True).stdout.strip())
+
+
+def recreate(services: list[str]) -> None:
+    for service in services:
+        if compose(["up", "-d", "--wait", "--force-recreate", service]).returncode != 0:
+            fail(f"{service} 를 다시 만들지 못했다. 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status")
+
+
 @app.command()
 def up() -> None:
-    """compose 로 띄운다(health 가 될 때까지 기다린다)."""
+    """compose 로 띄운다(health 가 될 때까지 기다린다). 바뀐 platform 설정은 돌고 있던 서비스를 다시 만들어 반영한다."""
     if not (SECRETS_DIR / next(iter(SECRET_NAMES))).is_file() or not (CA_DIR / "ca.json").is_file():
         fail("비밀 파일이나 CA 파일이 없다. 먼저 ./deploy bootstrap", EXIT_FAIL)
+    prepare_platform()
+    running = {service for files in RECREATE_ON_CHANGE.values() for service in files if is_running(service)}
+    changed = sorted(PENDING_CHANGES)
     result = compose(["up", "-d", "--wait"])
     if result.returncode != 0:
         fail(f"up 실패(rc={result.returncode}). 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status", EXIT_FAIL)
+    again = sorted({service for name in changed for service in RECREATE_ON_CHANGE.get(name, ()) if service in running})
+    if again:
+        typer.echo(f"바뀐 설정을 반영하려고 다시 만든다: {', '.join(again)}")
+        recreate(again)
+    PENDING_CHANGES.clear()
+    if "identity/openit-realm.json" in changed and is_running("keycloak"):
+        typer.echo("알림: realm 파일이 바뀌었다. Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다. ./deploy identity sync 로 반영한다")
 
 
 @app.command()
@@ -490,7 +724,7 @@ def reg_cfg() -> pki.RegistrySettings:
 
 
 def bundle_path() -> Path:
-    return pki.resolve_path(DEPLOY, env_values()["OPENIT_TRUST_BUNDLE_PATH"])
+    return pki.resolve_path(DEPLOY, env_values()["OPENIT_TRUST_LIST_FILE"])
 
 
 def extra_trust_dir() -> Path:
@@ -569,7 +803,7 @@ def create_intermediate(cfg: pki.CaSettings) -> None:
 
 
 def create_csr(cfg: pki.CaSettings) -> Path:
-    """institution 방식: 중간 CA 키와 서명 요청(CSR)을 pending/ 에 만든다. 기관 CA 가 서명한다."""
+    """organization 방식: 중간 CA 키와 서명 요청(CSR)을 pending/ 에 만든다. 기관 CA 가 서명한다."""
     private_dir(PENDING_DIR)
     for leftover in ("intermediate.csr", "intermediate_ca.key", "intermediate_ca.crt"):
         (PENDING_DIR / leftover).unlink(missing_ok=True)
@@ -637,16 +871,7 @@ def write_bundle() -> bool:
     return write_if_changed(bundle_path(), text)
 
 
-def write_tls_targets(reg: pki.RegistrySettings) -> bool:
-    # 왜 renewal 라벨: ACME 로 받는 리프는 만료 24시간 전 경보를 건다. step-ca 자신의 서버 인증서는 step-ca 가 24시간 수명으로 스스로 갱신해
-    # 남은 시간이 늘 24시간 아래라 같은 규칙을 걸면 항상 경보다(시험에서 확인). 그것은 접속·검증 성공(probe_success)만 본다
-    text = "- targets: ['step-ca:9000']\n  labels: {renewal: ca-self}\n"
-    if reg.mode == "local":
-        text += "- targets: ['registry:443']\n  labels: {renewal: acme}\n"
-    return write_if_changed(DEPLOY / "generated" / "tls-targets.yml", text)
-
-
-def ensure_pki(cfg: pki.CaSettings, reg: pki.RegistrySettings) -> bool:
+def ensure_pki(cfg: pki.CaSettings) -> bool:
     """신뢰의 뿌리를 갖춘다. 이미 있는 것은 건드리지 않는다(멱등). step-ca 가 읽는 파일이 바뀌었으면 True."""
     secrets_init()
     private_dir(PKI_DIR)
@@ -676,7 +901,7 @@ def ensure_pki(cfg: pki.CaSettings, reg: pki.RegistrySettings) -> bool:
         )
     changed |= write_if_changed(CA_DIR / "ca.json", pki.render_ca_json_text(cfg))
     changed |= write_bundle()
-    write_tls_targets(reg)
+    sync_generated()
     return changed
 
 
@@ -822,7 +1047,7 @@ def bootstrap() -> None:
     """관리 노드에서 처음부터 설치한다: 신뢰의 뿌리 -> 레지스트리 -> 이미지 push·digest 기록 -> 서비스 기동. 이미 된 단계는 건너뛴다(멱등)."""
     cfg, reg = ca_cfg(), reg_cfg()
     typer.echo("[1/4] 신뢰의 뿌리")
-    changed = ensure_pki(cfg, reg)
+    changed = ensure_pki(cfg)
     typer.echo(f"      CA 방식 {cfg.mode}, 신뢰 목록 {bundle_path()}")
     typer.echo("[2/4] 레지스트리")
     if reg.mode == "external":
@@ -888,15 +1113,30 @@ def ca_status() -> None:
     for extra in sorted(p for p in extra_trust_dir().glob("*") if p.suffix in {".crt", ".pem"}) if extra_trust_dir().is_dir() else []:
         for cert in pki.load_certs(extra):
             line(f"추가 신뢰 루트 {extra.name} {pki.subject_text(cert)}", cert, cfg.warn_root_minutes)
-    kiosk = env_values()["OPENIT_KIOSK_CLIENT_CA_FILE"]
+    kiosk = env_values()["OPENIT_DEVICE_CA_CERTIFICATE_FILE"]
     if kiosk:
         kiosk_path = pki.resolve_path(DEPLOY, kiosk)
         if not kiosk_path.is_file():
-            typer.echo(f"[FAIL] OPENIT_KIOSK_CLIENT_CA_FILE 파일이 없다: {kiosk_path}")
+            typer.echo(f"[FAIL] OPENIT_DEVICE_CA_CERTIFICATE_FILE 파일이 없다: {kiosk_path}")
             problems += 1
         else:
             for cert in pki.load_certs(kiosk_path):
                 line(f"키오스크 클라이언트 CA {pki.subject_text(cert)}", cert, cfg.warn_root_minutes)
+    ingress = platform_generated().settings
+    ingress_endpoint = published_endpoint("ingress-acme", ingress.listen_port)
+    if ingress_endpoint is None:
+        typer.echo("[FAIL] 입구 인증서: 입구가 떠 있지 않아 읽지 못했다")
+        problems += 1
+    else:
+        try:
+            ingress_leaf = pki.fetch_leaf(engine_host(), ingress_endpoint[1], ingress.public_host, bundle)
+        except (OSError, ssl.SSLError) as error:
+            typer.echo(f"[FAIL] 입구 인증서: 신뢰 목록으로 검증하지 못했다: {error}")
+            problems += 1
+        else:
+            warn = ORGANIZATION_CERT_WARN_MINUTES if ingress.ingress_mode == "organization" else cfg.warn_leaf_minutes
+            line(f"입구 인증서 {ingress.public_host}({ingress.ingress_mode})", ingress_leaf, warn,
+                 f"serial={format(ingress_leaf.serial_number, 'x')[:12]} 발급={ingress_leaf.not_valid_before_utc:%Y-%m-%dT%H:%M:%SZ}")
     if reg.mode == "local":
         endpoint = published_endpoint("registry", 443)
         if endpoint is None:
@@ -932,10 +1172,10 @@ def ca_bundle() -> None:
 
 @ca_app.command("csr")
 def ca_csr() -> None:
-    """institution 방식: 중간 CA 서명 요청(CSR)을 만든다. 처음 설치와 교체 모두 이 요청을 기관 CA 에 낸다."""
+    """organization 방식: 중간 CA 서명 요청(CSR)을 만든다. 처음 설치와 교체 모두 이 요청을 기관 CA 에 낸다."""
     cfg = ca_cfg()
-    if cfg.mode != "institution":
-        fail("csr 은 OPENIT_CA_MODE=institution 에서만 쓴다(self 는 ./deploy ca rotate 가 알아서 서명한다)", 2)
+    if cfg.mode != "organization":
+        fail("csr 은 OPENIT_CA_MODE=organization 에서만 쓴다(self 는 ./deploy ca rotate 가 알아서 서명한다)", 2)
     private_dir(PKI_DIR)
     typer.echo(f"서명 요청: {create_csr(cfg).relative_to(ROOT)}\n기관 CA 가 서명하면 ./deploy ca install --cert <서명된 인증서> --root <기관 루트 인증서>")
 
@@ -945,10 +1185,10 @@ def ca_install(
     cert: Annotated[Path, typer.Option(help="서명된 중간 CA 인증서(PEM, 위쪽 중간 CA 가 더 있으면 이어 붙인 사슬)")],
     root: Annotated[Path, typer.Option(help="그 사슬의 루트 인증서(PEM)")],
 ) -> None:
-    """institution 방식: 기관 CA 가 서명한 중간 CA 를 검증하고 설치한다. step-ca 는 다시 만든다."""
+    """organization 방식: 기관 CA 가 서명한 중간 CA 를 검증하고 설치한다. step-ca 는 다시 만든다."""
     cfg = ca_cfg()
-    if cfg.mode != "institution":
-        fail("install 은 OPENIT_CA_MODE=institution 에서만 쓴다", 2)
+    if cfg.mode != "organization":
+        fail("install 은 OPENIT_CA_MODE=organization 에서만 쓴다", 2)
     if not (PENDING_DIR / "intermediate_ca.key").is_file():
         fail("pending/ 에 중간 CA 키가 없다. 먼저 ./deploy ca csr 로 요청을 만들고 그 요청을 서명받아 온다")
     install_intermediate(cert, PENDING_DIR / "intermediate_ca.key", root)
@@ -957,10 +1197,9 @@ def ca_install(
 
 def finish_ca_change(cfg: pki.CaSettings) -> None:
     """설치 뒤 ca.json·신뢰 목록을 맞추고, 떠 있는 step-ca 를 다시 만든다."""
-    reg = reg_cfg()
     write_if_changed(CA_DIR / "ca.json", pki.render_ca_json_text(cfg))
     write_bundle()
-    write_tls_targets(reg)
+    sync_generated()
     if compose(["ps", "--quiet", "step-ca"], capture_output=True).stdout.strip():
         if compose(["up", "-d", "--wait", "--force-recreate", "--no-deps", "step-ca"]).returncode != 0:
             fail("step-ca 를 다시 만들지 못했다. ./deploy status 와 로그를 본다")
@@ -971,16 +1210,121 @@ def finish_ca_change(cfg: pki.CaSettings) -> None:
 
 @ca_app.command("rotate")
 def ca_rotate() -> None:
-    """중간 CA 를 교체한다. self: 루트로 새 중간 CA 를 만들어 검증·설치·step-ca 재생성. institution: 새 키와 CSR 을 만든다(이어서 ca install)."""
+    """중간 CA 를 교체한다. self: 루트로 새 중간 CA 를 만들어 검증·설치·step-ca 재생성. organization: 새 키와 CSR 을 만든다(이어서 ca install)."""
     cfg = ca_cfg()
     if not (CA_DIR / "intermediate_ca.crt").is_file():
         no_target("교체할 중간 CA 가 없다(./deploy bootstrap)")
-    if cfg.mode == "institution":
+    if cfg.mode == "organization":
         typer.echo(f"서명 요청: {create_csr(cfg).relative_to(ROOT)}\n기관 CA 가 서명하면 ./deploy ca install --cert <서명된 인증서> --root <기관 루트 인증서>")
         return
     create_intermediate(cfg)
     install_intermediate(PENDING_DIR / "intermediate_ca.crt", PENDING_DIR / "intermediate_ca.key", PKI_DIR / "root_ca.crt")
     finish_ca_change(cfg)
+    ca_status()
+
+
+def trust_users_running() -> list[str]:
+    return [service for service in TRUST_LIST_USERS if is_running(service)]
+
+
+def refresh_trust_users() -> None:
+    """신뢰 목록을 시작할 때 읽는 서비스 중 돌고 있는 것을 다시 만든다."""
+    running = trust_users_running()
+    if running:
+        typer.echo(f"새 신뢰 목록을 읽게 다시 만든다: {', '.join(running)}")
+        recreate(running)
+
+
+def old_root_files() -> list[Path]:
+    return sorted(extra_trust_dir().glob("old-root-*.crt")) if extra_trust_dir().is_dir() else []
+
+
+@ca_app.command("rotate-root")
+def ca_rotate_root(
+    finish: Annotated[bool, typer.Option("--finish", help="2단계: 이전 루트를 신뢰 목록에서 뺀다(새 루트를 모든 기기에 배포한 뒤)")] = False,
+    distributed: Annotated[bool, typer.Option("--distributed", help="--finish 와 함께: 새 루트를 키오스크·직원 PC 에 배포했음을 확인했다")] = False,
+) -> None:
+    """루트 CA 를 교체한다(2단계, 절차는 docs/CA.md). 1단계(기본): 새 루트·중간 CA 를 만들고 신뢰 목록에 새 루트와 이전 루트를 함께 둔다. 2단계(--finish): 이전 루트를 뺀다."""
+    cfg = ca_cfg()
+    if not (CA_DIR / "root_ca.crt").is_file():
+        no_target("deploy/pki/ca/root_ca.crt 가 없다(./deploy bootstrap)")
+    if finish:
+        return finish_root_rotation(distributed)
+    if old_root_files():
+        fail("이전 루트가 아직 신뢰 목록에 있다(이전 교체가 끝나지 않았다). 먼저 ./deploy ca rotate-root --finish --distributed")
+    old = pki.load_cert(CA_DIR / "root_ca.crt")
+    fingerprint = old.fingerprint(pki.hashes.SHA256()).hex()[:8]
+    # 왜 먼저 이전 루트를 신뢰 목록 폴더에 둔다: 새 루트로 바꾸는 순간부터 이전 루트가 서명한 리프(기기·서비스)가 아직 쓰이므로 둘 다 믿어야 한다(ADR 0015)
+    extra_trust_dir().mkdir(parents=True, exist_ok=True)
+    write_if_changed(extra_trust_dir() / f"old-root-{fingerprint}.crt", pki.pem_text([old]))
+    if cfg.mode == "organization":
+        # 새 루트는 조직이 정한다. 새 중간 CA 서명 요청을 만들고, 서명된 사슬과 새 루트를 ca install 로 설치하면 신뢰 목록이 새 루트와 이전 루트를 함께 담는다
+        typer.echo(f"이전 루트를 신뢰 목록 폴더에 두었다: old-root-{fingerprint}.crt")
+        typer.echo(f"서명 요청: {create_csr(cfg).relative_to(ROOT)}\n조직이 새 루트로 서명하면 ./deploy ca install --cert <서명된 인증서> --root <새 루트 인증서>")
+        typer.echo("새 루트를 키오스크와 직원 PC 에 배포한 뒤 ./deploy ca rotate-root --finish --distributed")
+        return
+    # self: 새 루트를 임시 폴더에 만들고(실패해도 현재 루트가 그대로다) 보관·교체·새 중간 CA 설치 순서로 간다
+    staging = PKI_DIR / "pending-root"
+    shutil.rmtree(staging, ignore_errors=True)
+    private_dir(staging)
+    result = step_cli(
+        ["certificate", "create", f"{cfg.name} Root CA", "/pki/root_ca.crt", "/pki/root_ca.key", "--profile", "root-ca",
+         "--not-after", pki.fmt_minutes(cfg.root_minutes), "--password-file", "/run/pw/root"],
+        rw={staging: "/pki"}, ro={SECRETS_DIR / "step_ca_root_password": "/run/pw/root"},
+    )
+    step_or_fail("새 루트 CA 생성", result)
+    archive = ARCHIVE_DIR / f"{time.strftime('%Y%m%dT%H%M%S')}-old-root"
+    private_dir(ARCHIVE_DIR)
+    private_dir(archive)
+    for name in ("root_ca.crt", "root_ca.key"):
+        shutil.move(PKI_DIR / name, archive / name)
+        shutil.move(staging / name, PKI_DIR / name)
+    (PKI_DIR / "root_ca.key").chmod(0o600)
+    shutil.rmtree(staging, ignore_errors=True)
+    typer.echo(f"이전 루트 파일 보관: {archive.relative_to(ROOT)}, 신뢰 목록 폴더에 old-root-{fingerprint}.crt")
+    create_intermediate(cfg)
+    install_intermediate(PENDING_DIR / "intermediate_ca.crt", PENDING_DIR / "intermediate_ca.key", PKI_DIR / "root_ca.crt")
+    finish_ca_change(cfg)
+    refresh_trust_users()
+    new = pki.load_cert(PKI_DIR / "root_ca.crt")
+    typer.echo(f"새 루트: {pki.subject_text(new)} sha256={new.fingerprint(pki.hashes.SHA256()).hex()}\n"
+               f"배포할 파일: {(PKI_DIR / 'root_ca.crt').relative_to(ROOT)} (키오스크와 직원 PC, docs/CA.md '루트를 키오스크와 직원 PC에 배포')\n"
+               "리프 수명이 지나 이전 루트가 서명한 인증서가 모두 갱신되고 새 루트가 모든 기기에 배포된 뒤: ./deploy ca rotate-root --finish --distributed")
+    ca_status()
+
+
+def finish_root_rotation(distributed: bool) -> None:
+    """2단계: 이전 루트를 신뢰 목록에서 뺀다. 지금 나가 있는 서버 인증서가 새 루트만으로 검증되는지 확인하고, 배포 확인(--distributed)이 있어야 한다."""
+    olds = old_root_files()
+    if not olds:
+        no_target("신뢰 목록 폴더에 이전 루트(old-root-*.crt)가 없다(교체 1단계를 하지 않았거나 이미 끝났다)")
+    if not distributed:
+        fail("새 루트를 키오스크와 직원 PC 에 배포했는지 이 명령이 확인할 수 없다. 배포했다면 --distributed 를 함께 준다", 2)
+    # 왜 새 루트만으로 검증: 이전 루트가 서명한 리프가 남아 있으면 이전 루트를 빼는 순간 그 서비스의 TLS 가 깨진다
+    only_new = META_DIR / "trust-new-root-only.pem"
+    META_DIR.mkdir(exist_ok=True)
+    only_new.write_text(pki.pem_text([pki.load_cert(CA_DIR / "root_ca.crt")]), encoding="ascii")
+    served = platform_generated().settings
+    probes: list[tuple[str, tuple[str, int] | None, str]] = [("입구", published_endpoint("ingress-acme", served.listen_port), served.public_host)]
+    if reg_cfg().mode == "local":
+        probes.append(("레지스트리", published_endpoint("registry", 443), reg_cfg().names[0]))
+    stale = []
+    for label, endpoint, name in probes:
+        if endpoint is None:
+            continue  # 떠 있지 않으면 내놓는 인증서가 없다
+        try:
+            pki.fetch_leaf(engine_host(), endpoint[1], name, only_new)
+        except (OSError, ssl.SSLError) as error:
+            stale.append(f"{label}({name}): {error}")
+    only_new.unlink(missing_ok=True)
+    if stale:
+        fail("이전 루트가 서명한 인증서가 아직 나가 있어 이전 루트를 뺄 수 없다(리프가 갱신될 때까지 기다린다):\n  " + "\n  ".join(stale))
+    for path in olds:
+        path.unlink()
+    write_bundle()
+    sync_generated()
+    refresh_trust_users()
+    typer.echo(f"이전 루트를 신뢰 목록에서 뺐다: {', '.join(p.name for p in olds)}")
     ca_status()
 
 

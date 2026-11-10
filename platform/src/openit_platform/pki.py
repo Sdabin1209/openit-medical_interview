@@ -1,6 +1,6 @@
 """신뢰의 뿌리와 인증서 수명 계산(ADR 0013, 0014, 0015). docker 를 부르지 않는 순수 함수만 둔다(시험이 쉽다).
 
-- 설정: deploy/env.example(기본값)을 읽고 deploy/.env 가 덮어쓴다. compose 도 같은 두 파일을 읽는다.
+- 설정: deploy/env.example(기본값)을 읽고 deploy/.env 가 덮어쓴다. compose 도 같은 두 파일을 읽는다(설정 파일은 deploy 가 갖고 이 모듈이 해석한다).
 - 인증서 읽기·검증은 cryptography(Apache-2.0 OR BSD-3-Clause)로 한다.
 - step-ca 의 ca.json 을 설정 값에서 만든다(손으로 고치지 않는다).
 """
@@ -18,9 +18,11 @@ from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.x509 import verification
 
-CA_MODES = ("self", "institution")
-PUBLIC_MODES = ("private", "institution", "public-acme")
+# 왜 계약의 이름: CaMode 와 IngressCertificateMode 는 계약(components.yaml)이 정본이다. 옛 이름 institution·public-acme 는 organization·acme-public 이 되었다(platform ADR 0001)
+CA_MODES = ("self", "organization")
+INGRESS_MODES = ("private", "organization", "acme-public")
 REGISTRY_MODES = ("local", "external")
 KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
 
@@ -122,11 +124,6 @@ def ca_settings(env: dict[str, str]) -> CaSettings:
     # 왜: 하위 인증서는 상위보다 오래 살 수 없다(RFC 5280 6.1.3 경로 검증). 어기면 중간 CA 가 만료되는 날 리프도 함께 죽는다
     if not settings.leaf_minutes < settings.intermediate_minutes < settings.root_minutes:
         raise ConfigError("수명은 리프 < 중간 CA < 루트 여야 한다")
-    public = env["OPENIT_PUBLIC_CERT_MODE"]
-    if public not in PUBLIC_MODES:
-        raise ConfigError(f"OPENIT_PUBLIC_CERT_MODE 는 {', '.join(PUBLIC_MODES)} 중 하나여야 한다(현재 '{public}')")
-    if public == "public-acme" and not _split(env["OPENIT_PUBLIC_NAMES"]):
-        raise ConfigError("public-acme 는 OPENIT_PUBLIC_NAMES(공개 도메인)가 있어야 한다")
     return settings
 
 
@@ -225,7 +222,7 @@ def check_intermediate(cert: x509.Certificate, root: x509.Certificate, now: date
     problems: list[str] = []
     try:
         cert.verify_directly_issued_by(root)
-    except Exception as error:  # noqa: BLE001  왜: cryptography 가 서명·이름·확장 불일치를 여러 예외로 낸다. 모두 같은 뜻의 실패다
+    except Exception as error:
         problems.append(f"루트가 서명한 인증서가 아니다: {error}")
     try:
         constraints = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
@@ -244,6 +241,35 @@ def check_intermediate(cert: x509.Certificate, root: x509.Certificate, now: date
         problems.append("지금은 유효 기간 밖이다")
     if cert.not_valid_after_utc > root.not_valid_after_utc:
         problems.append("중간 CA 가 루트보다 오래 산다")
+    return problems
+
+
+def verify_server_chain(chain: list[x509.Certificate], roots: list[x509.Certificate], names: list[str], now: datetime | None = None) -> list[str]:
+    """서버 인증서 사슬이 신뢰할 루트까지 이어지고 이름이 맞는지(RFC 5280 6, RFC 9525 이름 검증). 문제 목록, 비면 통과."""
+    problems: list[str] = []
+    store = verification.Store(roots)
+    for name in names:
+        builder = verification.PolicyBuilder().store(store)
+        if now is not None:
+            builder = builder.time(now)
+        try:
+            builder.build_server_verifier(x509.DNSName(name)).verify(chain[0], chain[1:])
+        except verification.VerificationError as error:
+            problems.append(f"{name}: {error}")
+    return problems
+
+
+def check_ca(cert: x509.Certificate, now: datetime | None = None) -> list[str]:
+    """CA 로 믿을 수 있는 인증서인가(신뢰 앵커로 쓸 파일 점검). 문제 목록, 비면 통과."""
+    problems: list[str] = []
+    try:
+        if not cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+            problems.append("basicConstraints 의 CA 가 참이 아니다")
+    except x509.ExtensionNotFound:
+        problems.append("basicConstraints 가 없다")
+    moment = now or datetime.now(UTC)
+    if not cert.not_valid_before_utc <= moment <= cert.not_valid_after_utc:
+        problems.append("지금은 유효 기간 밖이다")
     return problems
 
 

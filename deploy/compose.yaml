@@ -21,19 +21,58 @@ services:
       timeout: 3s
       retries: 10
 
+  # 입구 인증서 에이전트(ADR 0014, platform ADR 0002). ACME(RFC 8555) 클라이언트(Caddy)가 입구와 영역 사이 mTLS 의 인증서를 받고 스스로 갱신한다.
+  # 입구(envoy)가 이 컨테이너의 네트워크 이름공간을 쓴다: 공인·사설 CA 의 http-01 검증이 입구의 이름으로 80 번에 접속하고, 입구는 8443 번에서 받는다.
+  ingress-acme:
+    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    # 왜 NET_BIND_SERVICE: ACME http-01 검증은 80 번이다. 비root 로 낮은 포트를 열려면 이 권한 하나만 필요하다
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    # 왜 tmpfs: Caddy 의 /data·/config 는 이미지에서 root 소유라 비root 가 쓰지 못한다. 상태를 두지 않고 시작할 때마다 새로 받는다(ADR 0013)
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+      - /config:uid=10001,gid=10001,mode=0700
+    depends_on:
+      step-ca: { condition: service_healthy }
+    volumes:
+      - ./generated/ingress/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ingress-certs:/ingress-certs
+    ports:
+      - "${OPENIT_BIND_ADDRESS}::${OPENIT_LISTEN_PORT}" # 입구(envoy)의 포트. 호스트 포트는 Docker 가 배정한다(고정 포트 없음)
+    networks: [edge, backend] # 입구가 가질 이름은 generated/compose.platform.yaml(./deploy 가 만든다)이 더한다
+    healthcheck:
+      # 왜 파일 확인: 인증서를 받았는지 본다. 인증서 검증을 끄고 HTTPS 를 두드리지 않는다(검증은 `./deploy ca status` 와 감시가 신뢰 목록으로 한다)
+      test: ["CMD-SHELL", "test -s ${OPENIT_AGENT_CERT_FILE} && test -s ${OPENIT_GATEWAY_CERT_FILE}"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
   envoy:
     image: envoyproxy/envoy:v1.35.3@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
     restart: unless-stopped
     read_only: true
+    user: "10001:10001" # 왜: 인증서 에이전트(같은 uid)가 쓴 키 파일(0600)을 읽는다
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
+    network_mode: "service:ingress-acme" # 왜: 위 에이전트 설명
+    depends_on:
+      ingress-acme: { condition: service_healthy }
     volumes:
-      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
-    ports:
-      - "${OPENIT_BIND_ADDRESS}::8080" # 호스트 포트는 Docker 가 배정한다
-    networks: [edge, backend]
+      - ./generated/gateway/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ${OPENIT_DEVICE_CA_MOUNT}:/etc/openit/device-ca.pem:ro
+      - ${OPENIT_INGRESS_ORG_MOUNT}:/etc/openit/ingress:ro
+      - ingress-certs:/ingress-certs:ro
     healthcheck:
-      # 왜 /dev/tcp: envoy 이미지에 curl 이 없고 bash 는 있다. /healthz 는 Envoy 가 직접 200 으로 답한다
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      # 왜 /dev/tcp: envoy 이미지에 curl 이 없고 bash 는 있다. 관리 인터페이스(컨테이너 안 루프백)의 /ready 를 본다
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -51,6 +90,12 @@ services:
         export KC_DB_PASSWORD="$$(cat /run/secrets/keycloak_db_password)"
         export KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/keycloak_admin_password)"
         export OAUTH2_PROXY_CLIENT_SECRET="$$(cat /run/secrets/oauth2_proxy_client_secret)"
+        export OPENIT_REALM_ADMIN_PASSWORD="$$KC_BOOTSTRAP_ADMIN_PASSWORD"
+        for file in /run/machine-clients/*; do
+          [ -f "$$file" ] || continue
+          name="$$(basename "$$file" | tr 'a-z-' 'A-Z_')"
+          export "MACHINE_CLIENT_SECRET_$$name=$$(cat "$$file")"
+        done
         exec /opt/keycloak/bin/kc.sh "$$@"
       - kc
     command: ["start", "--import-realm"]
@@ -59,14 +104,14 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_HOSTNAME: ${OPENIT_KEYCLOAK_URL}
+      KC_HOSTNAME: ${OPENIT_PUBLIC_BASE_URL} # 발급자(iss)는 ${OPENIT_OIDC_ISSUER_URL} 이 된다(realm openit)
       KC_HTTP_ENABLED: "true" # TLS 는 게이트웨이(Envoy)에서 끝낸다
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      OPENIT_OAUTH2_PROXY_REDIRECT_URL: ${OPENIT_OAUTH2_PROXY_REDIRECT_URL}
     secrets: [keycloak_db_password, keycloak_admin_password, oauth2_proxy_client_secret]
     volumes:
-      - ./keycloak/openit-realm.json:/opt/keycloak/data/import/openit-realm.json:ro
+      - ./generated/identity/openit-realm.json:/opt/keycloak/data/import/openit-realm.json:ro
+      - ./secrets/machine-clients:/run/machine-clients:ro
     networks: [backend]
     healthcheck:
       # 관리 포트(9000)의 /health/ready. 이미지에 curl 이 없어 bash /dev/tcp 로 본다
@@ -76,24 +121,44 @@ services:
       retries: 30
       start_period: 30s
 
+  # 화면 로그인 앞단(identity_proxy). 입구(envoy)가 사람 인증 경로의 세션을 이 서비스에 묻는다(ext_authz). 세션이 있으면 접근 토큰을 돌려준다.
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0@sha256:786bed0f000c0f8a7b31619244ebab02406a8856a4faf3f5fb1df61fbd6c30ed
     restart: unless-stopped
     read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       keycloak: { condition: service_healthy }
+      envoy: { condition: service_healthy } # 발급자 주소는 입구를 지난다(OIDC 디스커버리를 시작할 때 읽는다)
+    volumes:
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
     command:
       - --provider=keycloak-oidc
-      - --oidc-issuer-url=${OPENIT_KEYCLOAK_URL}/realms/openit
+      - --oidc-issuer-url=${OPENIT_OIDC_ISSUER_URL}
+      - --provider-ca-file=/etc/openit/trust-list.pem # 신뢰 목록의 루트로 발급자(입구)의 인증서를 검증한다(검증을 끄지 않는다)
       - --client-id=oauth2-proxy
       - --client-secret-file=/run/secrets/oauth2_proxy_client_secret
       - --cookie-secret-file=/run/secrets/oauth2_proxy_cookie_secret
-      - --redirect-url=${OPENIT_OAUTH2_PROXY_REDIRECT_URL}
+      - --redirect-url=${OPENIT_PUBLIC_BASE_URL}/oauth2/callback
+      - --code-challenge-method=S256 # PKCE(RFC 7636)
+      - --cookie-secure=true
+      # 왜 refresh: 접근 토큰 수명(5분, identity.py)이 세션 쿠키보다 훨씬 짧다. 수명의 4/5 마다 갱신 토큰으로 새 접근 토큰을 받아 두지 않으면 5분마다 다시 로그인해야 한다
+      - --cookie-refresh=${OPENIT_PROXY_COOKIE_REFRESH}
+      - --cookie-expire=${OPENIT_PROXY_COOKIE_EXPIRE}
+      - --cookie-samesite=lax
+      - --reverse-proxy=true # 입구가 붙이는 X-Forwarded-* 를 믿는다(입구만 이 서비스에 닿는다)
       - --email-domain=*
+      - --oidc-email-claim=sub # 왜: realm 의 계정에 이메일이 없을 수 있다. 계정 식별은 sub 이다(계약 UserId)
+      - --insecure-oidc-allow-unverified-email=true # 왜: 위 이유로 이메일을 쓰지 않으므로 이메일 확인 여부는 보지 않는다
+      - --skip-provider-button=true
+      - --api-route=^/v1/ # 왜: 계약의 API 경로(/v1/…)는 로그인 화면으로 보내지 않고 401 을 준다
+      - --set-xauthrequest=true
+      - --pass-access-token=true # 응답 머리글 X-Auth-Request-Access-Token 으로 접근 토큰을 입구에 준다
       - --http-address=0.0.0.0:4180
       - --upstream=static://202
     secrets: [oauth2_proxy_client_secret, oauth2_proxy_cookie_secret]
-    networks: [backend, edge]
+    networks: [backend]
     # healthcheck 없음: 이미지가 셸·HTTP 클라이언트 없는 distroless 라 컨테이너 안에서 점검할 수단이 없다(ADR 0008)
 
   # 사설 CA(ADR 0014). 루트·중간 CA 파일과 ca.json 은 `./deploy bootstrap` 이 deploy/pki/ 에 만든다. 루트 개인 키는 이 컨테이너에 주지 않는다.
@@ -161,8 +226,8 @@ services:
       step-ca: { condition: service_healthy }
       registry-store: { condition: service_healthy }
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+      - ../platform/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-bundle.pem:ro
     environment:
       OPENIT_REGISTRY_NAMES: ${OPENIT_REGISTRY_NAMES}
       OPENIT_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
@@ -187,7 +252,7 @@ services:
     environment:
       SSL_CERT_FILE: /etc/openit/trust-bundle.pem # Go 가 읽는 신뢰 저장소 지정. 신뢰 목록의 루트만 믿는다
     volumes:
-      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-bundle.pem:ro
     networks: [backend]
 
   # 이미지·Dockerfile 보안 검사(ADR 0016). `./deploy build` 가 일회용으로 돌린다(`compose run`). 취약점 DB 는 인터넷에서 받아 리포의 .trivy-cache/ 에 둔다.
@@ -211,14 +276,35 @@ services:
     security_opt: ["no-new-privileges:true"]
     command: ["--config.file=/etc/blackbox_exporter/config.yml"]
     volumes:
-      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
-      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+      - ../platform/monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-bundle.pem:ro
     networks: [backend]
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9115/-/healthy"]
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # 경보 수신(platform ADR 0005). 수신처는 설치 설정(OPENIT_ALERT_RECEIVER_URL)이고 ./deploy 가 설정을 만든다. 비어 있으면 경보를 어디로도 보내지 않는다.
+  alertmanager:
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./generated/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./generated/monitoring/receiver-url:/etc/alertmanager/receiver-url:ro
+      - alertmanager-data:/alertmanager
+    networks: [edge, backend] # 왜 edge: 경보 수신처(웹훅, SMTP)는 서버 밖이다
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   prometheus:
     image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
@@ -228,14 +314,17 @@ services:
     security_opt: ["no-new-privileges:true"]
     depends_on:
       blackbox: { condition: service_healthy }
+      alertmanager: { condition: service_healthy }
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d # Prometheus 의 기본값. 측정해서 정한 값이 아니다(ADR 0014)
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/rules.yml:/etc/prometheus/rules.yml:ro
-      - ./generated/tls-targets.yml:/etc/prometheus/tls-targets.yml:ro # ./deploy bootstrap 이 설정에서 만든다
+      - ../platform/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../platform/monitoring/rules.yml:/etc/prometheus/rules.yml:ro
+      - ./generated/monitoring/tls-targets.yml:/etc/prometheus/tls-targets.yml:ro # ./deploy bootstrap 이 설정에서 만든다
+      - ./generated/monitoring/area-targets.yml:/etc/prometheus/area-targets.yml:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
       - prometheus-data:/prometheus
     networks: [backend]
     healthcheck:
@@ -260,6 +349,11 @@ secrets:
 
 volumes:
   postgres-data: {}
+  alertmanager-data: {}
+  # 왜 tmpfs 볼륨: 입구 에이전트(쓰는 쪽)와 입구(읽는 쪽)가 같은 폴더를 uid 10001 소유로 나눠 쓴다. 이름 있는 일반 볼륨은 root 소유라 비root 가 쓰지 못한다. 메모리에 두므로 서버가 다시 켜지면 새로 받는다
+  ingress-certs:
+    driver: local
+    driver_opts: { type: tmpfs, device: tmpfs, o: "uid=10001,gid=10001,mode=0700" }
   step-ca-data: {}
   registry-data: {}
   prometheus-data: {}

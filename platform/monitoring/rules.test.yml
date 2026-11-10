@@ -19,6 +19,16 @@ tests:
         values: "1+0x400"
       - series: 'probe_success{job="openit-tls",instance="down:443"}'
         values: "0+0x400"
+      # 조직 발급 인증서: 30일(2592000초) 미만이면 경보, 60일 남았으면 조용
+      - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="org-soon:8443",renewal="organization"}'
+        values: "1296000+0x400"
+      - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="org-fine:8443",renewal="organization"}'
+        values: "5184000+0x400"
+      # 영역 지표: 하나는 읽히고 하나는 읽히지 않는다
+      - series: 'up{job="openit-areas",instance="survey-service:8443"}'
+        values: "1+0x400"
+      - series: 'up{job="openit-areas",instance="model-runtime:8443"}'
+        values: "0+0x400"
     alert_rule_test:
       # 값은 만료의 절대 시각(초)이고 시험의 time() 은 0 에서 시작한다. soon 은 남은 시간이 2시간 미만이라 5분 뒤부터 경보다
       - eval_time: 10m
@@ -34,3 +44,22 @@ tests:
             exp_annotations:
               summary: "down:443 에 TLS 로 접속하거나 인증서를 검증하지 못한다"
       # 정상 시리즈(fine)는 어느 규칙에서도 경보가 없다: 위 두 시험의 exp_alerts 에 fine 이 없다
+      - eval_time: 10m
+        alertname: OpenitManualCertificateExpiresSoon
+        exp_alerts:
+          - exp_labels: { severity: warning, job: openit-tls, instance: "org-soon:8443", renewal: organization }
+            exp_annotations:
+              summary: "org-soon:8443 의 조직 발급 인증서가 30일 안에 만료된다(교체가 필요하다)"
+      - eval_time: 10m
+        alertname: OpenitAreaDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-areas, instance: "model-runtime:8443" }
+            exp_annotations:
+              summary: "model-runtime:8443 의 /metrics 를 읽지 못한다"
+      # 생존 신호는 늘 켜져 있다
+      - eval_time: 10m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: { severity: none }
+            exp_annotations:
+              summary: "감시가 살아 있다(생존 신호)"

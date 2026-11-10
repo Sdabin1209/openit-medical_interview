@@ -1,10 +1,22 @@
-# Prometheus 설정(ADR 0014). 인증서 감시만 한다. 영역 지표는 영역 계약이 정해진 뒤 더한다.
+# Prometheus 설정(ADR 0014, platform ADR 0005). 인증서 만료 감시와 각 영역의 /metrics 수집, 경보를 Alertmanager 로 보낸다.
 global:
   scrape_interval: 1m # 왜: 인증서 만료는 시간·일 단위로 변한다. 1분이면 충분하고 부하가 작다. 측정하지 않았다
   evaluation_interval: 1m
 rule_files:
   - /etc/prometheus/rules.yml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
 scrape_configs:
+  # 영역의 /metrics(계약: 영역 안에서만 닿는다, 서비스는 TLS). 대상은 노출 선언이 있는 서비스이고 ./deploy 가 만든다
+  - job_name: openit-areas
+    scheme: https
+    metrics_path: /metrics
+    tls_config:
+      ca_file: /etc/openit/trust-list.pem # 신뢰 목록의 루트로 서비스 인증서를 검증한다(검증을 끄지 않는다)
+    file_sd_configs:
+      - files: [/etc/prometheus/area-targets.yml]
   - job_name: openit-tls
     metrics_path: /probe
     params:
