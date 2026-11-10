@@ -30,7 +30,7 @@
 | turn | 턴 하나의 처리: 추출 요청 만들기(발화, 순서표, 칸 규격, 세션 상태), 결과를 세션에 반영, 응답 문장 요청 | 발화·세션 상태 → 턴 응답 |
 | question_bank | 문항 세트 검증·저장·버전·활성 목록, 순서표와 칸 규격 제공 | 올린 문항 세트 → 활성 문항 세트, 순서표, 칸 규격 |
 | result | 세션 결과 조립과 FHIR 변환, 확인 표시 | 세션 상태 → 결과, FHIR 결과 |
-| alert | 직원 알림 만들기(위험, 직원 호출, 한도 초과) | 세션 사건 → 알림 |
+| alert | 직원 알림 만들기(위험, 직원 호출, 결과 도착). 되묻기 한도에 닿으면 건너뛰고 알림은 내지 않는다(v7-flow-resolutions) | 세션 사건 → 알림 |
 | trace | 턴 기록과 업무 로그 저장(최소 1회 수신, 중복 제거) | 턴 기록 → 저장된 기록 |
 | failure_case | 실패 탐지(규칙), 검토 상태, 비식별 내보내기 | 저장된 기록·검토 결과 → 실패 사례, 비식별 내보내기 |
 | store | DB 접근(PostgreSQL, SQLAlchemy) | 저장·조회 명령 → 레코드 |
@@ -99,13 +99,13 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 
 | 번호 | 보내는 쪽 → 받는 쪽 | 무엇 |
 |---|---|---|
-| N01 | kiosk-frontend → survey-service | 세션 시작(시작 코드, 문진표), 턴(발화 글자), 종료, 직원 호출, 알림 구독 |
+| N01 | kiosk-frontend → survey-service | 세션 시작(시작 코드, 문진표), 턴(발화 글자), 종료, 직원 호출 |
 | N02 | survey-service → kiosk-frontend | 턴 응답(다음 질문, 응답 문장, 실패 신호), 세션 상태, 활성 문진표 목록 |
 | N03 | survey-service → model-runtime | 추출 요청(발화, 순서표, 칸 규격, 세션 상태, 문항 은행 버전), 응답 문장 요청 |
 | N04 | model-runtime → survey-service | 검증된 추출 결과 또는 출력 불가, 응답 문장, 적재 상태 |
-| N05 | admin-console → survey-service | 시작 코드 발급, 결과 조회, 확인 표시, 문항 세트 올리기·활성화, 실패 사례 검토, 직원 개입 |
+| N05 | admin-console → survey-service | 시작 코드 발급, 직원 알림 구독, 결과 조회, 확인 표시, 문항 세트 올리기·활성화, 실패 사례 검토, 직원 개입 |
 | N06 | survey-service → admin-console | 결과, 알림, 문항 세트 목록, 실패 사례 |
-| N07 | admin-console → model-runtime | 적재 상태 조회, 활성화 승인, 롤백 |
+| N07 | admin-console → model-runtime | 적재 상태 조회, 모델 패키지(매니페스트·평가 보고서) 조회, 활성화 승인, 롤백 |
 | N08 | 병원 시스템 → survey-service | 결과 당겨 가기(FHIR) |
 | N09 | model-lab → survey-service | 확정된 비식별 실패 사례 받아 가기 |
 | N10 | model-lab → 레지스트리 → model-runtime | 모델 패키지(OCI 아티팩트, digest) |
@@ -116,3 +116,27 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 
 - model-runtime 은 추출 요청마다 받은 문항 은행 버전을 적재한 패키지의 문항 은행 버전과 맞춰 보고, 다르면 거부한다. 따라서 문항 세트와 모델의 호환 확인에 따로 흐름이 필요 없다.
 - 사람의 신원은 platform 이 준 OIDC 토큰의 클레임으로 정한다. 본문이나 별도 헤더의 신원은 쓰지 않는다.
+
+## 4. 영역 사이 어휘(헤드 결정 2026-11-10)
+
+계약의 열거 값 중 표준이나 데이터셋 정본에 목록이 없는 것은 이 절이 정본이다. 계약의 `x-basis` 는 "docs/design.md 4절"을 가리킨다.
+
+| 이름 | 값과 뜻 | 왜 |
+|---|---|---|
+| SessionStatus | ACTIVE(진행 중), PAUSED(위험 신호나 직원 호출로 멈춤), ENDED_COMPLETE(모든 문항을 마침), ENDED_PARTIAL(환자가 중간에 끝냄), EXPIRED(유휴 초기화 60초, UD-17) | 세션이 가질 수 있는 상태를 session 컴포넌트의 진행 규칙에서 나열했다. 결과는 끝난 두 상태와 만료에서 만든다 |
+| PauseReason | RISK_SIGNAL, STAFF_CALL | 세션을 멈추는 사건은 위험 신호(N14)와 직원 호출(N01) 둘뿐이다 |
+| TurnFailureReason | EXTRACTION_UNAVAILABLE(추출 출력 불가), RESPONSE_UNAVAILABLE(응답 문장 불가), DEADLINE_EXCEEDED(시간 상한 초과) | 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다. 실패한 턴은 세션 상태를 바꾸지 않는다(D75) |
+| AlertKind | RISK, CALL_STAFF, RESULT_READY | alert 컴포넌트가 내는 알림 세 가지(2절) |
+| InterventionAction | ACKNOWLEDGE(알림 확인), RESUME(멈춘 세션 재개) | 직원 개입은 확인과 재개 둘이다(위험 정지 해제는 RESUME) |
+| ReviewStatus | UNREVIEWED, CONFIRMED(실패로 확정, 내보내기 대상), DISMISSED(실패 아님) | failure_case 의 검토 상태. CONFIRMED 만 model-lab 이 받아 간다(N09) |
+| ModelLoadState | NOT_LOADED, LOADING, READY, FAILED | package_loader 의 적재 상태 |
+| MachineRole | result-reader(병원 시스템 결과 당겨 가기 N08), risk-detector(위험 신호 N14), inference-caller(survey-service 의 추출 요청 N03), case-reader(model-lab 의 실패 사례 받아 가기 N09) | 사람이 아닌 호출자마다 역할 하나(최소 권한) |
+| ExposureAudience | HUMAN_OIDC, DEVICE_MTLS, MACHINE_TOKEN, EXTERNAL_MACHINE_TOKEN, DENIED | 입구가 받는 신원 종류(N12)와 노출하지 않음 |
+| JobName | IMPORT_DATASET, PREPARE, TRAIN, EVALUATE, PUBLISH(model-lab 단계), DETECT_FAILURES, PURGE_EXPIRED(survey-service), BACKUP, RESTORE, OFFSITE_SYNC, RESTORE_TEST(deploy) | 2절 컴포넌트 중 잡으로 도는 것과 배포 도구의 백업·복구 잡 |
+| DatasetOrigin | IMPORTED(데이터셋 담당이 확정한 데이터), SYNTHETIC(학습 파이프라인이 만든 데이터) | model-lab 은 데이터셋 담당의 작업(합성 포함)을 따라 한다(ADR 0019) |
+| NextItemRuleKind | TARGET_ITEM(targets 칸의 문항), ASKED_ITEM(입력 question_id), SEQUENCE_AFTER_SAVED(저장한 칸 중 순서표에서 가장 뒤 문항의 다음, 건너뛰기 적용) | 행동별 next_item 규칙의 종류. 행동과의 짝은 데이터셋 정본(labels.py, IO_SPEC.md)을 따른다 |
+| ModelIoFeature | CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN | 모델 입출력 v3 에 의존하는 세 기능(v7-flow-resolutions 51행) |
+| 현재 문항의 계열 | 문항 식별자에서 첫 `_` 또는 `.` 앞 부분이 같은 문항들(Q7_1·Q7_2 → Q7, Q1.D01 → Q1) | 한 질문이 하위 문항으로 나뉜 데이터셋 문항 식별자 구조(labels.py, SQL.md) |
+| RiskCategory | SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS | D88 U2 의 임상 검토 전 임시 기본 목록. 위험 감지는 기본 꺼짐(L11)이고 켤 때 임상 검토로 확정한다(UD-18) |
+| 환경 입력(*Env) | 각 영역 컴포넌트가 필요로 하는 설정만 둔다. 비밀은 `_FILE` 경로(ADR 0005) | 설정의 주인은 영역이고 이름 목록은 2절 컴포넌트에서 나온다 |
+| 이미지 라벨 | `org.opencontainers.image.revision`(OCI 표준 주석), `io.openit.contracts`(모노레포의 계약 버전 하나), `io.openit.service`, `io.openit.exposure`, `io.openit.inputs`, `io.openit.jobs`, `io.openit.database` | 모노레포라 계약 버전이 하나이고(ADR 0002), 커밋은 OCI 표준 주석을 쓴다. D50 의 계약별 라벨을 대체한다 |
