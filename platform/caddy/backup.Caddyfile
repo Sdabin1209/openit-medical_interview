@@ -1,0 +1,19 @@
+# 백업 저장소 앞단(ADR 0027, 0014). 인증서는 ACME(RFC 8555)로 step-ca 에서 받고 Caddy 가 스스로 갱신한다. 레지스트리 앞단(Caddyfile)과 같은 방식이다.
+{
+	admin off
+	# 왜 1m: 레지스트리 앞단과 같다(Caddyfile 의 근거). 측정하지 않았다
+	renew_interval 1m
+	skip_install_trust
+}
+
+https://{$OPENIT_BACKUP_HOST}:{$OPENIT_BACKUP_PORT} {
+	tls {
+		issuer acme {
+			dir {$OPENIT_ACME_DIRECTORY_URL}
+			# 신뢰 목록의 루트로 step-ca 의 서버 인증서를 검증한다(검증을 끄지 않는다)
+			trusted_roots /etc/openit/trust-bundle.pem
+		}
+	}
+	# 왜 본문 상한 없음: restic 은 pack 파일(수 MiB~)을 올린다. Caddy 는 기본으로 본문 크기를 제한하지 않는다. 인증은 뒤의 rest-server 가 한다(HTTP 기본 인증, --private-repos)
+	reverse_proxy backup-store:8000
+}

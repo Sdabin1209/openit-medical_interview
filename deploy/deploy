@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
+#     "bcrypt",
 #     "cryptography",
 #     "pydantic",
 #     "pyyaml",
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import contextlib
 import functools
-import gzip
 import http.client
 import json
 import os
@@ -28,6 +28,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -39,6 +40,7 @@ import typer
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import backup as dbackup  # noqa: E402  왜 따로 모듈: 백업 설정·목록 계산은 docker 를 부르지 않는 순수 함수라 따로 시험한다(ADR 0027)
 import dockerenv  # noqa: E402
 import layout as dlayout  # noqa: E402  왜 따로 모듈: 배치 계산은 docker 를 부르지 않는 순수 함수라 따로 시험한다(ADR 0026)
 
@@ -205,6 +207,7 @@ def platform_generated() -> pf_generate.Generated:
         fail(f"platform 설정을 만들지 못했다: {error}")
 
 
+FORCE_BACKUP_PROFILE = False  # down 은 백업 설정이 틀렸거나 비밀 파일을 지운 뒤에도 백업 저장소 컨테이너를 내릴 수 있어야 한다
 LENIENT_GENERATION = False  # down 처럼 정리하는 명령은 설정이 틀려도 이미 만든 파일로 컨테이너를 내릴 수 있어야 한다
 PENDING_CHANGES: set[str] = set()  # 이 실행에서 바뀐 생성 파일. up() 이 이것으로 돌고 있는 서비스를 다시 만든다
 
@@ -294,6 +297,24 @@ def sync_area_env() -> None:
     changed = write_if_changed(GENERATED / "areas.env", "# ./deploy 가 만든다. 영역 게이트웨이·서비스가 compose 에서 읽는 파생 값이다. 손으로 고치지 않는다.\n" + "".join(lines))
     if changed:
         PENDING_CHANGES.add("areas.env")
+    sync_placements()
+
+
+PLACEMENTS_FILE = GENERATED / "survey-service" / "device-placements.json"
+
+
+def sync_placements() -> None:
+    """배치 설정의 device_placements(기기별 기본 문진표)를 survey-service 가 읽는 파일(계약 DevicePlacementTable)로 쓴다.
+
+    survey-service 는 시작할 때 SURVEY_DEVICE_PLACEMENTS_FILE 을 읽고(compose 가 이 파일을 그 경로에 마운트한다) 세션 시작 때 mTLS 로 확인된 기기 ID 로 기본 문진표를 고른다.
+    배치 설정이 없거나 배치가 비면 빈 표를 쓴다(파일이 항상 있어야 마운트가 선다). 파일은 시작 때만 읽으니 바뀌면 돌고 있는 survey-service 를 다시 만든다.
+    """
+    try:
+        text = dlayout.placement_table(get_layout().placements)
+    except ValueError as error:
+        fail(f"device_placements 가 계약 DevicePlacementTable 을 어겼다: {error}")
+    if write_if_changed(PLACEMENTS_FILE, text):
+        PENDING_CHANGES.add("survey-service/device-placements.json")
 
 
 def compose_args(server: dlayout.Server | None = None, *, staged: bool = True) -> list[str]:
@@ -316,6 +337,10 @@ def compose_args(server: dlayout.Server | None = None, *, staged: bool = True) -
     sync_area_env()
     args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env"), "--env-file", str(images_env_file(server)),
              "--env-file", str(GENERATED / "areas.env")]
+    backup_ready = sync_backup_files()
+    args += ["--env-file", str(BACKUP_ENV)]
+    if (backup_ready or FORCE_BACKUP_PROFILE) and is_platform:
+        args += ["--profile", "backup"]  # 왜: 백업 저장소는 배치 설정의 backup 칸이 맞을 때 플랫폼 서버에 뜬다(ADR 0027)
     if env["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true" and "model-runtime" in server.services:
         args += ["--profile", "inference-engine"]  # 왜: 추론 엔진(vLLM)은 서빙 GPU 서버 배치다. 이 서버에서 안 띄우면 false(design.md 6절)
     if layout.multi:
@@ -355,6 +380,17 @@ def egress_targets() -> dict[str, list[tuple[str, int]]]:
     return {spec.service: list(spec.targets) for spec in platform_generated().gateway.egress}
 
 
+def backup_port() -> int | None:
+    """백업 저장소가 듣는 포트(배치 설정의 backup.repository_url). 배치 설정이 없거나 backup 이 틀리면 None(저장소를 띄우지 않는다)."""
+    cfg = get_layout().backup
+    if cfg is None:
+        return None
+    try:
+        return dbackup.parse_repository(cfg.repository_url).port
+    except dbackup.BackupConfigError:
+        return None
+
+
 def layout_flows() -> list[dlayout.Flow]:
     settings = platform_generated().settings
     return dlayout.flows(
@@ -365,6 +401,7 @@ def layout_flows() -> list[dlayout.Flow]:
         egress=egress_targets(),
         public_hosts=(settings.public_host, *settings.public_names),
         registry_hosts=tuple(reg_cfg().names) if env_values()["OPENIT_REGISTRY_MODE"] == "local" else (),
+        backup_port=backup_port(),
     )
 
 
@@ -385,7 +422,7 @@ def prepare_layout(server: dlayout.Server) -> dict[str, Path]:
     )
     override = dlayout.server_override(
         layout, server, flow_list=layout_flows(), hosts=hosts, step_ca=step_ca, service_port=settings.service_port,
-        listen_port=settings.listen_port, registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local",
+        listen_port=settings.listen_port, registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local", backup_port=backup_port(),
     )
     files = {"override": LAYOUT_DIR / f"{server.name}.yaml", "env": LAYOUT_DIR / f"{server.name}.env", "stage": LAYOUT_DIR / f"{server.name}.stage.yaml"}
     write_if_changed(files["override"], dlayout.dump_yaml(override, f"./deploy 가 서버 {server.name} 의 배치 설정에서 만든다(ADR 0026). 손으로 고치지 않는다."))
@@ -415,6 +452,7 @@ def selected_services(server: dlayout.Server, model: dict[str, object]) -> list[
         model, get_layout(), server,  # type: ignore[arg-type]
         registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local" and server is get_layout().platform,
         inference_local=env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true" and "model-runtime" in server.services,
+        backup_local=server is get_layout().platform and sync_backup_files(),
     )
 
 
@@ -698,12 +736,31 @@ def endpoint_host(endpoint: str) -> str | None:
     return endpoint.split("://", 1)[1].rpartition("@")[2].split(":")[0]
 
 
+def doctor_backup(check: Callable[..., None]) -> None:
+    """백업 설정 점검(ADR 0027): 저장소 주소, 자격·암호 파일(권한), 서버 밖 대상, 사설 CA 가 저장소 이름을 발급하는지, 백업할 영역 DB."""
+    cfg = get_layout().backup
+    if cfg is None:
+        typer.echo("[--] 백업: 배치 설정 파일이 없어 백업 설정이 없다(./deploy backup 은 시작하지 않는다, D88 U6). 운영 설치는 layout.example.json 을 복사해 backup 칸을 채운다")
+        return
+    try:
+        repository, _, _ = backup_settings(cfg)
+    except dbackup.BackupConfigError as error:
+        check("백업 설정(저장소 주소, 자격·암호 파일, 서버 밖 대상)", False, str(error))
+        return
+    check("백업 설정(저장소 주소, 자격·암호 파일, 서버 밖 대상)", True)
+    typer.echo(f"      저장소 {repository.url}(플랫폼 서버 {get_layout().platform.name}), 서버 밖 {cfg.offsite_url}, 보관 {dbackup.RETENTION_WITHIN}")
+    found = [f"{owner}({service}@{server.name})" for server, owner, service, _ in backup_targets()]
+    check("백업할 영역 데이터베이스가 있다", bool(found), "compose 서비스 라벨 io.openit.backup=postgres 인 서비스가 없다")
+    typer.echo(f"      대상: {', '.join(found)}")
+
+
 def doctor_layout(check: Callable[..., None]) -> None:
     """배치 설정 점검(ADR 0026): 서버마다 docker context 와 엔진, 주소, 서비스 배정, 서버 사이에 열어야 하는 포트."""
     layout = get_layout()
     typer.echo(f"[--] 배치: {'배치 설정 파일' if layout.explicit else '파일 없음 = 서버 한 대(관리 노드의 엔진)'}, 서버 {len(layout.servers)}대")
     for server in layout.servers:
         typer.echo(f"      {server.name} {server.address}: {', '.join(server.services)}")
+    doctor_backup(check)
     if not layout.multi:
         return
     check("compose 서비스 라벨(서버 배정의 기준)", not (missing := dlayout.unlabeled_services(compose_model(layout.platform))), f"라벨 io.openit.service 가 없다: {', '.join(missing)}")
@@ -731,7 +788,7 @@ def doctor_layout(check: Callable[..., None]) -> None:
     flow_list = layout_flows()
     settings = platform_generated().settings
     problems = dlayout.port_problems(layout, flow_list, service_port=settings.service_port, listen_port=settings.listen_port,
-                                     registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local")
+                                     registry_local=env_values()["OPENIT_REGISTRY_MODE"] == "local", backup_port=backup_port())
     check("서버 안 게시 포트가 겹치지 않는다", not problems, "; ".join(problems))
     typer.echo("[--] 서버 사이에 열어야 하는 포트(방화벽에서 이 방향만 연다):")
     for flow in flow_list:
@@ -845,6 +902,8 @@ def secrets_init() -> None:
         typer.echo(f"만듦: {name}")
     ensure_special_secrets()
     ensure_machine_secrets()
+    if get_layout().backup is not None:
+        ensure_backup_secrets(get_layout().backup)  # type: ignore[arg-type]
 
 
 def ensure_special_secrets() -> None:
@@ -1007,6 +1066,8 @@ RECREATE_ON_CHANGE: dict[str, tuple[str, ...]] = {
     "compose.platform.yaml": ("ingress-acme",),
     "monitoring/alertmanager.yml": ("alertmanager",),
     "monitoring/receiver-url": ("alertmanager",),
+    "backup.env": ("backup",),  # 왜: 저장소 이름·포트가 바뀌면 앞단이 새 이름으로 인증서를 받는다
+    "survey-service/device-placements.json": ("survey-service",),  # 왜: 시작할 때만 읽는다
 }
 TRUST_LIST_USERS = ("ingress-acme", "registry", "blackbox", "prometheus", "oauth2-proxy")  # 신뢰 목록 파일을 시작할 때 읽는 서비스
 
@@ -1035,6 +1096,7 @@ def up() -> None:
     if unbuilt:
         fail(f"이 엔진에 없는 이미지가 있다: {', '.join(unbuilt)}. ./deploy build 로 만들거나 ./deploy pull 로 받는다", EXIT_FAIL)
     prepare_platform()
+    require_backup_config()
     running = {service for files in RECREATE_ON_CHANGE.values() for service in files if is_running(service)}
     changed = sorted(PENDING_CHANGES)
     result = compose(["up", "-d", "--wait"])
@@ -1052,6 +1114,7 @@ def up() -> None:
 def up_multi() -> None:
     """서버마다(플랫폼 서버 먼저) 이미지를 받고 파일을 올리고 그 서버의 서비스만 띄운다. 신뢰의 뿌리 -> 레지스트리 -> 이미지 순서는 bootstrap 이 먼저 지킨다."""
     prepare_platform()
+    require_backup_config()
     changed = sorted(PENDING_CHANGES)
     for server in get_layout().order():
         typer.echo(f"[{server.name}] {server.address}: {', '.join(server.services)}")
@@ -1106,10 +1169,11 @@ def down(
     yes: Annotated[bool, typer.Option("--yes", help="--volumes 로 데이터가 지워지는 것을 확인했다")] = False,
 ) -> None:
     """이 설치의 컨테이너를 내린다(여러 서버면 모든 서버, 서비스 서버 먼저 플랫폼 서버 마지막). 볼륨은 --volumes --yes 일 때만 지운다."""
-    global LENIENT_GENERATION  # noqa: PLW0603
+    global LENIENT_GENERATION, FORCE_BACKUP_PROFILE  # noqa: PLW0603
     if volumes and not yes:
         fail("--volumes 는 데이터베이스와 인증서 저장소를 지운다. 확인했으면 --yes 를 붙인다", 2)
     LENIENT_GENERATION = True
+    FORCE_BACKUP_PROFILE = True
     layout = get_layout()
     servers = list(reversed(layout.order())) if layout.multi else [layout.platform]
     failed: list[str] = []
@@ -1173,78 +1237,513 @@ def job(name: Annotated[str, typer.Argument(help="잡 이름(jobs/<이름>)")]) 
         fail(f"잡 {name} 실패(rc={result.returncode})", result.returncode)
 
 
-DB_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
+# ---------------------------------------------------------------- 백업과 복구(ADR 0027)
+
+BACKUP_ENV = GENERATED / "backup.env"
+BACKUP_HTPASSWD = GENERATED / "backup" / "htpasswd"
+RESTIC_SECRETS = ("password_file", "http_credentials_file", "encryption_key_file", "offsite_credentials_file")
+EXIT_TEMPFAIL = 75  # 계약 JobExitCode: 일시적 실패(다음 실행에서 다시 한다, sysexits.h EX_TEMPFAIL)
+RESTIC_EXIT_LOCKED = 11  # restic 종료 코드: 저장소 잠금을 얻지 못함(다른 실행이 쓰는 중)
+RESTIC_EXIT_NO_REPOSITORY = 10  # restic 종료 코드: 저장소가 없다
 
 
-def psql(sql: str, database: str = "template1", stdin: str | None = None) -> subprocess.CompletedProcess[str]:
-    args = ["exec", "-T", "postgres", "psql", "--username", "postgres", "--dbname", database, "--no-psqlrc", "--quiet"]
-    if stdin is None:
-        args += ["--tuples-only", "--no-align", "--set", "ON_ERROR_STOP=1", "--command", sql]
-    return compose(args, input=stdin, capture_output=True)
+class JobFailure(Exception):
+    """잡이 실패했다. code 는 계약 JobExitCode(1 실패, 75 일시적 실패)."""
+
+    def __init__(self, message: str, code: int = EXIT_FAIL) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class JobRun:
+    def __init__(self) -> None:
+        self.started = utc_now()
+        self.processed: int | None = None
+        self.snapshot: str | None = None
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@contextlib.contextmanager
+def job_run(job: str):  # type: ignore[no-untyped-def]
+    """잡 한 번: 끝날 때 표준 출력에 JobRunResult 한 줄(JSON Lines)을 낸다. 실패하면 메시지는 표준 오류, 종료 코드는 0·75·1(D130)."""
+    run = JobRun()
+    code = 0
+    try:
+        yield run
+    except JobFailure as failure:
+        typer.echo(str(failure), err=True)
+        code = failure.code
+    except typer.Exit as exit_:
+        code = exit_.exit_code or 0
+    except dbackup.BackupConfigError as error:
+        typer.echo(f"CRIT: {error}", err=True)  # 왜 CRIT: 설정이 틀려 백업을 시작하지 못한 것은 경고가 아니다(D88 U6)
+        code = EXIT_FAIL
+    typer.echo(dbackup.job_result_line(job, code, run.started, utc_now(), run.processed, run.snapshot))
+    if code:
+        raise typer.Exit(code)
+
+
+def secret_file_problems(cfg: dlayout.Backup) -> list[str]:
+    problems: list[str] = []
+    for name in RESTIC_SECRETS:
+        path = Path(getattr(cfg, name))
+        if not path.is_file():
+            problems.append(f"backup.{name} 파일이 없다: {path}")
+        elif path.stat().st_mode & 0o077:
+            problems.append(f"backup.{name} 파일이 다른 사용자에게 읽힌다(권한 0600 으로): {path}")
+        elif not path.read_text(encoding="utf-8").strip():
+            problems.append(f"backup.{name} 파일이 비어 있다: {path}")
+    return problems
+
+
+def backup_settings(cfg: dlayout.Backup) -> tuple[dbackup.Repository, tuple[str, str], tuple[str, str]]:
+    """배치 설정의 backup 칸을 읽는다: 저장소, 저장소 자격, 서버 밖 자격. 틀리면 BackupConfigError(문제를 모두 담는다)."""
+    problems = secret_file_problems(cfg)
+    repository = None
+    local_credentials = remote_credentials = ("", "")
+    try:
+        repository = dbackup.parse_repository(cfg.repository_url)
+        dbackup.offsite_repository(cfg.offsite_url)
+        if not problems:
+            local_credentials = dbackup.parse_credentials(Path(cfg.http_credentials_file).read_text(encoding="utf-8"), repository)
+            remote_credentials = dbackup.parse_user_password(Path(cfg.offsite_credentials_file).read_text(encoding="utf-8"))
+    except dbackup.BackupConfigError as error:
+        problems.append(str(error))
+    if repository is not None and not dbackup.allowed_name(repository.host, [n.strip() for n in env_values()["OPENIT_CA_ALLOWED_DNS"].split(",") if n.strip()]):
+        problems.append(f"저장소 이름 {repository.host} 이 OPENIT_CA_ALLOWED_DNS 에 없다(사설 CA 가 이 이름의 인증서를 발급하지 않는다)")
+    if problems or repository is None:
+        raise dbackup.BackupConfigError("; ".join(problems))
+    return repository, local_credentials, remote_credentials
+
+
+def sync_backup_files() -> bool:
+    """compose 가 읽는 백업 값(generated/backup.env)과 저장소의 인증 파일(htpasswd)을 쓴다. 백업 저장소를 띄울 수 있으면 True.
+
+    배치 설정이 없거나 backup 칸이 틀리면 저장소를 띄우지 않는다(False). 틀린 설정을 알리는 것은 doctor 와 up 이다(compose 를 부르는 모든 명령이 여기를 지나므로 여기서 멈추지 않는다).
+    """
+    cfg = get_layout().backup
+    host, port, ready = "backup", 8000, False
+    if cfg is not None:
+        try:
+            repository, (user, password), _ = backup_settings(cfg)
+        except (dbackup.BackupConfigError, OSError):
+            pass
+        else:
+            host, port, ready = repository.host, repository.port, True
+            existing = BACKUP_HTPASSWD.read_text(encoding="utf-8") if BACKUP_HTPASSWD.is_file() else None
+            write_if_changed(BACKUP_HTPASSWD, dbackup.htpasswd_line(user, password, existing))
+    if write_if_changed(BACKUP_ENV, f"# ./deploy 가 만든다. 백업 저장소의 이름과 포트(배치 설정의 backup.repository_url)다. 손으로 고치지 않는다.\nOPENIT_BACKUP_HOST={host}\nOPENIT_BACKUP_PORT={port}\n"):
+        PENDING_CHANGES.add("backup.env")
+    return ready
+
+
+def require_backup_config() -> None:
+    """배치 설정 파일이 있으면 그 backup 칸이 맞아야 서비스를 띄운다(백업 없이 운영이 시작되는 것을 막는다, D88 U6)."""
+    cfg = get_layout().backup
+    if cfg is None:
+        return
+    try:
+        backup_settings(cfg)
+    except dbackup.BackupConfigError as error:
+        fail(f"배치 설정의 backup 이 틀렸다: {error}")
+
+
+def ensure_backup_secrets(cfg: dlayout.Backup) -> None:
+    """배치 설정이 가리키는 백업 비밀 파일 중 없는 것을 만든다(이미 있는 것은 건드리지 않는다. 값은 출력하지 않는다). 서버 밖 자격은 서버 밖 대상이 주는 것이라 만들지 않는다.
+
+    저장소 암호를 잃으면 백업을 읽을 수 없다. 관리 노드의 비밀 파일을 따로 보관한다(INSTALL.md 10절).
+    """
+    try:
+        repository = dbackup.parse_repository(cfg.repository_url)
+    except dbackup.BackupConfigError:
+        return  # 틀린 주소는 doctor 가 알린다
+    wanted = {
+        "password_file": pysecrets.token_hex(32),  # 왜 무작위 16진수: 비밀 파일과 같은 방식(PyPA secrets 모듈, CSPRNG)
+        "encryption_key_file": pysecrets.token_hex(32),
+        "http_credentials_file": f"{repository.path}:{pysecrets.token_hex(16)}",  # 한 줄 '사용자:비밀번호'(RFC 7617). 사용자는 저장소 이름이다
+    }
+    for name, value in wanted.items():
+        path = Path(getattr(cfg, name))
+        if path.exists():
+            continue
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except OSError as error:
+            typer.echo(f"만들지 못함: backup.{name} ({error.strerror}). 파일을 직접 둔다: {path}", err=True)
+            continue
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(value)
+        typer.echo(f"만듦: backup.{name}")
+
+
+def engine_run(server: dlayout.Server, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+    """서버의 compose 프로젝트로 docker compose 를 부른다(바이트 입출력). docker() 는 글자(text)라 덤프에 쓰지 못한다."""
+    with on_server(server):
+        argv = ["docker", *compose_args(server), *args]
+    try:
+        environ = dockerenv.docker_env(server_environ(server))
+    except dockerenv.DockerEnvError as error:
+        raise JobFailure(f"docker 환경을 정하지 못했다: {error}") from error
+    return subprocess.run(argv, env=environ, check=False, **kwargs)  # type: ignore[call-overload, no-any-return]  # noqa: S603
+
+
+def tail(data: bytes | None) -> str:
+    return (data or b"").decode(errors="replace").strip()[-300:]
+
+
+def is_service_running(server: dlayout.Server, service: str) -> bool:
+    return bool(compose(["ps", "--quiet", "--status", "running", service], server, capture_output=True).stdout.strip())
+
+
+def backup_targets() -> list[tuple[dlayout.Server, str, str, str]]:
+    """백업할 영역 데이터베이스: (서버, 소유 영역, compose 서비스, 슈퍼유저). 서버마다 그 서버의 compose 에서 라벨 io.openit.backup=postgres 인 서비스를 찾는다(D126)."""
+    found: list[tuple[dlayout.Server, str, str, str]] = []
+    for server in get_layout().order():
+        for owner, service, user in dbackup.targets_in(compose_model(server), {}):
+            if owner in server.services:
+                found.append((server, owner, service, user))
+    return found
+
+
+def pg_query(server: dlayout.Server, service: str, user: str, sql: str, database: str = "template1") -> str:
+    result = engine_run(server, ["exec", "-T", service, "psql", "--username", user, "--dbname", database, "--no-psqlrc", "--quiet", "--tuples-only", "--no-align",
+                                 "--set", "ON_ERROR_STOP=1", "--command", sql], capture_output=True)
+    if result.returncode != 0:
+        raise JobFailure(f"{service} 에서 질의 실패(rc={result.returncode}): {tail(result.stderr)}")
+    return result.stdout.decode().strip()
+
+
+def dump_target(server: dlayout.Server, owner: str, service: str, user: str, stage: Path) -> dbackup.Target:
+    """한 영역 DB 의 역할(globals.sql)과 데이터베이스마다 pg_dump(custom 형식)를 stage/<영역>/ 에 쓴다. 목차의 테이블 수도 센다(복구 시험의 기준)."""
+    if not is_service_running(server, service):
+        raise JobFailure(f"{owner} 의 {service} 가 서버 {server.name} 에서 떠 있지 않다(./deploy status)", EXIT_TEMPFAIL)
+    folder = stage / owner
+    folder.mkdir(mode=0o700)
+    names = pg_query(server, service, user, "select datname from pg_database where not datistemplate order by 1").split()
+    for name in names:
+        if not dbackup.DB_NAME.fullmatch(name):
+            raise JobFailure(f"데이터베이스 이름이 [A-Za-z0-9_] 가 아니라 백업할 수 없다: {name!r}")
+    with (folder / "globals.sql").open("wb") as out:
+        roles = engine_run(server, ["exec", "-T", service, "pg_dumpall", "--username", user, "--globals-only"], stdout=out, stderr=subprocess.PIPE)
+    if roles.returncode != 0:
+        raise JobFailure(f"{owner} 의 역할 백업 실패(rc={roles.returncode}): {tail(roles.stderr)}")
+    databases: list[tuple[str, int]] = []
+    for name in names:
+        path = folder / f"{name}.dump"
+        # 왜 custom 형식: pg_dump 문서의 압축·선택 복구 형식이고 pg_restore 가 읽는다(plain SQL 은 --create 와 소유자 복구를 psql 에 맡긴다)
+        with path.open("wb") as out:
+            dump = engine_run(server, ["exec", "-T", service, "pg_dump", "--username", user, "--dbname", name, "--format=custom"], stdout=out, stderr=subprocess.PIPE)
+        if dump.returncode != 0:
+            raise JobFailure(f"{owner} 의 {name} 백업 실패(rc={dump.returncode}): {tail(dump.stderr)}")
+        with path.open("rb") as handle:
+            toc = engine_run(server, ["exec", "-T", service, "pg_restore", "--list"], stdin=handle, capture_output=True)
+        if toc.returncode != 0:
+            raise JobFailure(f"{owner} 의 {name} 덤프를 읽지 못했다(rc={toc.returncode}): {tail(toc.stderr)}")
+        databases.append((name, dbackup.toc_table_count(toc.stdout.decode())))
+    return dbackup.Target(owner, service, user, server.name, tuple(databases))
+
+
+class Restic:
+    """restic 클라이언트(일회용 컨테이너, 관리 노드의 빌드 엔진)를 부른다. 저장소 주소(자격 포함)와 암호는 파일로만 준다(명령줄·환경 변수에 비밀이 없다, D84)."""
+
+    def __init__(self, directory: Path, main: str, copy_from_local: bool, setup: tuple[dlayout.Backup, dbackup.Repository, tuple[str, str], tuple[str, str]]) -> None:
+        cfg, repository, local, remote = setup
+        self.mounts: list[tuple[Path, str]] = []
+        self.env: dict[str, str] = {}
+        local_file = directory / "local-repository"
+        local_file.write_text(dbackup.with_credentials(repository.url, *local), encoding="utf-8")
+        offsite_file = directory / "offsite-repository"
+        offsite_file.write_text(dbackup.with_credentials(dbackup.offsite_repository(cfg.offsite_url), *remote), encoding="utf-8")
+        local_pair = (local_file, Path(cfg.password_file))
+        offsite_pair = (offsite_file, Path(cfg.encryption_key_file))
+        main_pair, from_pair = (offsite_pair, local_pair if copy_from_local else None) if main == "offsite" else (local_pair, None)
+        self.mounts += [(main_pair[0], "/run/restic/repository"), (main_pair[1], "/run/restic/password")]
+        self.env |= {"RESTIC_REPOSITORY_FILE": "/run/restic/repository", "RESTIC_PASSWORD_FILE": "/run/restic/password"}
+        if from_pair:
+            self.mounts += [(from_pair[0], "/run/restic/from-repository"), (from_pair[1], "/run/restic/from-password")]
+            self.env |= {"RESTIC_FROM_REPOSITORY_FILE": "/run/restic/from-repository", "RESTIC_FROM_PASSWORD_FILE": "/run/restic/from-password"}
+        self.repository = repository
+
+    def argv(self, args: list[str], *, stage: Path | None = None, interactive: bool = False) -> list[str]:
+        layout = get_layout()
+        image = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]["backup-client"]["image"]
+        command = ["docker", "run", "--rm", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--user", f"{os.getuid()}:{os.getgid()}",
+                   "--tmpfs", "/tmp", "-e", "RESTIC_CACHE_DIR=/tmp/restic-cache", "-e", "SSL_CERT_FILE=/etc/openit/trust-bundle.pem",
+                   "-v", f"{bundle_path()}:/etc/openit/trust-bundle.pem:ro"]
+        for name, value in self.env.items():
+            command += ["-e", f"{name}={value}"]
+        for source, target in self.mounts:
+            command += ["-v", f"{source}:{target}:ro"]
+        if stage is not None:
+            command += ["-v", f"{stage}:{dbackup.STAGE_DIR}:ro"]
+        if layout.multi:
+            # 왜 서버 주소로 풀어 넣는다: 저장소는 플랫폼 서버에 게시된 포트로 닿는다(서버 사이 포트, ADR 0026 와 같은 방식). 인증서는 같은 신뢰 목록으로 검증한다
+            command += ["--add-host", f"{self.repository.host}:{dlayout.resolve_ip(layout.platform.address)}"]
+        else:
+            # 왜 edge 네트워크: 서버 한 대 배치에서는 호스트 포트를 게시하지 않고 compose 네트워크의 이름으로 닿는다. edge 는 바깥으로 나갈 수 있어 서버 밖 대상에도 닿는다(crane 과 같은 이유, ADR 0013)
+            command += ["--network", f"{project_name()}_edge"]
+        if interactive:
+            command.append("-i")
+        return [*command, "--entrypoint", "restic", image, *args]
+
+    def run(self, args: list[str], *, stage: Path | None = None, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        try:
+            environ = dockerenv.docker_env(None)
+        except dockerenv.DockerEnvError as error:
+            raise JobFailure(f"docker 환경을 정하지 못했다: {error}") from error
+        return subprocess.run(self.argv(args, stage=stage, interactive="stdin" in kwargs), env=environ, check=False, **kwargs)  # type: ignore[call-overload, no-any-return]  # noqa: S603
+
+    def ok(self, what: str, args: list[str], *, stage: Path | None = None) -> subprocess.CompletedProcess[bytes]:
+        result = self.run(args, stage=stage, capture_output=True)
+        if result.returncode != 0:
+            raise JobFailure(f"{what} 실패(restic rc={result.returncode}): {tail(result.stderr)}", EXIT_TEMPFAIL if result.returncode == RESTIC_EXIT_LOCKED else EXIT_FAIL)
+        return result
+
+    def ensure_repository(self, *, copy_from_local: bool = False) -> None:
+        """저장소가 없으면 만든다(있으면 그대로). 서버 밖 저장소는 로컬 저장소의 쪼개기 값을 따른다(restic copy 문서: 중복 제거가 되려면 같아야 한다)."""
+        exists = self.run(["cat", "config"], capture_output=True)
+        if exists.returncode == 0:
+            return
+        if exists.returncode != RESTIC_EXIT_NO_REPOSITORY:
+            raise JobFailure(f"저장소를 열지 못했다(restic rc={exists.returncode}): {tail(exists.stderr)}", EXIT_TEMPFAIL)
+        self.ok("저장소 만들기", ["init", "--quiet", *(["--copy-chunker-params"] if copy_from_local else [])])
+
+    def snapshots(self) -> list[dict[str, str]]:
+        """이 설치의 스냅샷(시각순)."""
+        listing = json.loads(self.ok("스냅샷 목록", ["snapshots", "--json", "--host", project_name(), "--tag", BACKUP_TAG]).stdout or b"[]") or []  # 없으면 null
+        return sorted(listing, key=lambda item: item["time"])  # type: ignore[no-any-return]
+
+    def forget(self) -> None:
+        # 왜 --keep-within 만: 백업이 성공한 직후에만 부르므로 방금 만든 스냅샷은 항상 남는다(보관 기간 상한, OPEN_GAPS U30·D130). 이 설치의 스냅샷만 본다(--host, --tag)
+        self.ok("보관 기간 정리", ["forget", "--host", project_name(), "--tag", BACKUP_TAG, "--keep-within", dbackup.RETENTION_WITHIN, "--prune", "--quiet"])
+
+    def dump_argv(self, snapshot: str, path: str) -> list[str]:
+        return self.argv(["dump", snapshot, path])
+
+
+BACKUP_TAG = "openit"
+
+
+@contextlib.contextmanager
+def restic_session(*, offsite: bool = False, copy_from_local: bool = False):  # type: ignore[no-untyped-def]
+    """저장소 주소 파일을 임시 폴더(0700)에 쓰고 Restic 을 돌려준다. 끝나면 지운다."""
+    layout = get_layout()
+    if layout.backup is None:
+        raise dbackup.BackupConfigError("배치 설정 파일(deploy/layout.json)이 없어 백업 설정(backup)이 없다. 서버 밖 백업 대상이 없으면 백업을 시작하지 않는다(D88 U6)")
+    repository, local, remote = backup_settings(layout.backup)
+    META_DIR.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix="backup-", dir=META_DIR))
+    directory.chmod(0o700)
+    try:
+        yield Restic(directory, "offsite" if offsite else "local", copy_from_local, (layout.backup, repository, local, remote))
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 @app.command()
 def backup() -> None:
-    """PostgreSQL 을 deploy/backups/postgres-<시각>/ 에 저장한다(역할 globals.sql + 데이터베이스마다 <이름>.sql.gz).
+    """모든 영역 데이터베이스(그 영역이 있는 서버마다)를 백업 저장소(restic)에 한 스냅샷으로 저장하고 보관 기간(14일)이 지난 것을 정리한다. 잡 BACKUP."""
+    with job_run("BACKUP") as run:
+        layout = get_layout()
+        if layout.backup is None:
+            raise dbackup.BackupConfigError("배치 설정 파일(deploy/layout.json)이 없어 백업 설정(backup)이 없다. 서버 밖 백업 대상이 없으면 백업을 시작하지 않는다(D88 U6)")
+        backup_settings(layout.backup)  # 왜 먼저: 설정이 틀리면 덤프를 뜨기 전에 멈춘다
+        targets = backup_targets()
+        if not targets:
+            raise JobFailure("백업할 영역 데이터베이스가 없다(compose 서비스 라벨 io.openit.backup)")
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        BACKUP_DIR.chmod(0o700)
+        # 왜 임시 폴더: 한 스냅샷(계약 BackupSnapshotId 하나)에 모든 DB 를 담으려면 덤프를 한곳에 모아야 한다. 평문이라 0700 이고 restic 에 올린 직후 지운다
+        stage = Path(tempfile.mkdtemp(prefix="stage-", dir=BACKUP_DIR))
+        try:
+            dumped = [dump_target(server, owner, service, user, stage) for server, owner, service, user in targets]
+            major = pg_query(targets[0][0], targets[0][2], targets[0][3], "select current_setting('server_version_num')::int / 10000")
+            (stage / "manifest.json").write_text(dbackup.manifest_json(utc_now(), project_name(), major, dumped), encoding="utf-8")
+            with restic_session() as restic:
+                restic.ensure_repository()
+                result = restic.ok("스냅샷 만들기", ["backup", dbackup.STAGE_DIR, "--host", project_name(), "--tag", BACKUP_TAG, "--json", "--quiet"], stage=stage)
+                summary = [json.loads(line) for line in result.stdout.decode().splitlines() if line.startswith("{")]
+                run.snapshot = next(item["snapshot_id"] for item in reversed(summary) if item.get("message_type") == "summary")
+                restic.forget()
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        run.processed = sum(len(target.databases) for target in dumped)
+        typer.echo(f"백업: 스냅샷 {run.snapshot[:8]} (영역 {len(dumped)}개, 데이터베이스 {run.processed}개, 보관 {dbackup.RETENTION_WITHIN})")
 
-    왜 pg_dumpall 한 파일이 아닌가: --clean 덤프는 쓰는 중인 데이터베이스와 현재 사용자를 지우려다 복원이 실패한다(시험에서 확인).
-    """
-    listing = psql("select datname || '|' || pg_get_userbyid(datdba) from pg_database where not datistemplate")
-    if listing.returncode != 0:
-        fail(f"백업 실패(rc={listing.returncode}). postgres 가 떠 있는지 ./deploy status")
-    target = BACKUP_DIR / f"postgres-{time.strftime('%Y%m%dT%H%M%S')}"
-    target.mkdir(parents=True)
-    target.chmod(0o700)
-    globals_dump = compose(["exec", "-T", "postgres", "pg_dumpall", "--username", "postgres", "--globals-only"], capture_output=True)
-    if globals_dump.returncode != 0:
-        fail(f"역할 백업 실패(rc={globals_dump.returncode})")
-    (target / "globals.sql").write_text(globals_dump.stdout, encoding="utf-8")
-    owners: dict[str, str] = {}
-    for line in listing.stdout.split():
-        name, _, owner = line.partition("|")
-        if not DB_NAME_RE.match(name) or not DB_NAME_RE.match(owner):
-            fail("데이터베이스·소유자 이름이 [A-Za-z0-9_] 가 아니라 백업할 수 없다")
-        dump = compose(["exec", "-T", "postgres", "pg_dump", "--username", "postgres", "--dbname", name, "--format=plain"],
-                       capture_output=True)
-        if dump.returncode != 0:
-            fail(f"{name} 백업 실패(rc={dump.returncode})")
-        with gzip.open(target / f"{name}.sql.gz", "wt", encoding="utf-8") as handle:
-            handle.write(dump.stdout)
-        owners[name] = owner
-    (target / "owners.json").write_text(json.dumps(owners, indent=2), encoding="utf-8")
-    typer.echo(f"백업: {target.relative_to(ROOT)} (데이터베이스 {len(owners)}개)")
+
+@app.command("offsite-sync")
+def offsite_sync() -> None:
+    """백업 저장소의 스냅샷을 서버 밖 대상(offsite_url)으로 옮기고(restic copy) 같은 보관 기간으로 정리한다. 잡 OFFSITE_SYNC."""
+    with job_run("OFFSITE_SYNC") as run, restic_session(offsite=True, copy_from_local=True) as restic:
+        restic.ensure_repository(copy_from_local=True)
+        copied = restic.ok("서버 밖으로 복사", ["copy", "--host", project_name(), "--tag", BACKUP_TAG])
+        run.processed = copied.stdout.decode().count("copied from source snapshot")
+        restic.forget()
+        typer.echo(f"서버 밖 동기화: 스냅샷 {run.processed}개 복사, 보관 {dbackup.RETENTION_WITHIN}")
+
+
+def resolve_snapshot(restic: Restic, wanted: str) -> str:
+    snapshots = restic.snapshots()
+    if not snapshots:
+        raise JobFailure("저장소에 이 설치의 스냅샷이 없다")
+    if wanted == "latest":
+        return snapshots[-1]["id"]
+    if not dbackup.SNAPSHOT_ID.fullmatch(wanted):
+        raise JobFailure(f"스냅샷 ID 가 아니다: {wanted}")
+    matches = [item["id"] for item in snapshots if item["id"].startswith(wanted)]
+    if len(matches) != 1:
+        raise JobFailure(f"스냅샷 {wanted} 을 저장소에서 {'찾지 못했다' if not matches else '하나로 정하지 못했다'}")
+    return matches[0]
+
+
+def read_manifest(restic: Restic, snapshot: str) -> list[dbackup.Target]:
+    result = restic.ok("manifest 읽기", ["dump", snapshot, f"{dbackup.STAGE_DIR}/manifest.json"])
+    return dbackup.parse_manifest(result.stdout.decode())
+
+
+def stream_dump(restic: Restic, snapshot: str, path: str, consumer: Callable[[object], subprocess.CompletedProcess[bytes]]) -> None:
+    """저장소의 파일 하나(restic dump)를 consumer 의 표준 입력으로 흘려 보낸다. 두 쪽 종료 코드를 모두 본다."""
+    try:
+        environ = dockerenv.docker_env(None)
+    except dockerenv.DockerEnvError as error:
+        raise JobFailure(f"docker 환경을 정하지 못했다: {error}") from error
+    with tempfile.TemporaryFile() as errors:
+        source = subprocess.Popen(restic.dump_argv(snapshot, path), env=environ, stdout=subprocess.PIPE, stderr=errors)  # noqa: S603
+        try:
+            result = consumer(source.stdout)
+        finally:
+            if source.stdout:
+                source.stdout.close()
+            code = source.wait()
+        errors.seek(0)
+        if code != 0:
+            raise JobFailure(f"저장소에서 {path} 를 읽지 못했다(restic rc={code}): {tail(errors.read())}")
+    if result.returncode != 0:
+        raise JobFailure(f"{path} 복구 실패(rc={result.returncode}): {tail(result.stderr)}")
+
+
+def restore_roles_and_databases(restic: Restic, snapshot: str, target: dbackup.Target, run_in: Callable[..., subprocess.CompletedProcess[bytes]]) -> None:
+    """한 영역 DB 에 역할과 데이터베이스를 복구한다. run_in(args, **kw) 은 DB 컨테이너 안에서 명령을 실행한다."""
+    base = f"{dbackup.STAGE_DIR}/{target.owner}"
+
+    def psql(*extra: str, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return run_in(["psql", "--username", target.user, "--dbname", "template1", "--no-psqlrc", "--quiet", *extra], **kwargs)
+
+    # 역할은 이미 있으면 CREATE ROLE 이 실패하고 건너뛴다(ON_ERROR_STOP 없음). 같은 역할은 그대로 둔다
+    stream_dump(restic, snapshot, f"{base}/globals.sql", lambda stdin: psql(stdin=stdin, capture_output=True))
+    for name, _ in target.databases:
+        # 왜 WITH (FORCE): PostgreSQL 13+ 표준 옵션으로 남은 연결을 끊고 지운다
+        dropped = psql("--set", "ON_ERROR_STOP=1", "--command", f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', capture_output=True)
+        if dropped.returncode != 0:
+            raise JobFailure(f"{target.owner} 의 {name} 을 지우지 못했다(rc={dropped.returncode}): {tail(dropped.stderr)}")
+        stream_dump(restic, snapshot, f"{base}/{name}.dump",
+                    lambda stdin: run_in(["pg_restore", "--username", target.user, "--dbname", "template1", "--create", "--exit-on-error", "--no-password"],
+                                         stdin=stdin, capture_output=True))
 
 
 @app.command()
 def restore(
-    folder: Annotated[Path, typer.Argument(help="backup 이 만든 폴더")],
+    snapshot: Annotated[str, typer.Argument(help="복구할 스냅샷 ID(없으면 가장 최근). --offsite 이면 서버 밖 저장소의 ID")] = "latest",
     yes: Annotated[bool, typer.Option("--yes", help="덮어쓰기를 확인했다")] = False,
+    offsite: Annotated[bool, typer.Option("--offsite", help="백업 저장소 대신 서버 밖 저장소에서 읽는다(백업 저장소를 잃었을 때)")] = False,
 ) -> None:
-    """백업에서 PostgreSQL 을 복원한다(백업에 있는 데이터베이스를 지우고 다시 만든다)."""
-    if not (folder / "owners.json").is_file():
-        fail(f"백업 폴더가 아니다: {folder}")
+    """스냅샷의 모든 영역 데이터베이스를 복구한다(백업에 있는 데이터베이스를 지우고 다시 만든다). 그 DB 를 쓰는 서비스는 멈췄다가 다시 띄운다. 잡 RESTORE."""
     if not yes:
         fail("복원은 기존 데이터를 덮어쓴다. 확인했으면 --yes 를 붙인다", 2)
-    owners: dict[str, str] = json.loads((folder / "owners.json").read_text(encoding="utf-8"))
-    # 왜 먼저 멈춘다: 서비스가 붙어 있으면 데이터가 복원 도중 바뀐다
-    others = [s for s in compose(["config", "--services"], capture_output=True).stdout.split() if s != "postgres"]
-    if others and compose(["stop", *others]).returncode != 0:
-        fail("postgres 를 쓰는 서비스를 멈추지 못했다")
-    # 역할은 이미 있으면 CREATE ROLE 이 실패하고 건너뛴다(ON_ERROR_STOP 없음). 같은 역할은 그대로 둔다
-    psql("", stdin=(folder / "globals.sql").read_text(encoding="utf-8"))
-    for name, owner in owners.items():
-        # 왜 WITH (FORCE): PostgreSQL 13+ 표준 옵션으로 남은 연결을 끊고 지운다
-        steps = [f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', f'CREATE DATABASE "{name}" OWNER "{owner}"']
-        for step in steps:
-            if (result := psql(step)).returncode != 0:
-                fail(f"{name} 복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
-        with gzip.open(folder / f"{name}.sql.gz", "rt", encoding="utf-8") as handle:
-            sql = handle.read()
-        result = compose(["exec", "-T", "postgres", "psql", "--username", "postgres", "--dbname", name, "--no-psqlrc", "--quiet",
-                          "--set", "ON_ERROR_STOP=1"], input=sql, capture_output=True)
-        if result.returncode != 0:
-            fail(f"{name} 복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
-    typer.echo("복원 완료. 멈춘 서비스는 ./deploy up 으로 다시 띄운다")
+    with job_run("RESTORE") as run, restic_session(offsite=offsite) as restic:
+        chosen = resolve_snapshot(restic, snapshot)
+        targets = read_manifest(restic, chosen)
+        layout = get_layout()
+        count = 0
+        for target in targets:
+            if target.owner not in dlayout.SERVICE_NAMES:
+                raise JobFailure(f"백업의 영역 {target.owner} 가 이 배치에 없다")
+            server = layout.server_of(target.owner)
+            model = compose_model(server)
+            if target.service not in model["services"]:  # type: ignore[operator]
+                raise JobFailure(f"서버 {server.name} 에 compose 서비스 {target.service} 가 없다")
+            chosen_here = set(selected_services(server, model))
+            # 왜 돌고 있는지와 무관하게 멈춘다: DB 가 지워지며 재시작을 반복하는 서비스도 복구 도중 다시 붙으면 안 된다. 복구 뒤에는 모두 다시 띄운다
+            dependents = [name for name in dbackup.dependents(model, target.service) if name in chosen_here]
+            if dependents:
+                typer.echo(f"[{server.name}] 복구 동안 멈춘다: {', '.join(dependents)}")
+                if compose(["stop", *dependents], server).returncode != 0:
+                    raise JobFailure("DB 를 쓰는 서비스를 멈추지 못했다")
+            if not is_service_running(server, target.service):
+                if compose(["up", "-d", "--wait", "--no-deps", target.service], server).returncode != 0:
+                    raise JobFailure(f"{target.service} 를 띄우지 못했다")
+            restore_roles_and_databases(restic, chosen, target, lambda args, _s=server, _t=target, **kw: engine_run(_s, ["exec", "-T", _t.service, *args], **kw))
+            count += len(target.databases)
+            typer.echo(f"[{server.name}] {target.owner}: 데이터베이스 {len(target.databases)}개 복구")
+            if dependents:
+                for tier in dlayout.tiers(model, dependents):  # type: ignore[arg-type]
+                    if compose(["up", "-d", "--wait", "--no-deps", *tier], server).returncode != 0:
+                        raise JobFailure(f"멈춘 서비스를 다시 띄우지 못했다: {', '.join(tier)} (./deploy up)")
+        run.processed = count
+        typer.echo(f"복구 완료: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개")
+
+
+@app.command("restore-test")
+def restore_test(
+    snapshot: Annotated[str, typer.Argument(help="시험할 스냅샷 ID(없으면 가장 최근)")] = "latest",
+    offsite: Annotated[bool, typer.Option("--offsite", help="서버 밖 저장소의 스냅샷을 시험한다")] = False,
+) -> None:
+    """스냅샷을 일회용 PostgreSQL 컨테이너(네트워크 없음)에 복구해 되는지 시험한다. 운영 DB 는 건드리지 않는다. 잡 RESTORE_TEST.
+
+    확인: 모든 데이터베이스가 pg_restore 로 복구되고 복구된 테이블 수가 백업 때 목차의 테이블 수와 같다.
+    """
+    with job_run("RESTORE_TEST") as run, restic_session(offsite=offsite) as restic:
+        chosen = resolve_snapshot(restic, snapshot)
+        targets = read_manifest(restic, chosen)
+        try:
+            environ = dockerenv.docker_env(None)
+        except dockerenv.DockerEnvError as error:
+            raise JobFailure(f"docker 환경을 정하지 못했다: {error}") from error
+        model = compose_model(get_layout().platform)
+        count = 0
+        for target in targets:
+            image = model["services"][target.service]["image"]  # type: ignore[index]  # 왜 같은 이미지: 운영 DB 와 같은 PostgreSQL 이어야 복구가 되는지가 맞다
+            name = f"{project_name()}-restore-test-{pysecrets.token_hex(4)}"
+            started = subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--tmpfs", "/var/lib/postgresql/data",
+                                      "-e", f"POSTGRES_USER={target.user}", "-e", "POSTGRES_HOST_AUTH_METHOD=trust", image],  # 왜 trust: 네트워크가 없는 일회용 컨테이너라 닿는 곳이 없다
+                                     env=environ, capture_output=True, check=False)  # noqa: S603, S607
+            if started.returncode != 0:
+                raise JobFailure(f"일회용 PostgreSQL 을 띄우지 못했다: {tail(started.stderr)}")
+            try:
+                def run_in(args: list[str], _name: str = name, _env: dict[str, str] = environ, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+                    return subprocess.run(["docker", "exec", *(["-i"] if "stdin" in kwargs else []), _name, *args], env=_env, check=False, **kwargs)  # type: ignore[call-overload, no-any-return]  # noqa: S603, S607
+
+                wait_for_postgres(run_in, target.user)
+                restore_roles_and_databases(restic, chosen, target, run_in)
+                for database, tables in target.databases:
+                    restored = run_in(["psql", "--username", target.user, "--dbname", database, "--no-psqlrc", "--quiet", "--tuples-only", "--no-align", "--command",
+                                       "select count(*) from information_schema.tables where table_type = 'BASE TABLE' and table_schema not in ('pg_catalog', 'information_schema')"],
+                                      capture_output=True)
+                    found = int(restored.stdout.decode().strip() or -1)
+                    if found != tables:
+                        raise JobFailure(f"{target.owner} 의 {database}: 복구된 테이블 {found}개가 백업 때 목차의 {tables}개와 다르다")
+                    count += 1
+            finally:
+                subprocess.run(["docker", "rm", "-f", "-v", name], env=environ, capture_output=True, check=False)  # noqa: S603, S607
+        run.processed = count
+        typer.echo(f"복구 시험 통과: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개를 일회용 PostgreSQL 에 복구해 테이블 수가 같다")
+
+
+POSTGRES_READY_SECONDS = 60  # 일회용 PostgreSQL 이 TCP 로 받을 때까지의 상한(초기화 포함). 측정하지 않았다. 되면 곧바로 넘어간다
+
+
+def wait_for_postgres(run_in: Callable[..., subprocess.CompletedProcess[bytes]], user: str) -> None:
+    """초기화 중의 임시 서버는 유닉스 소켓만 듣는다. 127.0.0.1 로 닿으면 최종 서버가 선 것이다."""
+    deadline = time.monotonic() + POSTGRES_READY_SECONDS
+    while time.monotonic() < deadline:
+        if run_in(["pg_isready", "--host", "127.0.0.1", "--username", user, "--quiet"], capture_output=True).returncode == 0:
+            return
+        time.sleep(0.5)
+    raise JobFailure(f"일회용 PostgreSQL 이 {POSTGRES_READY_SECONDS}초 안에 서지 않았다")
 
 
 # ---------------------------------------------------------------- 신뢰의 뿌리: 사설 CA(ADR 0014, 0015)

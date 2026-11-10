@@ -111,10 +111,10 @@ CA 상태·교체는 [CA.md](CA.md) 를 따른다(`./deploy ca status`, `./deplo
 ## 5. 배치 설정: 서버 한 대, 여러 대
 
 ### 서버 한 대(기본)
-배치 설정 파일을 두지 않는다. 관리 노드의 엔진에 전부 뜬다. 엔진은 `DOCKER_CONTEXT`/`DOCKER_HOST` 또는 현재 docker context 가 정한다(ADR 0009).
+배치 설정 파일을 두지 않는다. 관리 노드의 엔진에 전부 뜬다. 엔진은 `DOCKER_CONTEXT`/`DOCKER_HOST` 또는 현재 docker context 가 정한다(ADR 0009). **이 경우 백업 설정(`backup`)과 기기별 문진표 배치(`device_placements`)가 없다**: 백업 저장소가 뜨지 않고 `./deploy backup` 은 시작하지 않으며(서버 밖 백업 대상이 없으면 백업을 시작하지 않는다), 키오스크는 활성 문진표가 둘 이상이면 환자에게 고르게 한다. 운영 설치는 서버가 하나여도 아래 '여러 대'의 배치 설정 파일을 두고 서버 하나에 서비스 다섯을 적는다(서버 이름은 docker context 이름이 아니라 설정의 이름일 뿐이고 서버가 하나면 context 를 만들지 않는다).
 
 ### 여러 대
-1. `deploy/layout.example.json` 을 `deploy/layout.json` 으로 복사해 고친다(계약 DeploymentLayout). 서비스 다섯(`platform`, `survey-service`, `model-runtime`, `admin-console`, `kiosk-frontend`)이 정확히 한 서버에 들어가야 한다. 서버 이름은 소문자·숫자·`-` 이고 그 서버의 docker context 이름이다. `backup`, `device_placements` 는 계약상 필수라 채운다(deploy 는 아직 이 두 칸을 쓰지 않는다).
+1. `deploy/layout.example.json` 을 `deploy/layout.json` 으로 복사해 고친다(계약 DeploymentLayout). 서비스 다섯(`platform`, `survey-service`, `model-runtime`, `admin-console`, `kiosk-frontend`)이 정확히 한 서버에 들어가야 한다. 서버 이름은 소문자·숫자·`-` 이고 그 서버의 docker context 이름이다. `backup`, `device_placements` 는 계약상 필수라 채운다(아래 '백업 칸', '기기별 기본 문진표 칸').
 
 ```
 {
@@ -122,10 +122,27 @@ CA 상태·교체는 [CA.md](CA.md) 를 따른다(`./deploy ca status`, `./deplo
     { "name": "service-01", "address": "192.0.2.10", "services": ["platform", "survey-service", "admin-console", "kiosk-frontend"] },
     { "name": "serving-01", "address": "192.0.2.20", "services": ["model-runtime"] }
   ],
-  "device_placements": [],
+  "device_placements": [{ "device_id": "kiosk-01", "questionnaire_id": "national-health" }],
   "backup": { "...": "layout.example.json 참고" }
 }
 ```
+
+#### 기기별 기본 문진표 칸(`device_placements`)
+키오스크 기기(기기 인증서 주체의 CN, 예 `kiosk-01`)마다 기본 문진표 식별자를 적는다. `./deploy` 가 이것을 `deploy/generated/survey-service/device-placements.json`(계약 DevicePlacementTable)으로 쓰고 survey-service 가 `SURVEY_DEVICE_PLACEMENTS_FILE` 로 읽는다. 세션을 시작할 때 시작 코드에 문진표가 묶여 있지 않고 키오스크가 문진표를 보내지 않으면 survey-service 가 이 기기의 기본 문진표를 쓴다. 그래서 배치된 기기는 활성 문진표가 여럿이어도 환자에게 문진표를 묻지 않고, 배치가 없는 기기는 활성 문진표가 둘 이상일 때만 묻는다. 배치한 문진표에 활성 문항 세트가 없으면 세션 시작이 400 으로 막힌다(문항 세트를 먼저 올리고 활성화한다). 한 기기에 문진표를 둘 적으면 설정을 받아들이지 않는다. 값은 survey-service 가 시작할 때 읽으므로 바꾼 뒤 `./deploy up` 이 survey-service 를 다시 만든다.
+
+#### 백업 칸(`backup`)
+계약 DeployBackupConfig 의 여섯 칸이다. 파일 경로는 **관리 노드의 절대 경로**이고 권한은 0600 이어야 한다(다른 사용자가 읽으면 doctor 가 거절한다).
+
+| 칸 | 뜻 |
+|---|---|
+| `repository_url` | 백업 저장소 주소 `rest:https://<이름>[:<포트>]/<저장소>`. 이름은 DNS 이름이고 사설 CA 가 발급하는 이름(`OPENIT_CA_ALLOWED_DNS`, 기본에 `backup` 이 있다)이어야 한다. 저장소 이름은 아래 자격의 사용자와 같아야 한다. 저장소는 플랫폼 서버에 뜬다 |
+| `password_file` | 백업 저장소의 restic 암호 파일. **잃으면 백업을 읽을 수 없다** |
+| `http_credentials_file` | 저장소 서버의 HTTP 기본 인증 자격, 한 줄 `사용자:비밀번호` |
+| `encryption_key_file` | 서버 밖 저장소의 restic 암호 파일(로컬 암호와 다르다) |
+| `offsite_url` | 서버 밖 저장소 주소(`https://…`, restic REST 저장소). 이 주소의 서버는 직접 준비한다 |
+| `offsite_credentials_file` | 서버 밖 저장소의 HTTP 기본 인증 자격, 한 줄 `사용자:비밀번호`(서버 밖 쪽이 주는 것) |
+
+`./deploy secrets init` 이 위 파일 중 `password_file`, `http_credentials_file`, `encryption_key_file` 이 없으면 만든다(무작위 값, 이미 있으면 건드리지 않는다). `offsite_credentials_file` 은 서버 밖 대상이 주는 것이라 직접 둔다. 서버 밖 저장소의 인증서가 공인 CA 가 아니면 그 루트를 `deploy/pki/trust.d/` 에 둔다(신뢰 목록에 들어간다). 이 칸이 틀리면 `up` 이 서비스를 띄우지 않는다.
 
 2. 서버마다 docker context 를 만든다. 프로젝트의 격리 설정 폴더(`.docker-config`)에 만든다(`~/.docker` 를 쓰지 않는다). 배포 계정이 서버에 SSH 키로 접속되어 있어야 한다.
 
@@ -198,12 +215,24 @@ git checkout <이전 커밋> -- deploy/images.lock
 
 ## 10. 백업과 복구
 
+백업 설정은 5절의 `backup` 칸이다(배치 설정 파일이 없으면 백업을 시작하지 않는다). 결정과 근거는 [ADR 0027](../../docs/adr/0027-백업과-복구.md) 이다.
+
 ```
-./deploy backup
-./deploy restore deploy/backups/postgres-<시각> --yes
+./deploy backup                       # 모든 영역 데이터베이스 -> 백업 저장소(스냅샷 하나), 14일 지난 스냅샷 정리
+./deploy offsite-sync                 # 백업 저장소의 스냅샷 -> 서버 밖 저장소
+./deploy restore-test                 # 일회용 PostgreSQL 에 복구해 되는지 시험(운영 DB 는 건드리지 않는다)
+./deploy restore-test --offsite       # 서버 밖 사본으로 같은 시험
+./deploy restore latest --yes         # 가장 최근 스냅샷으로 운영 DB 를 덮어쓴다
+./deploy restore <스냅샷 ID> --yes
+./deploy restore latest --yes --offsite   # 백업 저장소를 잃었을 때 서버 밖 사본에서(ID 는 서버 밖 저장소의 것)
 ```
 
-`backup` 은 플랫폼 서버의 PostgreSQL(Keycloak 의 사용자·realm)을 `deploy/backups/postgres-<시각>/` 에 저장한다. `restore` 는 백업에 있는 데이터베이스를 지우고 다시 만들고, 멈춘 서비스는 `./deploy up` 으로 다시 띄운다. **이 명령은 survey-service 의 영역 데이터베이스(`survey-db`)를 다루지 않는다.** 서버 밖 백업과 정기 복원 시험(계약 DeployBackupConfig)은 아직 deploy 에 구현되지 않았다. 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json` 은 별도로 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 한다).
+- **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두, 각 DB 가 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm)와 survey-service 의 `survey-db`(문진 결과)다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프 크기만큼의 임시 디스크가 필요하다(끝나면 지운다).
+- **무엇을 백업하지 않나:** step-ca·레지스트리·감시의 볼륨(다시 받거나 다시 올린다), model-runtime 의 `model-runtime-data`(활성화 기록과 받은 패키지), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
+- **일정:** 각 명령은 잡 한 번이다(끝에 표준 출력으로 한 줄 JSON, 종료 코드 0 성공·75 일시적 실패(다음 실행에서 다시)·1 실패). 하루 한 번 `backup` 다음 `offsite-sync`, 정기적으로 `restore-test`(서버 밖 사본은 `--offsite`)를 돌린다. 일정은 deploy 의 스케줄러가 정하고(D39) 지금 deploy 에는 스케줄러가 없으므로 systemd timer 등 설치처의 일정 도구로 부른다.
+- **보관:** 14일(`forget --keep-within 14d`, 운영 데이터의 가장 짧은 보존 30일 이하). 서버 밖 저장소에도 같은 정리를 한다.
+- **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고, 그 DB 를 쓰는 서비스는 멈췄다가 다시 띄운다. 서버를 처음부터 다시 세웠다면 먼저 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
+- `./deploy down --volumes` 는 백업 저장소의 볼륨도 지운다(서버 밖 사본은 남는다).
 
 ## 11. 장애 확인
 

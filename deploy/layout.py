@@ -70,9 +70,23 @@ class Server:
 
 
 @dataclass(frozen=True)
+class Backup:
+    """계약 DeployBackupConfig(배치 설정의 backup 칸). 파일 경로는 관리 노드(./deploy 를 실행하는 곳)의 절대 경로다."""
+
+    repository_url: str
+    password_file: str
+    http_credentials_file: str
+    encryption_key_file: str
+    offsite_url: str
+    offsite_credentials_file: str
+
+
+@dataclass(frozen=True)
 class Layout:
     servers: tuple[Server, ...]
     explicit: bool
+    placements: tuple[tuple[str, str], ...] = ()  # 계약 DevicePlacement: (기기 ID, 기본 문진표). 배치 설정 파일이 있을 때만 있다
+    backup: Backup | None = None  # 배치 설정 파일이 있을 때만 있다(계약상 필수 칸). 없으면 백업을 시작하지 않는다
 
     @property
     def multi(self) -> bool:
@@ -121,6 +135,24 @@ def structure_problems(servers: Iterable[Server]) -> list[str]:
     return problems
 
 
+def placement_problems(placements: Iterable[tuple[str, str]]) -> list[str]:
+    """한 기기에 기본 문진표가 둘이면 어느 것이 기본인지 정할 수 없다(survey-service 는 기기 ID 로 하나를 고른다). 비어 있으면 통과."""
+    devices = [device for device, _ in placements]
+    return [f"기기 {device} 의 기본 문진표가 여러 개다(기기마다 하나)" for device in sorted({d for d in devices if devices.count(d) > 1})]
+
+
+def placement_table(placements: Iterable[tuple[str, str]]) -> str:
+    """survey-service 가 파일로 받는 기기별 기본 문진표 배치표(계약 DevicePlacementTable, SURVEY_DEVICE_PLACEMENTS_FILE)의 JSON 글자.
+
+    왜 DevicePlacement 로 한 줄씩 검증한다: 배치 설정이 쓰는 계약 타입이고, 표는 그 줄의 목록 하나뿐이다(DevicePlacementTable 은 survey-service 의 타입이라 이 도구가 생성하는 타입에 없다).
+    받는 쪽이 표 전체를 같은 스키마로 읽는지는 시험이 계약 스키마로 확인한다. 배치가 없으면 빈 표다(그러면 survey-service 는 활성 문진표가 하나일 때만 정한다).
+    """
+    from openit_platform.contract.models import DevicePlacement  # noqa: PLC0415
+
+    rows = [DevicePlacement.model_validate({"device_id": d, "questionnaire_id": q}).model_dump(mode="json") for d, q in placements]
+    return json.dumps({"placements": rows}, indent=2, ensure_ascii=False) + "\n"
+
+
 def load_layout(path: Path | None) -> Layout:
     """배치 파일을 읽는다. path 가 None 이면 서버 한 대 배치. 파일이 있는데 틀리면 LayoutError."""
     if path is None:
@@ -136,10 +168,12 @@ def load_layout(path: Path | None) -> Layout:
     servers = tuple(
         Server(item.name.root, _text(item.address), tuple(_text(service) for service in item.services)) for item in parsed.servers
     )
-    problems = structure_problems(servers)
+    placements = tuple((_text(item.device_id), _text(item.questionnaire_id)) for item in parsed.device_placements)
+    backup = Backup(**{name: _text(getattr(parsed.backup, name)) for name in Backup.__dataclass_fields__})
+    problems = structure_problems(servers) + placement_problems(placements)
     if problems:
         raise LayoutError(problems)
-    return Layout(servers, explicit=True)
+    return Layout(servers, explicit=True, placements=placements, backup=backup)
 
 
 def _text(value: Any) -> str:
@@ -169,8 +203,9 @@ def flows(
     egress: dict[str, list[tuple[str, int]]],
     public_hosts: tuple[str, ...],
     registry_hosts: tuple[str, ...],
+    backup_port: int | None = None,
 ) -> list[Flow]:
-    """서버를 넘는 호출 목록. egress: 서비스 -> 나가는 터널이 닿는 (호스트, 포트). 서버 한 대면 비어 있다."""
+    """서버를 넘는 호출 목록. egress: 서비스 -> 나가는 터널이 닿는 (호스트, 포트). 서버 한 대면 비어 있다. backup_port: 백업 저장소의 포트(배치 설정에 backup 이 있을 때)."""
     if not layout.multi:
         return []
     platform = layout.platform
@@ -199,6 +234,8 @@ def flows(
     add(MANAGER, platform.name, listen_port, "관리 노드가 입구 인증서를 점검한다(ca status)")
     if registry_local:
         add(MANAGER, platform.name, REGISTRY_PORT, "관리 노드가 레지스트리에 이미지를 올린다(bootstrap)")
+    if backup_port is not None:
+        add(MANAGER, platform.name, backup_port, "관리 노드가 백업 저장소에 백업을 보내고 받는다(backup·restore·offsite-sync, restic REST, TLS)")
     for server in layout.servers:
         add(MANAGER, server.name, 22, "관리 노드가 docker context(SSH)로 서버의 엔진을 다룬다")
     return found
@@ -217,13 +254,13 @@ def published_ports(flow_list: Iterable[Flow], server: Server) -> list[int]:
     return sorted({f.port for f in flow_list if f.dst == server.name and f.port != 22})
 
 
-def port_problems(layout: Layout, flow_list: list[Flow], *, service_port: int, listen_port: int, registry_local: bool) -> list[str]:
+def port_problems(layout: Layout, flow_list: list[Flow], *, service_port: int, listen_port: int, registry_local: bool, backup_port: int | None = None) -> list[str]:
     """한 서버 안에서 게시 포트가 겹치는 것(입구와 영역 가장자리 등)."""
     problems: list[str] = []
     for server in layout.servers:
         owners: dict[int, list[str]] = {}
         for port in published_ports(flow_list, server):
-            for owner in port_owners(layout, server, port, service_port=service_port, listen_port=listen_port, registry_local=registry_local):
+            for owner in port_owners(layout, server, port, service_port=service_port, listen_port=listen_port, registry_local=registry_local, backup_port=backup_port):
                 owners.setdefault(port, []).append(owner)
         for port, names in owners.items():
             if len(names) > 1:
@@ -231,7 +268,7 @@ def port_problems(layout: Layout, flow_list: list[Flow], *, service_port: int, l
     return problems
 
 
-def port_owners(layout: Layout, server: Server, port: int, *, service_port: int, listen_port: int, registry_local: bool) -> list[str]:
+def port_owners(layout: Layout, server: Server, port: int, *, service_port: int, listen_port: int, registry_local: bool, backup_port: int | None = None) -> list[str]:
     """이 서버의 이 포트를 게시하는 컨테이너들."""
     owners: list[str] = []
     is_platform = server is layout.platform
@@ -241,6 +278,8 @@ def port_owners(layout: Layout, server: Server, port: int, *, service_port: int,
         owners.append(STEP_CA)
     if is_platform and registry_local and port == REGISTRY_PORT:
         owners.append("registry")
+    if is_platform and backup_port is not None and port == backup_port:
+        owners.append("backup")
     if server.areas and port in (service_port, ACME_PORT, MONITOR_PORT):
         owners.append(EDGE)
     return owners
@@ -300,6 +339,7 @@ def services_in(
     *,
     registry_local: bool,
     inference_local: bool,
+    backup_local: bool = False,
 ) -> list[str]:
     """compose 모델(`docker compose config --format json`)에서 이 서버가 띄울 서비스들.
 
@@ -310,6 +350,8 @@ def services_in(
         active.add("local-registry")
     if inference_local:
         active.add("inference-engine")
+    if backup_local:
+        active.add("backup")
     chosen: list[str] = []
     for name, spec in sorted(model.get("services", {}).items()):
         owner = (spec.get("labels") or {}).get(SERVICE_LABEL)
@@ -384,6 +426,7 @@ def server_override(
     service_port: int,
     listen_port: int,
     registry_local: bool,
+    backup_port: int | None = None,
 ) -> dict[str, Any]:
     """여러 서버일 때 이 서버의 compose 덮개: 가장자리의 포트·네트워크, 영역 게이트웨이의 바깥 길, 이름 표, 플랫폼 서버의 고정 게시 포트.
 
@@ -402,6 +445,9 @@ def server_override(
             services[STEP_CA] = {"ports": [f"{server.bind}:{STEP_CA_PORT}:{STEP_CA_PORT}"], "networks": {"edge": {}}}
         if registry_local and REGISTRY_PORT in published:
             services["registry"] = {"ports": override_ports([f"{server.bind}:{REGISTRY_PORT}:{REGISTRY_PORT}"])}
+        if backup_port is not None and backup_port in published:
+            # 왜 서버 주소에 게시: 관리 노드가 백업을 보내는 길이다. 백업 앞단은 이미 edge 에 있다(compose.yaml)
+            services["backup"] = {"ports": override_ports([f"{server.bind}:{backup_port}:{backup_port}"])}
         for name in ("ingress-acme", STEP_CA, "prometheus"):
             if hosts_list:
                 services.setdefault(name, {})["extra_hosts"] = list(hosts_list)

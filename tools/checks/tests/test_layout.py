@@ -243,3 +243,80 @@ def test_every_product_compose_service_is_assigned_to_a_service(lay: ModuleType)
     assert values <= {*lay.SERVICE_NAMES, lay.LAYOUT_LABEL_VALUE}
     assert model["services"][lay.EDGE]["profiles"] == ["layout-edge"]
     assert model["services"][lay.EDGE]["image"].split("@")[1].startswith("sha256:")  # digest 고정(image-pins)
+
+
+def layout_file(tmp_path: Path, placements: list[dict[str, str]]) -> Path:
+    example = json.loads((REPO / "deploy" / "layout.example.json").read_text())
+    example["device_placements"] = placements
+    path = tmp_path / "layout.json"
+    path.write_text(json.dumps(example))
+    return path
+
+
+def test_device_placements_are_read_from_the_layout_file(lay: ModuleType, tmp_path: Path) -> None:
+    layout = lay.load_layout(layout_file(tmp_path, [{"device_id": "kiosk-01", "questionnaire_id": "national-health"}, {"device_id": "kiosk-02", "questionnaire_id": "dental"}]))
+    assert layout.placements == (("kiosk-01", "national-health"), ("kiosk-02", "dental"))
+    assert lay.load_layout(None).placements == ()
+
+
+def test_two_default_questionnaires_for_one_device_are_refused(lay: ModuleType, tmp_path: Path) -> None:
+    path = layout_file(tmp_path, [{"device_id": "kiosk-01", "questionnaire_id": "a"}, {"device_id": "kiosk-01", "questionnaire_id": "b"}])
+    with pytest.raises(lay.LayoutError, match="kiosk-01"):
+        lay.load_layout(path)
+
+
+def test_placement_table_is_the_contract_table_survey_service_reads(lay: ModuleType) -> None:
+    """survey-service 는 SURVEY_DEVICE_PLACEMENTS_FILE 의 내용을 DevicePlacementTable 로 읽는다. deploy 가 쓴 글이 그 스키마를 지키고 빈 배치도 유효하다."""
+    import jsonschema
+    import yaml
+
+    components = yaml.safe_load((REPO / "contracts" / "components.yaml").read_text(encoding="utf-8"))["components"]
+    schema = {"$ref": "#/components/schemas/DevicePlacementTable", "components": components}
+    text = lay.placement_table([("kiosk-01", "national-health"), ("kiosk-02", "dental")])
+    jsonschema.validate(json.loads(text), schema)
+    assert json.loads(text)["placements"][1] == {"device_id": "kiosk-02", "questionnaire_id": "dental"}
+    jsonschema.validate(json.loads(lay.placement_table([])), schema)
+    assert json.loads(lay.placement_table([])) == {"placements": []}
+    with pytest.raises(ValueError):  # 계약의 문진표 식별자 문법을 어기면 쓰지 않는다
+        lay.placement_table([("kiosk-01", "not valid!")])
+
+
+def test_product_compose_gives_survey_service_the_generated_placement_file() -> None:
+    import yaml
+
+    service = yaml.safe_load((REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8"))["services"]["survey-service"]
+    assert service["environment"]["SURVEY_DEVICE_PLACEMENTS_FILE"] == "/etc/openit/device-placements.json"
+    assert "./generated/survey-service/device-placements.json:/etc/openit/device-placements.json:ro" in service["volumes"]
+
+
+def test_backup_store_is_reached_by_the_manager_across_servers(lay: ModuleType) -> None:
+    """여러 서버일 때 백업 저장소의 포트는 플랫폼 서버가 게시하고 관리 노드가 부른다. 서버 한 대는 게시하지 않는다."""
+    layout = layout_of(lay, servers(lay))
+    flows = lay.flows(layout, **FLOW_ARGS, backup_port=8000)
+    assert ("관리 노드", "svc", 8000) in {(f.src, f.dst, f.port) for f in flows}
+    assert 8000 in lay.published_ports(flows, layout.platform) and 8000 not in lay.published_ports(flows, layout.servers[1])
+    assert lay.flows(lay.implicit_layout(), **FLOW_ARGS, backup_port=8000) == []
+    common = {"flow_list": flows, "service_port": 8443, "listen_port": 9443, "registry_local": True, "backup_port": 8000}
+    over_svc = lay.server_override(layout, layout.platform, hosts={}, step_ca=None, **common)["services"]
+    assert over_svc["backup"]["ports"] == ["192.0.2.10:8000:8000"]
+    assert "backup" not in lay.server_override(layout, layout.servers[1], hosts={}, step_ca=("step-ca", "192.0.2.10"), **common)["services"]
+    assert lay.port_owners(layout, layout.platform, 8000, service_port=8443, listen_port=9443, registry_local=True, backup_port=8000) == ["backup"]
+
+
+def test_backup_port_may_not_collide_with_another_published_port(lay: ModuleType) -> None:
+    layout = layout_of(lay, servers(lay))
+    flows = lay.flows(layout, **FLOW_ARGS, backup_port=9443)  # 입구의 게시 포트와 같다
+    problems = lay.port_problems(layout, flows, service_port=8443, listen_port=9443, registry_local=True, backup_port=9443)
+    assert any("9443" in p and "backup" in p for p in problems)
+
+
+def test_backup_profile_is_chosen_only_for_the_platform_server_when_asked(lay: ModuleType) -> None:
+    import yaml
+
+    model = yaml.safe_load((REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8"))
+    layout = layout_of(lay, servers(lay))
+    svc, gpu = layout.servers
+    chosen = lambda server, backup: lay.services_in(model, layout, server, registry_local=True, inference_local=False, backup_local=backup)  # noqa: E731
+    assert {"backup", "backup-store"} <= set(chosen(svc, True))
+    assert not {"backup", "backup-store"} & set(chosen(svc, False))
+    assert not {"backup", "backup-store", "backup-client"} & set(chosen(gpu, False))

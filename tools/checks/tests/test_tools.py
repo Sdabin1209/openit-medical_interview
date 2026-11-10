@@ -153,10 +153,16 @@ def test_deploy_e2e_usage_errors_are_rc2_before_anything_starts(repo: Path) -> N
     assert product.returncode == 2 and "--adapters-a" in product.stderr
 
 
-def test_deploy_restore_requires_yes_and_valid_folder(repo: Path, tmp_path: Path) -> None:
-    assert _deploy(repo, "restore", str(tmp_path)).returncode == 1  # 백업 폴더가 아님
-    (tmp_path / "owners.json").write_text("{}", encoding="utf-8")
-    assert _deploy(repo, "restore", str(tmp_path)).returncode == 2  # --yes 없음
+def test_deploy_restore_requires_yes_before_touching_anything(repo: Path) -> None:
+    """복구는 덮어쓴다: --yes 가 없으면 저장소에 닿기 전에 rc=2 이고 잡 결과도 내지 않는다(사용법 오류, ADR 0027)."""
+    result = _deploy(repo, "restore", "latest")
+    assert result.returncode == 2 and "--yes" in result.stderr and result.stdout.strip() == ""
+
+
+def test_deploy_backup_commands_exist_and_take_their_options(repo: Path) -> None:
+    for words, option in ((["backup"], None), (["offsite-sync"], None), (["restore-test"], "--offsite"), (["restore"], "--offsite")):
+        result = _deploy(repo, *words, "--help")
+        assert result.returncode == 0 and (option is None or option in result.stdout), words
 
 
 def test_deploy_build_unknown_target_is_rc2(repo: Path) -> None:

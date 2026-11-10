@@ -1,0 +1,461 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "bcrypt",
+#     "cryptography",
+#     "pyyaml",
+# ]
+# ///
+"""백업·복구와 기기별 문진표 배치 시험(샌드박스, D123, ADR 0027): 제품을 사본으로 설치하고 데이터를 넣고 -> backup -> 지우고 -> restore -> 데이터가 같은지 본다.
+
+서버 한 대(`--one`)와 서버 두 대(`--two`, survey-service 와 그 DB 가 플랫폼과 다른 서버)를 모두 시험한다. 둘 다 주지 않으면 둘 다 한다.
+시험이 하는 것(제품 구성에 시험용 줄을 더하지 않는다. 시험이 더하는 것은 설치 입력(.env, layout.json, 비밀 파일, 서버 밖 대상의 루트)뿐이다):
+- 서버 밖 대상은 같은 restic REST 서버 이미지를 TLS 로 따로 띄운 것이다(시험이 만든 사용 후 버릴 CA 를 신뢰 목록에 더한다).
+- 데이터: survey-service DB 에 시험 표(200줄)와 Keycloak DB 의 realm·client·user 를 표마다 내용 지문(건수와 md5)으로 비교한다.
+- 각 단계의 종료 코드를 보고 한 줄 JSON(JobRunResult)을 읽는다. 끝줄 'OK' 같은 글은 증거로 쓰지 않는다.
+- 기기별 문진표 배치(device_placements): 배치 설정의 값이 survey-service 컨테이너 안에서 제품 코드(survey_service.main._placements)로 읽히고, 배치를 바꾸고 `up` 하면 다시 만들어져 반영된다.
+- 시간은 통제 가능한 것만: 기다림은 모두 조건이 되면 끝나고 상한이 있다(고정 대기 없음).
+- 컨테이너·볼륨·네트워크 이름에 `openit-bk` 가 들어간다. 끝나면 이 프로젝트의 것만 지우고 남은 것이 0개인지 본다.
+
+사용: tools/backup-sandbox [--one] [--two] [--keep]    종료 코드: 0 통과, 1 실패, 3 컨테이너가 닿는 주소가 모자라 시험할 수 없음.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import re
+import shutil
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+_loader = importlib.machinery.SourceFileLoader("layout_sandbox", str(ROOT / "tools" / "layout-sandbox"))
+_spec = importlib.util.spec_from_loader("layout_sandbox", _loader)
+assert _spec is not None
+LS = importlib.util.module_from_spec(_spec)
+_loader.exec_module(LS)
+LS.PROJECT = "openit-bk"  # 컨테이너·볼륨·네트워크 이름에 들어간다
+LS.SERVER_A, LS.SERVER_B = "svc", "db"
+
+Failure = LS.Failure
+PROJECT = LS.PROJECT
+PLACEMENTS = [{"device_id": "kiosk-01", "questionnaire_id": "national-health"}, {"device_id": "kiosk-02", "questionnaire_id": "dental"}]
+KEYCLOAK_TABLES = ("realm", "client", "user_entity", "keycloak_role")  # 실행 중에도 바뀌지 않는 표(세션 표는 뺀다)
+OFFSITE_NAME = f"{PROJECT}-offsite"
+SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
+RESULT_KEYS = {"job", "exit_code", "started_at", "finished_at", "processed_count", "snapshot_id"}
+
+
+def sh(argv: list[str], **kwargs: object):  # type: ignore[no-untyped-def]
+    return LS.run(argv, **kwargs)
+
+
+class Offsite:
+    """서버 밖 대상 흉내: restic REST 서버(TLS, 사용자 인증)를 따로 띄운다. 제품의 백업 저장소와 같은 이미지다."""
+
+    def __init__(self, address: str, scratch: Path) -> None:
+        import bcrypt  # noqa: PLC0415
+        from cryptography import x509  # noqa: PLC0415
+        from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+        from cryptography.x509.oid import NameOID  # noqa: PLC0415
+        import datetime as dt  # noqa: PLC0415
+        import ipaddress  # noqa: PLC0415
+
+        now = dt.datetime.now(dt.UTC)
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "backup sandbox offsite CA")])
+        ca = (x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key()).serial_number(x509.random_serial_number())
+              .not_valid_before(now - dt.timedelta(minutes=5)).not_valid_after(now + dt.timedelta(days=3650))
+              .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True).sign(ca_key, hashes.SHA256()))
+        key = ec.generate_private_key(ec.SECP256R1())
+        leaf = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "offsite")])).issuer_name(ca_name).public_key(key.public_key())
+                .serial_number(x509.random_serial_number()).not_valid_before(now - dt.timedelta(minutes=5)).not_valid_after(now + dt.timedelta(days=30))
+                .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(address))]), critical=False).sign(ca_key, hashes.SHA256()))
+        self.dir = scratch / "offsite"
+        self.dir.mkdir(parents=True)
+        self.ca_pem = ca.public_bytes(serialization.Encoding.PEM)
+        (self.dir / "tls.crt").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
+        (self.dir / "tls.key").write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+        self.password = "sandbox-" + str(time.time_ns())
+        (self.dir / "htpasswd").write_text(f"offsite:{bcrypt.hashpw(self.password.encode(), bcrypt.gensalt()).decode()}\n", encoding="utf-8")
+        for name in ("tls.crt", "tls.key", "htpasswd"):
+            (self.dir / name).chmod(0o644)
+        self.dir.chmod(0o755)
+        self.address = address
+        self.port = 0
+
+    def start(self, image: str) -> str:
+        LS.docker(["rm", "-f", "-v", OFFSITE_NAME], check=False)
+        LS.docker(["run", "-d", "--name", OFFSITE_NAME, "-p", f"{self.address}::8000", "-v", f"{self.dir}:/etc/offsite:ro", "-e", "DATA_DIRECTORY=/data",
+                   "-e", "PASSWORD_FILE=/etc/offsite/htpasswd", "-e", "OPTIONS=--private-repos --tls --tls-cert /etc/offsite/tls.crt --tls-key /etc/offsite/tls.key",
+                   "--tmpfs", "/data", image])
+        self.port = int(LS.docker(["port", OFFSITE_NAME, "8000"]).stdout.split()[0].rsplit(":", 1)[1])
+        return f"https://{self.address}:{self.port}/offsite"
+
+    def stop(self) -> None:
+        LS.docker(["rm", "-f", "-v", OFFSITE_NAME], check=False)
+
+
+def result_line(output: str) -> dict[str, object]:
+    """잡의 표준 출력 마지막 줄(JobRunResult). 계약 칸 밖의 키가 있으면 실패다."""
+    lines = [line for line in output.strip().splitlines() if line.startswith("{")]
+    if not lines:
+        raise Failure(f"JobRunResult 한 줄이 없다: {output[-300:]}")
+    document = json.loads(lines[-1])
+    if not set(document) <= RESULT_KEYS or not {"job", "exit_code", "started_at", "finished_at"} <= set(document):
+        raise Failure(f"JobRunResult 모양이 아니다: {document}")
+    return document  # type: ignore[no-any-return]
+
+
+class Scenario:
+    def __init__(self, two: bool, addresses: list[str]) -> None:
+        self.two = two
+        self.address_a = addresses[0]
+        self.address_b = addresses[1] if two else addresses[0]
+        self.offsite_address = addresses[0]
+        self.root = LS.WORK / PROJECT
+        self.log = "two" if two else "one"
+        self.notes: list[tuple[str, str]] = []
+        self.offsite: Offsite | None = None
+
+    # ---- 서버 이름·프로젝트
+    def server_of(self, area: str) -> str | None:
+        if not self.two:
+            return None
+        return LS.SERVER_A if area == "platform" else LS.SERVER_B if area in ("survey-service", "model-runtime") else LS.SERVER_A
+
+    def project_of(self, server: str | None) -> str:
+        return f"{PROJECT}-{server}" if server else PROJECT
+
+    def container(self, server: str | None, service: str) -> str:
+        out = LS.docker(["ps", "-a", "--filter", f"label=com.docker.compose.project={self.project_of(server)}", "--filter", f"label=com.docker.compose.service={service}", "-q"],
+                        context=server).stdout.split()
+        if len(out) != 1:
+            raise Failure(f"{self.project_of(server)} 의 {service} 컨테이너가 {len(out)}개다")
+        return out[0]
+
+    def sql(self, server: str | None, service: str, user: str, database: str, query: str) -> str:
+        result = LS.docker(["exec", self.container(server, service), "psql", "--username", user, "--dbname", database, "--no-psqlrc", "--quiet", "--tuples-only", "--no-align",
+                            "--set", "ON_ERROR_STOP=1", "--command", query], context=server)
+        return result.stdout.strip()
+
+    def deploy(self, *args: str, log: str, check: bool = True):  # type: ignore[no-untyped-def]
+        return LS.deploy(self.root, *args, log=f"{self.log}-{log}", check=check)
+
+    # ---- 데이터와 지문
+    def seed(self) -> None:
+        survey = self.server_of("survey-service")
+        self.sql(survey, "survey-db", "survey", "survey", "create table backup_probe(id int primary key, note text, payload jsonb)")
+        self.sql(survey, "survey-db", "survey", "survey",
+                 "insert into backup_probe select g, 'row-' || g, jsonb_build_object('n', g, 'text', repeat('가', 5)) from generate_series(1, 200) g")
+
+    def fingerprint(self) -> dict[str, str]:
+        survey, platform = self.server_of("survey-service"), self.server_of("platform")
+        found: dict[str, str] = {}
+        tables = self.sql(survey, "survey-db", "survey", "survey", "select tablename from pg_tables where schemaname = 'public' order by 1").split()
+        if "backup_probe" not in tables:
+            raise Failure(f"survey DB 에 시험 표가 없다: {tables}")
+        for table in tables:
+            found[f"survey.{table}"] = self.sql(survey, "survey-db", "survey", "survey",
+                                                f"select count(*) || ':' || coalesce(md5(string_agg(t::text, '|' order by t::text)), '') from public.\"{table}\" t")
+        for table in KEYCLOAK_TABLES:
+            found[f"keycloak.{table}"] = self.sql(platform, "postgres", "postgres", "keycloak",
+                                                  f"select count(*) || ':' || coalesce(md5(string_agg(t::text, '|' order by t::text)), '') from public.\"{table}\" t")
+        if found["survey.backup_probe"].split(":")[0] != "200" or found["keycloak.user_entity"].split(":")[0] == "0":
+            raise Failure(f"시험 데이터가 기대와 다르다: {found}")
+        return found
+
+    def wipe(self) -> None:
+        """두 DB 를 지운다(실제 사고처럼 DB 를 쓰는 서비스를 멈추지 않는다)."""
+        survey, platform = self.server_of("survey-service"), self.server_of("platform")
+        self.sql(survey, "survey-db", "survey", "template1", 'DROP DATABASE "survey" WITH (FORCE)')
+        self.sql(platform, "postgres", "postgres", "template1", 'DROP DATABASE "keycloak" WITH (FORCE)')
+        left = self.sql(survey, "survey-db", "survey", "template1", "select datname from pg_database where datname = 'survey'")
+        left += self.sql(platform, "postgres", "postgres", "template1", "select datname from pg_database where datname = 'keycloak'")
+        if left:
+            raise Failure(f"지웠는데 데이터베이스가 남았다: {left}")
+
+    # ---- 단계
+    def check_placements(self, expected: dict[str, str], label: str) -> str:
+        server = self.server_of("survey-service")
+        container = self.container(server, "survey-service")
+        code = (
+            "import json, os\n"
+            "from survey_service.contract.models import SurveyServiceEnv\n"
+            "from survey_service.main import _placements\n"
+            "env = SurveyServiceEnv.model_validate({k: v for k, v in os.environ.items() if k in SurveyServiceEnv.model_fields})\n"
+            "print(os.environ['SURVEY_DEVICE_PLACEMENTS_FILE'])\n"
+            "print(json.dumps(_placements(env), sort_keys=True))\n"
+        )
+        out = LS.docker(["exec", "-i", container, "python", "-"], context=server, input=code).stdout.strip().splitlines()
+        if out[0] != "/etc/openit/device-placements.json" or json.loads(out[1]) != expected:
+            raise Failure(f"{label}: survey-service 가 읽은 배치가 기대와 다르다: {out} (기대 {expected})")
+        return f"{label}: survey-service 의 _placements() = {out[1]}"
+
+    def run(self, keep: bool) -> None:
+        import yaml  # noqa: PLC0415
+
+        image = yaml.safe_load((ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8"))["services"]["backup-store"]["image"]
+        scratch = LS.WORK / f"{PROJECT}-scratch"
+        if scratch.exists():
+            shutil.rmtree(scratch)
+        scratch.mkdir(parents=True)
+        self.offsite = Offsite(self.offsite_address, scratch)
+        offsite_url = self.offsite.start(image)
+        servers = (
+            [{"name": LS.SERVER_A, "address": self.address_a, "services": ["platform", "admin-console", "kiosk-frontend"]},
+             {"name": LS.SERVER_B, "address": self.address_b, "services": ["survey-service", "model-runtime"]}]
+            if self.two else
+            [{"name": LS.SERVER_A, "address": self.address_a, "services": ["platform", "survey-service", "model-runtime", "admin-console", "kiosk-frontend"]}]
+        )
+        layout_doc = {"servers": servers, "device_placements": PLACEMENTS}
+
+        def install_inputs(root: Path) -> None:
+            document = json.loads((root / "deploy" / "layout.json").read_text(encoding="utf-8"))
+            document["backup"]["offsite_url"] = offsite_url
+            (root / "deploy" / "layout.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            credentials = Path(document["backup"]["offsite_credentials_file"])
+            credentials.write_text(f"offsite:{self.offsite.password}\n", encoding="utf-8")  # type: ignore[union-attr]
+            credentials.chmod(0o600)
+            trust = root / "deploy" / "pki" / "trust.d"
+            trust.mkdir(parents=True)
+            (trust / "offsite-ca.crt").write_bytes(self.offsite.ca_pem)  # type: ignore[union-attr]
+
+        LS.prepare(self.address_a, self.address_b, single=not self.two, layout_doc=layout_doc, before_install=install_inputs)
+        endpoint = LS.dockerenv.docker_env({**LS.env()}, ROOT)["DOCKER_HOST"]
+        if self.two:
+            for server in (LS.SERVER_A, LS.SERVER_B):
+                LS.docker(["context", "create", server, "--docker", f"host={endpoint}"])
+        backup_dir = self.root / "state" / "backup"
+
+        def step(name: str, action):  # type: ignore[no-untyped-def]
+            started = time.monotonic()
+            detail = action()
+            self.notes.append((name, detail))
+            print(f"OK   [{self.log}] {name} ({time.monotonic() - started:.0f}초) {detail}", flush=True)
+
+        def expect_rc(result, wanted: int, what: str) -> None:  # type: ignore[no-untyped-def]
+            if result.returncode != wanted:
+                raise Failure(f"{what}: rc={result.returncode} (기대 {wanted})\n{(result.stdout + result.stderr)[-1500:]}")
+
+        def secrets_and_doctor() -> str:
+            expect_rc(self.deploy("secrets", "init", log="secrets", check=False), 0, "secrets init")
+            modes = {name: oct((backup_dir / name).stat().st_mode & 0o777) for name in ("password", "http_credentials", "encryption_key", "offsite_credentials")}
+            if set(modes.values()) != {"0o600"}:
+                raise Failure(f"백업 비밀 파일 권한이 0600 이 아니다: {modes}")
+            expect_rc(self.deploy("doctor", log="doctor", check=False), 0, "doctor")
+            return f"백업 비밀 파일 4개(0600), doctor rc=0"
+
+        def bootstrap() -> str:
+            expect_rc(self.deploy("bootstrap", log="bootstrap", check=False), 0, "bootstrap")
+            expect_rc(self.deploy("status", log="status", check=False), 0, "status")
+            return "bootstrap rc=0, status rc=0"
+
+        def placements_used() -> str:
+            expected = {item["device_id"]: item["questionnaire_id"] for item in PLACEMENTS}
+            return self.check_placements(expected, "device_placements")
+
+        state: dict[str, object] = {}
+
+        def seed_and_backup() -> str:
+            self.seed()
+            before = self.fingerprint()
+            state["before"] = before
+            result = self.deploy("backup", log="backup", check=False)
+            expect_rc(result, 0, "backup")
+            line = result_line(result.stdout)
+            if line["job"] != "BACKUP" or line["exit_code"] != 0 or not SNAPSHOT_ID.fullmatch(str(line.get("snapshot_id"))) or line.get("processed_count", 0) < 3:
+                raise Failure(f"BACKUP 결과가 기대와 다르다: {line}")
+            state["snapshot"] = line["snapshot_id"]
+            # 평문 덤프와 자격이 든 저장소 주소 파일은 끝난 뒤 남지 않는다(0700 임시 폴더를 지운다)
+            stages = [path.name for path in (self.root / "deploy" / "backups").iterdir()] if (self.root / "deploy" / "backups").is_dir() else []
+            metas = [path.name for path in (self.root / "deploy" / ".build-meta").glob("backup-*")]
+            if stages or metas:
+                raise Failure(f"backup 이 끝났는데 임시 폴더가 남았다: {stages} {metas}")
+            return f"표 {len(before)}개 지문, backup rc=0 스냅샷 {str(line['snapshot_id'])[:8]} 데이터베이스 {line['processed_count']}개"
+
+        def negatives() -> str:
+            moved = backup_dir / "offsite_credentials.moved"
+            (backup_dir / "offsite_credentials").rename(moved)
+            try:
+                broken = self.deploy("backup", log="backup-no-offsite-credentials", check=False)
+            finally:
+                moved.rename(backup_dir / "offsite_credentials")
+            if broken.returncode != 1 or "CRIT" not in broken.stderr or "offsite_credentials_file" not in broken.stderr:
+                raise Failure(f"서버 밖 자격 파일이 없는데 backup 이 rc=1 로 멈추지 않았다: rc={broken.returncode}\n{broken.stderr[-500:]}")
+            if result_line(broken.stdout)["exit_code"] != 1:
+                raise Failure("실패한 backup 의 JobRunResult 가 exit_code 1 이 아니다")
+            noyes = self.deploy("restore", log="restore-no-yes", check=False)
+            expect_rc(noyes, 2, "restore --yes 없이")
+            return "서버 밖 자격 파일이 없으면 backup rc=1(시작 전에 멈춤, CRIT), restore 는 --yes 없이 rc=2"
+
+        def offsite() -> str:
+            result = self.deploy("offsite-sync", log="offsite", check=False)
+            expect_rc(result, 0, "offsite-sync")
+            line = result_line(result.stdout)
+            if line["job"] != "OFFSITE_SYNC" or line.get("processed_count", 0) < 1:
+                raise Failure(f"OFFSITE_SYNC 결과가 기대와 다르다: {line}")
+            again = self.deploy("offsite-sync", log="offsite-again", check=False)
+            expect_rc(again, 0, "offsite-sync 다시")
+            if result_line(again.stdout).get("processed_count") != 0:
+                raise Failure("같은 스냅샷을 다시 복사했다(멱등이 아니다)")
+            return f"offsite-sync rc=0 스냅샷 {line['processed_count']}개 복사, 다시 실행하면 0개(멱등)"
+
+        def restore_and_compare(offsite_flag: bool) -> str:
+            self.wipe()
+            args = ["restore", "latest", "--yes", *(["--offsite"] if offsite_flag else [])]
+            result = self.deploy(*args, log="restore-offsite" if offsite_flag else "restore", check=False)
+            expect_rc(result, 0, " ".join(args))
+            line = result_line(result.stdout)
+            if line["job"] != "RESTORE" or line["exit_code"] != 0:
+                raise Failure(f"RESTORE 결과가 기대와 다르다: {line}")
+            expect_rc(self.deploy("status", log="status-after-restore", check=False), 0, "복구 뒤 status")
+            after = self.fingerprint()
+            if after != state["before"]:
+                diff = {k: (state["before"][k], after.get(k)) for k in state["before"] if state["before"][k] != after.get(k)}  # type: ignore[index]
+                raise Failure(f"복구한 데이터가 백업 전과 다르다: {diff}")
+            return f"{' '.join(args)} rc=0, 지운 뒤 복구해 표 {len(after)}개의 건수·내용 지문이 같다, 복구 뒤 status rc=0"
+
+        def restore_tests() -> str:
+            notes = []
+            for flag in ([], ["--offsite"]):
+                result = self.deploy("restore-test", *flag, log="restore-test" + ("-offsite" if flag else ""), check=False)
+                expect_rc(result, 0, f"restore-test {' '.join(flag)}")
+                line = result_line(result.stdout)
+                if line["job"] != "RESTORE_TEST" or line.get("processed_count", 0) < 3:
+                    raise Failure(f"RESTORE_TEST 결과가 기대와 다르다: {line}")
+                notes.append(f"restore-test {' '.join(flag)}".strip() + f" rc=0 데이터베이스 {line['processed_count']}개")
+            leftover = LS.docker(["ps", "-a", "--filter", f"name={PROJECT}-restore-test", "-q"]).stdout.split()
+            if leftover:
+                raise Failure(f"복구 시험의 일회용 컨테이너가 남았다: {leftover}")
+            return "; ".join(notes) + ", 일회용 컨테이너 0개"
+
+        def change_placements() -> str:
+            path = self.root / "deploy" / "layout.json"
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["device_placements"].append({"device_id": "kiosk-03", "questionnaire_id": "pediatrics"})
+            path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            expect_rc(self.deploy("up", log="up-placements", check=False), 0, "배치를 바꾼 뒤 up")
+            expected = {item["device_id"]: item["questionnaire_id"] for item in document["device_placements"]}
+            return self.check_placements(expected, "배치를 바꾸고 up 한 뒤")
+
+        def no_secret_in_logs() -> str:
+            """백업 비밀 값(저장소 암호, 서버 밖 암호, 자격의 비밀번호)이 deploy 명령의 출력(로그)에 없다."""
+            values = [(backup_dir / "password").read_text().strip(), (backup_dir / "encryption_key").read_text().strip(),
+                      (backup_dir / "http_credentials").read_text().strip().partition(":")[2], (backup_dir / "offsite_credentials").read_text().strip().partition(":")[2]]
+            logs = list(LS.LOGS.glob(f"{self.log}-*.log"))
+            leaked = [log.name for log in logs for value in values if value and value in log.read_text(encoding="utf-8", errors="replace")]
+            if leaked or not logs:
+                raise Failure(f"비밀 값이 로그에 있다(또는 로그가 없다): {leaked} {len(logs)}")
+            return f"로그 {len(logs)}개에 비밀 값 {len(values)}개가 없다"
+
+        def teardown() -> str:
+            expect_rc(self.deploy("down", "--volumes", "--yes", log="down", check=False), 0, "down --volumes")
+            left = leftovers(self.two, except_offsite=True)
+            if left:
+                raise Failure(f"down --volumes 뒤 남은 것: {left}")
+            return "down --volumes rc=0, 남은 컨테이너·볼륨·네트워크 0개"
+
+        try:
+            step("secrets init, doctor", secrets_and_doctor)
+            step("bootstrap, status", bootstrap)
+            step("device_placements 가 survey-service 에서 읽힌다", placements_used)
+            step("데이터를 넣고 backup", seed_and_backup)
+            step("실패 경로(서버 밖 자격 없음, --yes 없음)", negatives)
+            step("offsite-sync", offsite)
+            step("지우고 restore, 데이터가 같은지", lambda: restore_and_compare(False))
+            step("restore-test(로컬, 서버 밖)", restore_tests)
+            step("지우고 서버 밖에서 restore, 데이터가 같은지", lambda: restore_and_compare(True))
+            step("배치를 바꾸고 up", change_placements)
+            step("비밀 값이 로그에 없다", no_secret_in_logs)
+            step("down --volumes", teardown)
+        except Failure:
+            try:
+                LS.save_diagnostics()
+            except Exception as error:  # noqa: BLE001  왜: 진단을 남기다 실패해도 원래 실패 사유를 가리지 않는다
+                print(f"진단을 남기지 못했다: {error}", file=sys.stderr)
+            raise
+        finally:
+            if not keep:
+                clean(self.two)
+                self.offsite.stop()
+                shutil.rmtree(LS.WORK / PROJECT, ignore_errors=True)
+                shutil.rmtree(scratch, ignore_errors=True)
+
+
+def project_labels(two: bool) -> list[str]:
+    return [f"label=com.docker.compose.project={PROJECT}-{s}" for s in (LS.SERVER_A, LS.SERVER_B)] if two else [f"label=com.docker.compose.project={PROJECT}"]
+
+
+def leftovers(two: bool, *, except_offsite: bool = False) -> list[str]:
+    """이 시험의 컨테이너·네트워크·볼륨. except_offsite: 서버 밖 대상 흉내는 시험이 끝날 때 따로 지우므로 down 직후 점검에서 뺀다."""
+    left: list[str] = []
+    for label in project_labels(two):
+        for kind, listing in (("container", ["ps", "-aq"]), ("network", ["network", "ls", "-q"]), ("volume", ["volume", "ls", "-q"])):
+            left += [f"{kind}:{item}" for item in LS.docker([*listing, "--filter", label], check=False).stdout.split()]
+    for row in LS.docker(["ps", "-a", "--filter", f"name={PROJECT}", "--format", "{{.ID}} {{.Names}}"], check=False).stdout.splitlines():
+        identifier, _, name = row.partition(" ")
+        if not (except_offsite and name == OFFSITE_NAME):
+            left.append(f"container:{identifier}")
+    return left
+
+
+def clean(two: bool) -> None:
+    """이 시험의 것만 ID 로 지운다(다른 프로젝트·볼륨은 건드리지 않는다)."""
+    for label in project_labels(two):
+        for listing, removal in ((["ps", "-aq"], ["rm", "-fv"]), (["network", "ls", "-q"], ["network", "rm"]), (["volume", "ls", "-q"], ["volume", "rm", "-f"])):
+            ids = LS.docker([*listing, "--filter", label], check=False).stdout.split()
+            if ids:
+                LS.docker([*removal, *ids], check=False)
+    ids = LS.docker(["ps", "-aq", "--filter", f"name={PROJECT}"], check=False).stdout.split()
+    if ids:
+        LS.docker(["rm", "-fv", *ids], check=False)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--one", action="store_true", help="서버 한 대만")
+    parser.add_argument("--two", action="store_true", help="서버 두 대만")
+    parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
+    args = parser.parse_args()
+    modes = [m for m, wanted in (("one", args.one), ("two", args.two)) if wanted] or ["one", "two"]
+    if LS.LOGS.exists():
+        shutil.rmtree(LS.LOGS)
+    missing = [name for name in LS.SERVICES if LS.docker_image_missing(name)]
+    if missing:
+        print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)
+        return 1
+    (LS.WORK / PROJECT / ".docker-config").mkdir(parents=True, exist_ok=True)
+    addresses = LS.reachable_addresses(LS.LOGS)
+    if len(addresses) < (2 if "two" in modes else 1):
+        print(f"컨테이너가 닿는 서로 다른 IPv4 주소가 모자라다(찾은 것: {addresses})", file=sys.stderr)
+        return 3
+    for mode in modes:
+        print(f"--- 서버 {'두 대' if mode == 'two' else '한 대'}: 주소 {addresses[:2 if mode == 'two' else 1]}", flush=True)
+        scenario = Scenario(mode == "two", addresses)
+        try:
+            scenario.run(args.keep)
+        except Failure as error:
+            print(f"FAIL [{scenario.log}] {error}", file=sys.stderr)
+            return 1
+        finally:
+            if not args.keep:
+                clean(mode == "two")
+                left = leftovers(mode == "two")
+                if left:
+                    print(f"경고: 정리하지 못한 것 {left}", file=sys.stderr)
+    print("백업·복구 샌드박스 통과: " + ", ".join(modes))
+    return 0
+
+
+if __name__ == "__main__":
+    import socket
+
+    socket.setdefaulttimeout(30)
+    sys.exit(main())

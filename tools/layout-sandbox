@@ -107,8 +107,25 @@ def reachable_addresses(probe_dir: Path) -> list[str]:
     return good
 
 
-def prepare(address_a: str, address_b: str, *, single: bool = False) -> Path:
-    """제품의 사본과 설치 입력을 만든다(e2e 샌드박스와 같은 방식)."""
+def backup_section(state: Path) -> dict[str, str]:
+    """배치 설정의 backup 칸. 비밀 파일은 사본의 state/backup/ 에 둔다(저장소 암호·자격·서버 밖 암호는 `secrets init` 이 만들고 서버 밖 자격은 여기서 둔다)."""
+    folder = state / "backup"
+    folder.mkdir(parents=True, exist_ok=True)
+    offsite = folder / "offsite_credentials"
+    offsite.write_text("offsite:sandbox-not-used\n", encoding="utf-8")  # 왜: 이 시험은 서버 밖 대상에 접속하지 않는다(backup-sandbox 가 한다). 파일이 있어야 up 이 선다
+    offsite.chmod(0o600)
+    return {
+        "repository_url": "rest:https://backup:8000/openit",
+        "password_file": str(folder / "password"),
+        "http_credentials_file": str(folder / "http_credentials"),
+        "encryption_key_file": str(folder / "encryption_key"),
+        "offsite_url": "https://backup.example.org/openit",
+        "offsite_credentials_file": str(offsite),
+    }
+
+
+def prepare(address_a: str, address_b: str, *, single: bool = False, layout_doc: dict | None = None, before_install: Callable[[Path], None] | None = None) -> Path:  # type: ignore[type-arg]
+    """제품의 사본과 설치 입력을 만든다(e2e 샌드박스와 같은 방식). layout_doc 을 주면 그 배치 설정을 쓰고(없으면 기본), before_install 은 설치 전에 사본에 입력을 더한다."""
     root = WORK / PROJECT
     if root.exists():
         shutil.rmtree(root)
@@ -146,19 +163,16 @@ def prepare(address_a: str, address_b: str, *, single: bool = False) -> Path:
             {"name": SERVER_B, "address": address_b, "services": ["model-runtime"]},
         ],
         "device_placements": [],
-        "backup": {
-            "repository_url": "rest:https://platform:8000/survey-service",
-            "password_file": "/run/secrets/backup_password",
-            "http_credentials_file": "/run/secrets/backup_http_credentials",
-            "encryption_key_file": "/run/secrets/backup_encryption_key",
-            "offsite_url": "https://backup.example.org/openit",
-            "offsite_credentials_file": "/run/secrets/offsite_credentials",
-        },
+        "backup": backup_section(state),
     }
+    if layout_doc is not None:
+        layout = layout_doc | {"backup": layout_doc.get("backup") or backup_section(state)}
     if single:
         (root / "deploy" / ".env").write_text("".join(f"{k}={v}\n" for k, v in values.items() if k != "OPENIT_LISTEN_PORT" and k != "OPENIT_OIDC_ISSUER_URL"), encoding="utf-8")
-    else:
+    if layout_doc is not None or not single:
         (root / "deploy" / "layout.json").write_text(json.dumps(layout, indent=2) + "\n", encoding="utf-8")
+    if before_install is not None:
+        before_install(root)
     return root
 
 

@@ -27,6 +27,7 @@ dev = [
     "ruff",
     "hadolint-bin",  # 실행만 하는 Dockerfile 검사 도구(ShellCheck 포함, ADR 0016)
     "cryptography",
+    "bcrypt",  # deploy/backup.py 의 htpasswd 시험(deploy 스크립트가 쓰는 것과 같은 라이브러리)
     "types-pyyaml",
 ]
 
