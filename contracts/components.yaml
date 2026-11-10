@@ -1894,7 +1894,7 @@ components:
       additionalProperties: false
       description: "잡 한 번의 실행 결과(표준 출력에 JSON 한 줄로 낸다)"
       x-owner: deploy
-      x-basis: "D130(잡의 종료 코드 0·75·1). 표준 출력에 JSON 한 줄로 내는 직렬화와 시각·처리 수 칸은 이 계약이 정한 모양이다"
+      x-basis: "D130(잡의 종료 코드 0·75·1), JSON Lines(표준 출력에 JSON 한 줄), docs/design.md 4절(헤드 결정 2026-11-10)"
       required: [job, exit_code, started_at, finished_at]
       properties:
         job: { $ref: "#/components/schemas/JobName", description: "실행한 잡" }

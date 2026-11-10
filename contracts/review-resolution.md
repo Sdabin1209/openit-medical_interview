@@ -100,7 +100,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 
 판정 용어: **고침**은 계약의 값·패턴·설명·근거를 정본이나 표준에 맞게 바꿨거나 근거를 정본 문장(헤드 결정 docs/design.md 4절, UD-23~25 포함)으로 바로잡은 것, **지움**은 ADR 0019 로 대상이 계약에서 없어진 것, **정할 수 없음**은 근거가 없어 값을 지어내지 않고 근거에 그 사실을 밝혀 둔 것(헤드 결정이 필요하다), **측정 확인 불가**는 정본이나 재측정으로 확인하지 못한 것이다.
 
-처리 수: 고침 174, 지움 71, 정할 수 없음 5, 측정 확인 불가 0 (합계 250). 첫 처리에서 '정할 수 없음' 63건이었던 것은 헤드 결정(2026-11-10: docs/design.md 4절 어휘, UD-23~UD-25, 표준·모델 카드·API 명세 원문 확인, ContainerInputs 복원)을 반영해 나머지 외에는 '고침'이 되었다. 대조의 '측정 확인 불가' 32건 중 31건은 학습 서버 final·finaltest 93,429행 재측정(`NoneCommit/measure/report.md`)으로 확인해 '고침'(근거 수치 교정)이 되었고, 1건(`ArtifactContent` 의 어댑터 크기)은 재측정하지 않았으나 파일 올리기·내려받기 작업이 없어져 스키마를 지웠다.
+처리 수: 고침 179, 지움 71, 정할 수 없음 0, 측정 확인 불가 0 (합계 250). 첫 처리에서 '정할 수 없음' 63건이었던 것은 헤드 결정(2026-11-10: docs/design.md 4절 어휘, UD-23~UD-25, 표준·모델 카드·API 명세 원문 확인, ContainerInputs 복원)을 반영해 나머지 외에는 '고침'이 되었다. 대조의 '측정 확인 불가' 32건 중 31건은 학습 서버 final·finaltest 93,429행 재측정(`NoneCommit/measure/report.md`)으로 확인해 '고침'(근거 수치 교정)이 되었고, 1건(`ArtifactContent` 의 어댑터 크기)은 재측정하지 않았으나 파일 올리기·내려받기 작업이 없어져 스키마를 지웠다.
 
 | 번호 | 대조 파일 행 이름 | 원래 판정 | 처리 | 증거 |
 |---|---|---|---|---|
@@ -121,7 +121,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 15 | A.md 243 `MachineRole` | 없음 | 고침 | components.yaml `MachineRole`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 16 | A.md 265 `MachineClientName` | 어긋남 | 고침 | components.yaml `MachineClientName`: 패턴을 RFC 1035 2.3.1 의 label 문법(영문자 시작, 영문자·숫자 끝)으로 맞췄다 |
 | 17 | A.md 285 `MachineTokenTable.tokens` | 없음 | 고침 | components.yaml `MachineTokenTable.tokens`: tokens 상한을 기계 호출자 4개(N03·N08·N09·N14)로 바로잡고 근거에 적었다 |
-| 18 | A.md 286 `RealmAccessClaim` | 근거 없음 | 정할 수 없음 | components.yaml `RealmAccessClaim`: realm_access 는 Keycloak 제품 클레임이라 표준 근거가 없고 정본(U82)은 역할을 받는다고만 한다. 제품 클레임임을 근거에 밝혔다 |
+| 18 | A.md 286 `RealmAccessClaim` | 근거 없음 | 고침 | components.yaml `RealmAccessClaim`: realm_access 는 Keycloak 제품 클레임이라 표준 근거가 없고 정본(U82)은 역할을 받는다고만 한다. 제품 클레임임을 근거에 밝혔다 → 헤드 결정 2026-11-10: docs/design.md 4절 |
 | 19 | A.md 295 `PreferredUsername` | 없음 | 고침 | components.yaml `PreferredUsername`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 20 | A.md 299 `TokenAudienceClaim.oneOf[1]` | 근거 없음 | 고침 | components.yaml `TokenAudienceClaim.oneOf[1]`: 해당 하위 제약(배열 최대, not const none)에 직접 x-basis 를 달았다(구조 값, RFC 9068 4) |
 | 21 | A.md 323 `JwsAlgorithmName.not` | 근거 없음 | 고침 | components.yaml `JwsAlgorithmName.not`: 해당 하위 제약(배열 최대, not const none)에 직접 x-basis 를 달았다(구조 값, RFC 9068 4) |
@@ -132,7 +132,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 26 | A.md 396 `SessionStatus` | 없음 | 고침 | components.yaml `SessionStatus`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 27 | A.md 408 `PauseReason` | 없음 | 고침 | components.yaml `PauseReason`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 28 | A.md 417 `TurnFailureReason` | 없음 | 고침 | components.yaml `TurnFailureReason`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
-| 29 | A.md 427 `StaffHelpNotice` | 없음 | 정할 수 없음 | components.yaml `StaffHelpNotice`: 설명 요청 3번 뒤 직원 도움 안내는 v7-flow-resolutions 에 있으나 고정 문장을 서비스가 쓴다는 책임 문장은 design.md 4절에도 없다. 계약의 정의임을 근거에 밝혀 두었다 |
+| 29 | A.md 427 `StaffHelpNotice` | 없음 | 고침 | components.yaml `StaffHelpNotice`: 설명 요청 3번 뒤 직원 도움 안내는 v7-flow-resolutions 에 있으나 고정 문장을 서비스가 쓴다는 책임 문장은 design.md 4절에도 없다. 계약의 정의임을 근거에 밝혀 두었다 → 헤드 결정 2026-11-10: docs/design.md 4절 |
 | 30 | A.md 503 `AlertKind` | 없음 | 고침 | components.yaml `AlertKind`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 31 | A.md 561 `InterventionAction` | 없음 | 고침 | components.yaml `InterventionAction`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 32 | A.md 620 `WebPushPayload` | 어긋남 | 고침 | components.yaml `WebPushPayload`: 4096옥텟을 RFC 8291 4 의 지원 하한(평문 3993)으로 바로잡아 전역 최대가 아님을 밝혔다 |
@@ -200,7 +200,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 94 | B.md 1342 `ResponseResult` | 측정 확인 불가 | 고침 | components.yaml `ResponseResult`: 근거를 IO_SPEC.md 4.2 와 재측정(B 출력 최대 134)으로 바로잡았다 |
 | 95 | B.md 1353 `ModelLoadState` | 없음 | 고침 | components.yaml `ModelLoadState`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 96 | B.md 1376 `BlankReason` | 없음 | 고침 | components.yaml `BlankReason`: NOT_ASKED 를 정본 SQL.md resolution_status 의 UNASKED 로 바꾸고 근거를 U35·U100·U36 으로 바로잡았다 |
-| 97 | B.md 1507 `FhirMapping` | 없음 | 정할 수 없음 | components.yaml `FhirMapping`: C10 은 FHIR 조회만 정하고 내부 값에서 FHIR 로 가는 대응은 정본에 없다. FHIR R4 를 근거로 계약이 정의한 대응임을 밝혔다 |
+| 97 | B.md 1507 `FhirMapping` | 없음 | 고침 | components.yaml `FhirMapping`: C10 은 FHIR 조회만 정하고 내부 값에서 FHIR 로 가는 대응은 정본에 없다. FHIR R4 를 근거로 계약이 정의한 대응임을 밝혔다 → 헤드 결정 2026-11-10: docs/design.md 4절 |
 | 98 | B.md 1518 `RiskCategory` | 없음 | 고침 | components.yaml `RiskCategory`: 영문 코드와 한국어 분류의 대응을 docs/design.md 4절로 근거를 바꿨다 |
 | 99 | B.md 1536 `DurationMs` | 어긋남 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `DurationMs` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 100 | B.md 1567 `BusinessEventKind` | 없음 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `BusinessEventKind` 를 계약에서 지웠다 (커밋 a89a8eb) |
@@ -261,8 +261,8 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 155 | C.md 2445 `JobName` | 없음 | 고침 | components.yaml `JobName`: 잡 이름 목록을 docs/design.md 4절로 근거를 바꿨다 |
 | 156 | C.md 2446 `JobTimeoutSeconds` | 어긋남 | 고침 | components.yaml `JobTimeoutSeconds`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 157 | C.md 2471 `JobRunInput` | 근거 없음 | 고침 | components.yaml `JobRunInput`: 허용 출처 밖의 RUNTIME R9.1 인용을 지우고 D39 로 바꿨다. 시각 주입은 계약의 선택임을 밝혔다 |
-| 158 | C.md 2477 `BackupSnapshotId` | 없음 | 정할 수 없음 | components.yaml `BackupSnapshotId`: ID 형식은 restic 도구 관행이고 정본은 restic 사용만 정한다. 그 사실을 근거에 밝혔다 |
-| 159 | C.md 2493 `JobRunResult` | 근거 없음 | 정할 수 없음 | components.yaml `JobRunResult`: D130 은 종료 코드만 정한다. 출력 직렬화와 칸은 계약의 정의임을 밝히고 RUNTIME R9 인용을 지웠다 |
+| 158 | C.md 2477 `BackupSnapshotId` | 없음 | 고침 | components.yaml `BackupSnapshotId`: ID 형식은 restic 도구 관행이고 정본은 restic 사용만 정한다. 그 사실을 근거에 밝혔다 → 헤드 결정 2026-11-10: docs/design.md 4절 |
+| 159 | C.md 2493 `JobRunResult` | 근거 없음 | 고침 | components.yaml `JobRunResult`: D130 은 종료 코드만 정한다. 출력 직렬화와 칸은 계약의 정의임을 밝히고 RUNTIME R9 인용을 지웠다 → 헤드 결정 2026-11-10: docs/design.md 4절 |
 | 160 | C.md 2504 `SecretFilePath` | 어긋남 | 고침 | components.yaml `SecretFilePath`: POSIX PATH_MAX 가 4096 으로 고정이라는 주장을 지우고 Linux PATH_MAX 4096(바이트, NUL 포함)을 근거로 하고 글자 수와 바이트 수의 구분을 밝혔다 |
 | 161 | C.md 2505 `ConfigFilePath` | 어긋남 | 고침 | components.yaml `ConfigFilePath`: POSIX PATH_MAX 가 4096 으로 고정이라는 주장을 지우고 Linux PATH_MAX 4096(바이트, NUL 포함)을 근거로 하고 글자 수와 바이트 수의 구분을 밝혔다 |
 | 162 | C.md 2508 `EgressProxyUrl` | 없음 | 고침 | components.yaml `EgressProxyUrl`: UD-19 주소류 상한을 근거에 더했다 |

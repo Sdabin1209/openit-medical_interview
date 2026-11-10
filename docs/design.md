@@ -140,3 +140,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | RiskCategory | SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS | D88 U2 의 임상 검토 전 임시 기본 목록. 위험 감지는 기본 꺼짐(L11)이고 켤 때 임상 검토로 확정한다(UD-18) |
 | 환경 입력(*Env) | 각 영역 컴포넌트가 필요로 하는 설정만 둔다. 비밀은 `_FILE` 경로(ADR 0005) | 설정의 주인은 영역이고 이름 목록은 2절 컴포넌트에서 나온다 |
 | 이미지 라벨 | `org.opencontainers.image.revision`(OCI 표준 주석), `io.openit.contracts`(모노레포의 계약 버전 하나), `io.openit.service`, `io.openit.exposure`, `io.openit.inputs`, `io.openit.jobs`, `io.openit.database` | 모노레포라 계약 버전이 하나이고(ADR 0002), 커밋은 OCI 표준 주석을 쓴다. D50 의 계약별 라벨을 대체한다 |
+| 선택한 제품·도구의 규격 | Keycloak 접근 토큰의 `realm_access.roles`, restic 스냅샷 ID(SHA-256 16진수, 짧은 형태 8자 이상) | ADR 로 고른 제품·도구(Keycloak: ADR 0008, restic: D130)의 공식 규격을 그 값의 근거로 쓴다. 제품을 바꾸면 이 값도 바뀐다 |
+| 잡 실행 결과(JobRunResult) | 잡은 끝날 때 표준 출력에 JSON 한 줄(JSON Lines)을 낸다. 종료 코드는 0·75·1(D130) | 한 줄 JSON 은 로그 수집 도구가 그대로 읽는 표준 형식(JSON Lines)이고, 종료 코드만으로 모자란 처리 수·시각을 담는다 |
+| 직원 도움 안내(StaffHelpNotice) | 안전과 닿는 안내 문장은 모델이 아니라 survey-service 의 고정 문장이다. 모델 입출력 v3 부터 쓴다 | v7-flow-resolutions 41·51행(설명 요청 3번 뒤 직원 도움 안내, v3 의존) |
+| FHIR 대응(FhirMapping) | 결과를 HL7 FHIR R4 QuestionnaireResponse 로 옮긴다(빈칸은 data-absent-reason) | FHIR R4 표준이 그대로 근거다(C10) |
