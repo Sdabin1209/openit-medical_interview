@@ -78,6 +78,8 @@ def test_generate_is_deterministic_and_writes_expected_files(repo: Path, tmp_pat
     assert first.files == second.files
     assert set(first.files) == {
         "gateway/envoy.yaml",
+        "gateway/sds/ingress_cert.yaml",
+        "gateway/sds/gateway_client.yaml",
         "gateway/egress-proxies.json",
         "ingress/Caddyfile",
         "identity/openit-realm.json",

@@ -352,25 +352,35 @@ def _access_log() -> list[dict[str, Any]]:
     ]
 
 
-def _tls_context(cert: tuple[str, str], watch: str, validation: dict[str, Any] | None, *, client: bool, sni: str | None = None) -> dict[str, Any]:
+SDS_DIR = "/etc/envoy/sds"  # 인증서 비밀(Secret)을 담은 파일 폴더. 입구 설정은 이 파일을 SDS 로 가리킨다
+SECRET_INGRESS = "ingress_cert"  # noqa: S105  Envoy Secret 의 이름이다(값이 아니다)
+SECRET_CLIENT = "gateway_client"  # noqa: S105
+SECRET_TYPE = "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret"  # noqa: S105
+
+
+def _sds_ref(name: str) -> dict[str, Any]:
+    return {"name": name, "sds_config": {"resource_api_version": "V3", "path_config_source": {"path": f"{SDS_DIR}/{name}.yaml"}}}
+
+
+def _sds_file(name: str, cert: tuple[str, str]) -> dict[str, Any]:
+    """파일 기반 SDS 의 Secret. 인증서 폴더(watched_directory)에 파일이 옮겨 들어오면(Caddy 의 갱신) 인증서와 키를 한 쌍으로 다시 읽는다."""
+    certificate = {"certificate_chain": {"filename": cert[0]}, "private_key": {"filename": cert[1]}, "watched_directory": {"path": Path(cert[0]).parent.as_posix()}}
+    return {"resources": [{"@type": SECRET_TYPE, "name": name, "tls_certificate": certificate}]}
+
+
+def _tls_context(secret: str, validation: dict[str, Any] | None, *, client: bool, sni: str | None = None) -> dict[str, Any]:
+    # 왜 SDS 파일이고 인라인이 아닌가: 인라인 tls_certificates 는 watched_directory 를 두어도 갱신된 파일을 다시 읽지 않았다(시험에서 확인).
+    # 파일 기반 SDS 는 다시 읽는다(platform ADR 0002)
     common: dict[str, Any] = {
         "tls_params": {"tls_minimum_protocol_version": "TLSv1_2"},  # 왜 1.2 이상: TLS 1.0/1.1 은 RFC 8996 이 폐기했다
-        "tls_certificates": [
-            {
-                "certificate_chain": {"filename": cert[0]},
-                "private_key": {"filename": cert[1]},
-                # 왜 watched_directory: 갱신된 인증서(ACME, 7일 수명)를 다시 시작 없이 읽는다. 인증서와 키는 한 쌍으로 읽힌다(Envoy TlsCertificate 문서)
-                "watched_directory": {"path": watch},
-            }
-        ],
+        "tls_certificate_sds_secret_configs": [_sds_ref(secret)],
     }
     if validation:
         common["validation_context"] = validation
     if client:
         return {"name": "envoy.transport_sockets.tls", "typed_config": _typed("transport_sockets/tls/v3.UpstreamTlsContext", {"common_tls_context": common, "sni": sni})}
     common["alpn_protocols"] = ["h2", "http/1.1"]
-    context: dict[str, Any] = {"common_tls_context": common}
-    return {"name": "envoy.transport_sockets.tls", "typed_config": _typed("transport_sockets/tls/v3.DownstreamTlsContext", context)}
+    return {"name": "envoy.transport_sockets.tls", "typed_config": _typed("transport_sockets/tls/v3.DownstreamTlsContext", {"common_tls_context": common})}
 
 
 def _cluster(name: str, host: str, port: int, *, tls: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -429,7 +439,13 @@ def _route_entry(spec: RouteSpec, method: str | None) -> dict[str, Any]:
     policies = _rbac_policies(spec)
     if policies:
         per_filter["envoy.filters.http.rbac"] = _typed("filters/http/rbac/v3.RBACPerRoute", {"rbac": {"rules": {"action": "ALLOW", "policies": policies}}})
-    action: dict[str, Any] = {"cluster": f"service_{_slug(spec.service)}", "timeout": "0s" if spec.streaming else f"{ROUTE_SECONDS}s"}
+    action: dict[str, Any] = {
+        "cluster": f"service_{_slug(spec.service)}",
+        "timeout": "0s" if spec.streaming else f"{ROUTE_SECONDS}s",
+        # 왜 Host 를 서비스 이름으로: 서비스 주소는 https://<영역 이름>(D129, 계약 servers)이고 서비스의 TLS 서버 이름도 그 이름이다. 원래 Host 는 X-Forwarded-Host 로 남긴다
+        "host_rewrite_literal": spec.service,
+        "append_x_forwarded_host": True,
+    }
     if spec.streaming:
         action["idle_timeout"] = f"{STREAM_IDLE_SECONDS}s"
     return {"match": match, "route": action, "typed_per_filter_config": per_filter}
@@ -455,8 +471,6 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
     device_ca_present = settings.device_ca_file is not None
     services = sorted({spec.service for spec in gateway.routes})
     human_services = sorted({spec.service for spec in gateway.routes if spec.audiences & {ExposureAudience.HUMAN_OIDC, ExposureAudience.EXTERNAL_MACHINE_TOKEN}})
-    cert = ingress_certificate_paths(settings, ingress_issuer_key)
-    client_cert = gateway_client_paths(internal_issuer_key)
     validation = {"trusted_ca": {"filename": DEVICE_CA}} if device_ca_present else None
     # 서비스 단위 라우트: 작업 라우트(긴 것) -> 접두어 라우트(긴 접두어가 먼저)
     entries: list[dict[str, Any]] = []
@@ -480,7 +494,7 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
         _slug(service): {
             "issuer": settings.issuer,
             "audiences": [service],
-            "forward": False,
+            "forward": True,  # 왜 참: 서비스가 접근 토큰을 다시 검증한다(계약). 끄면 입구가 Authorization 을 지운다
             "remote_jwks": {"http_uri": {"uri": settings.jwks_url, "cluster": KEYCLOAK, "timeout": "5s"}, "cache_duration": "600s"},
             "payload_in_metadata": "jwt_payload",
         }
@@ -550,7 +564,7 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
             "address": {"socket_address": {"address": ANY_ADDRESS, "port_value": settings.listen_port}},
             "filter_chains": [
                 {
-                    "transport_socket": _tls_context(cert, Path(cert[0]).parent.as_posix(), validation, client=False),
+                    "transport_socket": _tls_context(SECRET_INGRESS, validation, client=False),
                     "filters": [{"name": "envoy.filters.network.http_connection_manager", "typed_config": hcm}],
                 }
             ],
@@ -569,7 +583,7 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
                 f"service_{_slug(service)}",
                 service,
                 settings.service_port,
-                tls=_tls_context(client_cert, Path(client_cert[0]).parent.as_posix(), upstream_validation, client=True, sni=service),
+                tls=_tls_context(SECRET_CLIENT, upstream_validation, client=True, sni=service),
             )
         )
     for spec in gateway.egress:
@@ -584,7 +598,10 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
                     "route": {"cluster": cluster, "upgrade_configs": [{"upgrade_type": "CONNECT", "connect_config": {}}]},
                 }
             )
-        routes.append({"match": {"prefix": "/"}, "direct_response": {"status": 403, "body": {"inline_string": "egress target is not declared\n"}}})
+        # 왜 두 줄: CONNECT 요청은 접두어 일치에 걸리지 않아 connect_matcher 로 따로 거절한다(없으면 404 가 된다)
+        denied = {"status": 403, "body": {"inline_string": "egress target is not declared\n"}}
+        routes.append({"match": {"connect_matcher": {}}, "direct_response": denied})
+        routes.append({"match": {"prefix": "/"}, "direct_response": denied})
         egress_hcm = _typed(
             "filters/network/http_connection_manager/v3.HttpConnectionManager",
             {
@@ -604,10 +621,21 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
             }
         )
     return {
+        # 왜 node: 파일 기반 SDS 는 노드 식별자를 요구한다(Envoy 의 오류 메시지). 값은 의미가 없다
+        "node": {"id": GATEWAY_NAME, "cluster": REALM},
         # 왜 루프백: 관리 인터페이스를 밖에 열면 설정 변경·종료가 가능하다(Envoy 문서의 경고, ADR 0008)
         "admin": {"address": {"socket_address": {"address": "127.0.0.1", "port_value": ADMIN_PORT}}},
         "static_resources": {"listeners": listeners, "clusters": clusters},
     }
+
+
+def build_sds(settings: PlatformSettings, ingress_issuer_key: str, internal_issuer_key: str) -> dict[str, str]:
+    """SDS 파일 이름(gateway/sds 기준) -> 내용. 입구 서버 인증서와 영역 서비스에 보일 클라이언트 인증서."""
+    files = {
+        f"{SECRET_INGRESS}.yaml": _sds_file(SECRET_INGRESS, ingress_certificate_paths(settings, ingress_issuer_key)),
+        f"{SECRET_CLIENT}.yaml": _sds_file(SECRET_CLIENT, gateway_client_paths(internal_issuer_key)),
+    }
+    return {name: "# 이 파일은 ./deploy 가 만든다. 손으로 고치지 않는다.\n" + yaml.safe_dump(body, sort_keys=False) for name, body in files.items()}
 
 
 def render(config: dict[str, Any]) -> str:

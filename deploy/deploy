@@ -85,7 +85,9 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 secrets_app = typer.Typer(add_completion=False, no_args_is_help=True, help="비밀 파일 관리")
 ca_app = typer.Typer(add_completion=False, no_args_is_help=True, help="사설 CA: 상태, 교체, 신뢰 목록(ADR 0014, 0015)")
 app.add_typer(secrets_app, name="secrets")
+identity_app = typer.Typer(add_completion=False, no_args_is_help=True, help="사람 인증(Keycloak realm) 반영(platform ADR 0004)")
 app.add_typer(ca_app, name="ca")
+app.add_typer(identity_app, name="identity")
 
 
 def fail(message: str, code: int = EXIT_FAIL) -> NoReturn:
@@ -123,6 +125,7 @@ def platform_generated() -> pf_generate.Generated:
         fail(f"platform 설정을 만들지 못했다: {error}")
 
 
+LENIENT_GENERATION = False  # down 처럼 정리하는 명령은 설정이 틀려도 이미 만든 파일로 컨테이너를 내릴 수 있어야 한다
 PENDING_CHANGES: set[str] = set()  # 이 실행에서 바뀐 생성 파일. up() 이 이것으로 돌고 있는 서비스를 다시 만든다
 
 
@@ -143,7 +146,12 @@ def compose_args() -> list[str]:
             "--env-file", str(DEPLOY / "env.example")]
     if env_values()["OPENIT_REGISTRY_MODE"] == "local":
         args += ["--profile", "local-registry"]  # 왜: external 이면 레지스트리 서비스를 띄우지 않는다(ADR 0013)
-    sync_generated()  # 왜 여기서: compose 는 생성된 파생 값(generated/platform.env)과 입구 에이전트 이름(compose.platform.yaml)을 읽는다
+    try:
+        sync_generated()  # 왜 여기서: compose 는 생성된 파생 값(generated/platform.env)과 입구 에이전트 이름(compose.platform.yaml)을 읽는다
+    except typer.Exit:
+        if not LENIENT_GENERATION:
+            raise
+        typer.echo("경고: platform 설정을 새로 만들지 못해 이전에 만든 파일로 진행한다", err=True)
     args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env")]
     if (DEPLOY / ".env").exists():
         args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
@@ -319,7 +327,7 @@ def validate_platform_configs() -> list[tuple[str, bool, str]]:
         org_dir.mkdir(parents=True, exist_ok=True)
         # 컨테이너 안 경로와 같은 자리에 마운트한다: /ingress-certs 아래와 /etc/openit/ingress
         envoy = docker([*run, "--user", "10001:10001", "-v", f"{root / 'ingress-certs'}:/ingress-certs:ro", "-v", f"{org_dir}:/etc/openit/ingress:ro",
-                        "-v", f"{GENERATED / 'gateway' / 'envoy.yaml'}:/etc/envoy/envoy.yaml:ro", "-v", f"{trust}:/etc/openit/trust-list.pem:ro",
+                        "-v", f"{GENERATED / 'gateway' / 'envoy.yaml'}:/etc/envoy/envoy.yaml:ro", "-v", f"{GENERATED / 'gateway' / 'sds'}:/etc/envoy/sds:ro", "-v", f"{trust}:/etc/openit/trust-list.pem:ro",
                         "-v", f"{device_ca}:/etc/openit/device-ca.pem:ro", service_image("envoy"), "--mode", "validate", "-c", "/etc/envoy/envoy.yaml"],
                        capture_output=True)
         results.append(("입구(Envoy) 설정 검증", envoy.returncode == 0, (envoy.stdout + envoy.stderr).strip()[-400:]))
@@ -553,6 +561,8 @@ def build(
 # 왜 identity/openit-realm.json 이 없나: Keycloak 은 이미 있는 realm 을 다시 가져오지 않는다(`./deploy identity sync` 가 반영한다, platform ADR 0004)
 RECREATE_ON_CHANGE: dict[str, tuple[str, ...]] = {
     "gateway/envoy.yaml": ("envoy",),
+    "gateway/sds/ingress_cert.yaml": ("envoy",),
+    "gateway/sds/gateway_client.yaml": ("envoy",),
     "gateway/device-ca.pem": ("envoy",),
     "ingress/Caddyfile": ("ingress-acme",),
     "compose.platform.yaml": ("ingress-acme",),
@@ -595,6 +605,8 @@ def up() -> None:
 @app.command()
 def down() -> None:
     """이 프로젝트(openit)의 컨테이너를 내린다. 볼륨은 지우지 않는다."""
+    global LENIENT_GENERATION  # noqa: PLW0603
+    LENIENT_GENERATION = True
     result = compose(["down"])
     if result.returncode != 0:
         fail(f"down 실패(rc={result.returncode})")
@@ -1326,6 +1338,56 @@ def finish_root_rotation(distributed: bool) -> None:
     refresh_trust_users()
     typer.echo(f"이전 루트를 신뢰 목록에서 뺐다: {', '.join(p.name for p in olds)}")
     ca_status()
+
+
+@identity_app.command("sync")
+def identity_sync() -> None:
+    """생성한 realm 파일의 클라이언트와 역할을 이미 있는 realm 에 반영한다.
+
+    왜 필요한가: Keycloak 의 --import-realm 은 이미 있는 realm 을 건너뛴다. 기계 호출자나 노출 선언이 바뀌면 realm 파일이 달라지는데 처음 설치 뒤에는 반영되지 않는다.
+    방법: Keycloak 의 표준 관리 API partialImport(ifResourceExists=OVERWRITE)와 서비스 계정 역할 부여를 kcadm 으로 한다. 사람 계정은 건드리지 않는다.
+    비밀(클라이언트 비밀)은 표준 입력으로만 넘기고 출력하지 않는다.
+    """
+    if not is_running("keycloak"):
+        no_target("keycloak 이 떠 있지 않다(./deploy up)")
+    realm = json.loads((GENERATED / "identity" / "openit-realm.json").read_text(encoding="utf-8"))
+    values = {"OAUTH2_PROXY_CLIENT_SECRET": read_password("oauth2_proxy_client_secret").decode(), "OPENIT_REALM_ADMIN_PASSWORD": read_password("keycloak_admin_password").decode()}
+    if MACHINE_SECRETS_DIR.is_dir():
+        values |= {pf_identity.machine_env_name(p.name): p.read_text(encoding="utf-8").strip() for p in MACHINE_SECRETS_DIR.iterdir() if p.is_file()}
+    body = json.dumps({"ifResourceExists": "OVERWRITE", "clients": realm["clients"], "roles": realm["roles"]})
+    for name, value in values.items():
+        body = body.replace("${" + name + "}", value)
+    unresolved = re.findall(r"\$\{[A-Z0-9_]+\}", body)
+    if unresolved:
+        fail(f"realm 파일의 자리표시자에 해당하는 비밀 파일이 없다: {', '.join(sorted(set(unresolved)))} (./deploy secrets init)")
+    # 왜 범위 매핑: 클라이언트의 토큰에 싣는 역할을 계약의 역할로 제한한다(fullScopeAllowed 거짓). partialImport 가 갱신하지 않아 따로 부여한다(이미 있으면 그대로다).
+    # 왜 service-account-user 조회: 덮어쓴 클라이언트의 서비스 계정은 이 조회로 만들어진다(Keycloak 이 필요할 때 만든다)
+    calls = []
+    for item in realm["scopeMappings"]:
+        calls.append(f"mapping {item['client']} {' '.join(item['roles'])}")
+    for user in realm["users"]:
+        if "serviceAccountClientId" in user:
+            calls.append(f"account {user['serviceAccountClientId']} {' '.join(user['realmRoles'])}")
+    script = """set -e
+kc() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }
+client_id() { kc get clients -r openit -q clientId="$1" --fields id --format csv --noquotes; }
+mapping() {
+  client="$1"; shift; cid="$(client_id "$client")"; body='['
+  for role in "$@"; do rid="$(kc get "roles/$role" -r openit --fields id --format csv --noquotes)"; body="$body{\\"id\\":\\"$rid\\",\\"name\\":\\"$role\\"},"; done
+  echo "${body%,}]" | kc create "clients/$cid/scope-mappings/realm" -r openit -f - >/dev/null
+}
+account() {
+  client="$1"; shift; cid="$(client_id "$client")"; kc get "clients/$cid/service-account-user" -r openit >/dev/null
+  args=""; for role in "$@"; do args="$args --rolename $role"; done
+  kc add-roles -r openit --uusername "service-account-$client" $args
+}
+kc config credentials --server http://localhost:8080 --realm master --user admin --password "$(cat /run/secrets/keycloak_admin_password)" >/dev/null
+kc create partialImport -r openit -f - >/dev/null
+""" + "\n".join(calls) + "\n"
+    result = compose(["exec", "-T", "keycloak", "bash", "-c", script], input=body, capture_output=True)
+    if result.returncode != 0:
+        fail(f"identity sync 실패(rc={result.returncode}): {(result.stderr or result.stdout).strip()[-400:]}")
+    typer.echo(f"반영함: 클라이언트 {len(realm['clients'])}개, 역할 {len(realm['roles']['realm'])}개")
 
 
 @app.command()

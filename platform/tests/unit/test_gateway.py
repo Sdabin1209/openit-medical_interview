@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from openit_platform import gateway, pki
 from openit_platform.contract.models import DeviceAllowlist, ExposureAudience
@@ -119,9 +120,15 @@ def test_egress_is_limited_to_declared_targets(repo: Path) -> None:
     config = gateway.build_envoy(platform_settings(repo), plan, DeviceAllowlist(devices=[]), *KEYS)
     egress = next(item for item in config["static_resources"]["listeners"] if item["name"].startswith("egress_"))
     routes = egress["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"][0]["routes"]
-    allowed = [r["match"]["headers"][0]["string_match"]["exact"] for r in routes if "connect_matcher" in r["match"]]
+    allowed = [r["match"]["headers"][0]["string_match"]["exact"] for r in routes if "connect_matcher" in r["match"] and "headers" in r["match"]]
     assert allowed == ["model-runtime:8443", "push.example.org:443"]
     assert routes[-1]["direct_response"]["status"] == 403  # 선언하지 않은 상대는 거절
+
+
+def test_upstream_host_is_the_service_name(repo: Path) -> None:
+    routes = _routes(_config(repo, {"survey-service": exposure([route("/v1/results", "HUMAN_OIDC")])}))
+    action = next(r for r in routes if r.get("match", {}).get("safe_regex", {}).get("regex") == "/v1/results")["route"]
+    assert action["host_rewrite_literal"] == "survey-service" and action["append_x_forwarded_host"] is True
 
 
 def test_streaming_route_has_no_overall_timeout(repo: Path) -> None:
@@ -145,3 +152,15 @@ def test_exposure_files_are_validated_against_contract(tmp_path: Path) -> None:
     (tmp_path / "unknown.json").write_text('{"routes":[],"egress":[]}', encoding="utf-8")
     with pytest.raises(pki.ConfigError, match="ServiceName"):
         gateway.load_exposures(tmp_path)
+
+
+def test_certificates_are_read_through_file_sds_that_watches_the_folder(repo: Path) -> None:
+    """인라인 tls_certificates 는 갱신된 파일을 다시 읽지 않았다(샌드박스에서 확인). 파일 기반 SDS 와 watched_directory 를 쓴다."""
+    config = _config(repo, {})
+    text = gateway.render(config)
+    assert "tls_certificates:" not in text and config["node"]["id"] == "gateway"
+    sds = gateway.build_sds(platform_settings(repo), *KEYS)
+    assert set(sds) == {"ingress_cert.yaml", "gateway_client.yaml"}
+    body = yaml.safe_load(sds["ingress_cert.yaml"])["resources"][0]["tls_certificate"]
+    assert body["watched_directory"]["path"] == "/ingress-certs/certificates/ik/openit.internal"
+    assert body["private_key"]["filename"].endswith("/openit.internal.key")

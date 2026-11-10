@@ -65,14 +65,15 @@ def _audience_mapper(service: str) -> dict[str, Any]:
     }
 
 
-def _client_id_mapper() -> dict[str, Any]:
-    # 왜 hardcoded 아닌 세션 노트: RFC 9068 2.2 의 client_id 는 토큰을 받은 클라이언트다. Keycloak 의 서비스 계정은 세션 노트 clientId 로 넣는다
+def _client_id_mapper(client_id: str) -> dict[str, Any]:
+    # 왜 고정 값: RFC 9068 2.2 의 client_id 는 토큰을 받은 클라이언트다. 클라이언트마다 매퍼가 따로 있어 값이 곧 그 클라이언트의 이름이다
+    # (세션 노트 매퍼는 서비스 계정에만 값이 있어 사람 토큰에는 client_id 가 빠졌다: 시험에서 확인)
     return {
         "name": "client_id",
         "protocol": "openid-connect",
-        "protocolMapper": "oidc-usersessionmodel-note-mapper",
+        "protocolMapper": "oidc-hardcoded-claim-mapper",
         "consentRequired": False,
-        "config": {"user.session.note": "client_id", "claim.name": "client_id", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "false"},
+        "config": {"claim.name": "client_id", "claim.value": client_id, "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "false"},
     }
 
 
@@ -86,10 +87,9 @@ def _client_base(client_id: str, secret_ref: str) -> dict[str, Any]:
         "clientAuthenticatorType": "client-secret",
         "directAccessGrantsEnabled": False,
         "implicitFlowEnabled": False,
-        # 왜 fullScopeAllowed 참(기본값): 토큰의 realm_access.roles 는 사용자·서비스 계정에 부여된 realm 역할 그대로다. 역할 이름은 계약(UserRole, MachineRole)만 만들어 두고,
-        # 기본 역할을 비워(아래 defaultRole) offline_access 같은 계약 밖 역할이 토큰에 들어가지 않게 한다.
-        # 역할 범위 제한(scopeMappings)은 partialImport 로 갱신되지 않아 쓰지 않는다
-        "fullScopeAllowed": True,
+        # 왜 fullScopeAllowed 거짓: 토큰의 realm_access.roles 에 이 클라이언트에 허용한 역할(scopeMappings)만 싣는다. Keycloak 의 기본 역할(offline_access,
+        # uma_authorization, default-roles-openit)은 새 계정마다 붙고 가져오기로 비울 수 없다(시험에서 확인). 계약 UserIdentityClaims 의 roles 는 UserRole 열거만 허용한다
+        "fullScopeAllowed": False,
         "attributes": {
             # 왜 이 속성: Keycloak 의 RFC 9068 지원. 접근 토큰 JOSE 헤더의 typ 을 at+jwt 로 한다(RFC 9068 2.1)
             "access.token.header.type.rfc9068": "true",
@@ -108,10 +108,11 @@ def render_realm(settings: PlatformSettings, human_services: list[str], machine:
             "standardFlowEnabled": True,
             "redirectUris": [f"{settings.public_base_url}/oauth2/callback"],
             "webOrigins": [],
-            "protocolMappers": [_client_id_mapper(), *(_audience_mapper(service) for service in human_services)],
+            "protocolMappers": [_client_id_mapper(OAUTH2_PROXY_CLIENT), *(_audience_mapper(service) for service in human_services)],
         }
     )
     clients: list[dict[str, Any]] = [proxy]
+    scope_mappings = [{"client": OAUTH2_PROXY_CLIENT, "roles": user_roles}]
     users: list[dict[str, Any]] = [
         {
             "username": ADMIN_USER,
@@ -135,10 +136,11 @@ def render_realm(settings: PlatformSettings, human_services: list[str], machine:
                 "standardFlowEnabled": False,
                 "redirectUris": [],
                 "webOrigins": [],
-                "protocolMappers": [_client_id_mapper(), *(_audience_mapper(service) for service in audiences)],
+                "protocolMappers": [_client_id_mapper(base["clientId"]), *(_audience_mapper(service) for service in audiences)],
             }
         )
         clients.append(base)
+        scope_mappings.append({"client": base["clientId"], "roles": roles})
         users.append({"username": f"service-account-{base['clientId']}", "enabled": True, "serviceAccountClientId": base["clientId"], "realmRoles": roles})
     return {
         "realm": REALM,
@@ -148,8 +150,15 @@ def render_realm(settings: PlatformSettings, human_services: list[str], machine:
         "accessTokenLifespan": ACCESS_TOKEN_SECONDS,
         "bruteForceProtected": True,
         # 왜 기본 역할을 비움: 기본 역할(offline_access, uma_authorization)이 접근 토큰의 roles 에 들어가면 계약 UserRole 열거를 어긴다
-        "defaultRole": {"name": f"default-roles-{REALM}", "description": "비어 있다: 사람과 기계 호출자는 계약의 역할만 갖는다", "composite": False},
-        "roles": {"realm": [{"name": name, "description": "계약 UserRole" if name in user_roles else "계약 MachineRole"} for name in [*user_roles, *machine_roles]]},
+        "defaultRole": {"name": f"default-roles-{REALM}", "description": "비어 있다: 사람과 기계 호출자는 계약의 역할만 갖는다", "composite": True, "composites": {"realm": []}},
+        "roles": {
+            "realm": [
+                # 왜 명시: 기본 역할 default-roles-openit 의 구성 역할(offline_access, uma_authorization)을 비운다. 사람 계정은 만들어질 때 기본 역할을 받는다
+                {"name": f"default-roles-{REALM}", "description": "비어 있다: 계약의 역할만 쓴다", "composite": True, "composites": {"realm": []}},
+                *({"name": name, "description": "계약 UserRole" if name in user_roles else "계약 MachineRole"} for name in [*user_roles, *machine_roles]),
+            ]
+        },
+        "scopeMappings": scope_mappings,
         "clients": clients,
         "users": users,
     }

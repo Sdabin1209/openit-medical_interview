@@ -28,13 +28,17 @@ def _realm(repo: Path, table: MachineTokenTable = TABLE) -> dict[str, Any]:
 
 def test_role_names_are_the_contract_enums(repo: Path) -> None:
     realm = _realm(repo)
-    names = {role["name"] for role in realm["roles"]["realm"]}
+    names = {role["name"] for role in realm["roles"]["realm"]} - {"default-roles-openit"}
     assert names == {item.value for item in UserRole} | {item.value for item in MachineRole}
 
 
-def test_default_role_is_empty_so_tokens_only_carry_contract_roles(repo: Path) -> None:
+def test_tokens_only_carry_contract_roles_through_scope_mappings(repo: Path) -> None:
+    """Keycloak 의 기본 역할(offline_access 등)은 가져오기로 비울 수 없다. 클라이언트마다 범위를 계약의 역할로 제한한다(fullScopeAllowed 거짓)."""
     realm = _realm(repo)
-    assert realm["defaultRole"]["composite"] is False and "composites" not in realm["defaultRole"]
+    assert all(client["fullScopeAllowed"] is False for client in realm["clients"])
+    mappings = {item["client"]: item["roles"] for item in realm["scopeMappings"]}
+    assert mappings["oauth2-proxy"] == [role.value for role in UserRole]
+    assert mappings["machine-hospital"] == ["result-reader"] and mappings["machine-model-lab"] == ["case-reader"]
 
 
 def test_secrets_are_placeholders_never_values(repo: Path) -> None:

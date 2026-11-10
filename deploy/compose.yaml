@@ -66,6 +66,7 @@ services:
       ingress-acme: { condition: service_healthy }
     volumes:
       - ./generated/gateway/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./generated/gateway/sds:/etc/envoy/sds:ro # 인증서 비밀(SDS 파일). 갱신된 인증서는 파일 감시로 다시 읽는다(platform ADR 0002)
       - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
       - ${OPENIT_DEVICE_CA_MOUNT}:/etc/openit/device-ca.pem:ro
       - ${OPENIT_INGRESS_ORG_MOUNT}:/etc/openit/ingress:ro
@@ -156,7 +157,7 @@ services:
       - --set-xauthrequest=true
       - --pass-access-token=true # 응답 머리글 X-Auth-Request-Access-Token 으로 접근 토큰을 입구에 준다
       - --http-address=0.0.0.0:4180
-      - --upstream=static://202
+      - --upstream=static://200 # 왜 200: 입구의 ext_authz 는 200 만 통과로 본다(그 밖의 상태는 거절로 보고 응답을 클라이언트에 돌려준다)
     secrets: [oauth2_proxy_client_secret, oauth2_proxy_cookie_secret]
     networks: [backend]
     # healthcheck 없음: 이미지가 셸·HTTP 클라이언트 없는 distroless 라 컨테이너 안에서 점검할 수단이 없다(ADR 0008)

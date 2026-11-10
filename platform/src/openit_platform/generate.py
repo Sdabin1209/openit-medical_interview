@@ -68,6 +68,7 @@ def generate(env: dict[str, str], deploy_dir: Path, repo_root: Path, *, registry
     }
     files = {
         "gateway/envoy.yaml": gateway.render(envoy),
+        **{f"gateway/sds/{name}": text for name, text in gateway.build_sds(cfg, ingress_key, internal_key).items()},
         "gateway/egress-proxies.json": json.dumps(gateway.egress_manifest(cfg, plan), indent=2, sort_keys=True) + "\n",
         "ingress/Caddyfile": ingress.render_caddyfile(cfg),
         "identity/openit-realm.json": identity.render_realm_text(realm),
