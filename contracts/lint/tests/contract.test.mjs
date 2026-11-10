@@ -150,7 +150,7 @@ test('구조의 숫자가 서로 맞는다(같은 구조에서 산출)', () => {
   const opCount = Math.max(...['survey-service', 'model-runtime'].map((a) => ops.filter((x) => x.file === `${a}.yaml`).length));
   assert.ok(S.Exposure.properties.routes.maxItems >= opCount, `노출 경로 상한 ${S.Exposure.properties.routes.maxItems} < 작업 수 ${opCount}`);
   assert.equal(S.RealmAccessClaim.properties.roles.maxItems, S.UserRole.enum.length); assert.equal(S.MachineTokenEntry.properties.roles.maxItems, S.MachineRole.enum.length);
-  assert.equal(S.TokenAudienceClaim.oneOf[1].maxItems, S.ServiceName.enum.length); assert.equal(S.JobsDeclaration.properties.jobs.maxItems, S.JobName.enum.length);
+  assert.equal(S.TokenAudienceClaim.oneOf[1].maxItems, S.ServiceName.enum.length); assert.equal(S.ServerEntry.properties.services.maxItems, S.ServiceName.enum.length); assert.equal(S.DeploymentLayout.properties.servers.maxItems, S.ServiceName.enum.length); assert.equal(S.JobsDeclaration.properties.jobs.maxItems, S.JobName.enum.length);
   assert.deepEqual(S.Exposure.properties.egress.items, { $ref: '#/components/schemas/EgressTarget' }); assert.equal(S.Exposure.properties.egress.maxItems, 32);
   for (const [n, s] of Object.entries(S)) if (s.format === 'uuid') assert.ok(s.pattern && s.maxLength === 36, `${n}: uuid 에 pattern 과 maxLength 가 없다`);
 });

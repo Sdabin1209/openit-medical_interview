@@ -528,6 +528,7 @@ components:
         event: { $ref: "#/components/schemas/AlertEventName", description: "이벤트 이름" }
         sequence: { $ref: "#/components/schemas/EventSequence", description: "이벤트 순번" }
         alert: { $ref: "#/components/schemas/StaffAlert", description: "alert 와 resolved 이벤트가 가리키는 알림" }
+    ServerSentEventStream: { type: string, format: binary, contentMediaType: text/event-stream, description: "알림 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). 끝이 없는 스트림이라 길이 상한이 없다. 이벤트 하나의 data 는 StaffAlertEvent 다", x-owner: survey-service, x-basis: "WHATWG HTML 9.2(Server-sent events), OpenAPI 3.1 4.8(미디어 유형 text/event-stream 의 schema 는 본문 전체), D66(4), D87" }
     InterventionAction:
       type: string
       enum: [ACKNOWLEDGE, RESUME]
@@ -2254,12 +2255,12 @@ components:
       additionalProperties: false
       description: "서버 하나와 그 서버에서 띄울 서비스들"
       x-owner: deploy
-      x-basis: "F64, U97, ADR 0002"
+      x-basis: "F64, U97, UD-15"
       required: [name, address, services]
       properties:
         name: { $ref: "#/components/schemas/ServerName", description: "서버 이름" }
         address: { $ref: "#/components/schemas/HostAddress", description: "서버의 호스트 이름 또는 주소" }
-        services: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/ServiceName" }, description: "이 서버에서 띄울 서비스들" , x-basis: "ServiceName 값의 수 10" }
+        services: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/ServiceName" }, description: "이 서버에서 띄울 서비스들" , x-basis: "ServiceName 값의 수 5" }
     DevicePlacement:
       type: object
       additionalProperties: false
@@ -2278,7 +2279,7 @@ components:
       x-basis: "F64, U97, U86"
       required: [servers, device_placements]
       properties:
-        servers: { type: array, minItems: 1, maxItems: 10, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" , x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 10 이하. 서비스와 서버의 대응은 배치 설정으로 정한다(사용자 결정 2026-11-10(UD-15), U97)" }
+        servers: { type: array, minItems: 1, maxItems: 5, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" , x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 5 이하. 서비스와 서버의 대응은 배치 설정으로 정한다(사용자 결정 2026-11-10(UD-15), U97)" }
         device_placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
 
   securitySchemes:
@@ -2314,7 +2315,7 @@ components:
       name: X-Forwarded-Client-Cert
       in: header
       required: false
-      description: 영역 게이트웨이가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다
+      description: 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다
       schema: { $ref: "#/components/schemas/ForwardedClientCertValue" }
     IdempotencyKey:
       name: Idempotency-Key
