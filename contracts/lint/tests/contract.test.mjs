@@ -320,3 +320,23 @@ test('ModelInputSerialization 은 state 항목 안의 키 순서(value, status)�
   no('ModelInputSerialization', { ...base, a_state_entry_key_order: ['status', 'value'] }, 'status, value 순서');
   const { a_state_entry_key_order: _x, ...without } = base; no('ModelInputSerialization', without, '항목 키 순서 빠짐');
 });
+test('기계 토큰 클레임: 역할은 MachineRole 만, client_id 는 machine-<호출자> 만 받는다(9.0.0)', () => {
+  const full = { iss: 'https://platform/realms/openit', sub: 's1', aud: 'model-runtime', exp: 1783684200, iat: 1783680600, jti: 'j1', client_id: 'machine-survey-service', realm_access: { roles: ['inference-caller'] } };
+  ok('MachineIdentityClaims', { ...full, scope: 'x' }); no('MachineIdentityClaims', { ...full, realm_access: { roles: ['staff'] } }, '사람 역할'); no('MachineIdentityClaims', { ...full, client_id: 'survey-service' }, '접두어 없는 client_id');
+  no('UserIdentityClaims', { ...full, client_id: 'admin-console' }, '사람 토큰 스키마는 기계 역할을 거부한다'); ok('MachineTokenEntry', { client: 'survey-service', roles: ['inference-caller'], client_secret_file: '/run/secrets/c' }); no('MachineTokenEntry', { client: 'survey-service', roles: ['inference-caller'], token_file: '/run/secrets/c' }, 'token_file 은 없어졌다');
+});
+test('환경 입력 9.0.0: 추론 엔진 주소 필수, 이름 표 형식, 플랫폼 선택 입력', () => {
+  const S = doc.components.schemas;
+  assert.ok(S.ModelRuntimeEnv.required.includes('OPENIT_INFERENCE_ENGINE_URL')); assert.ok(S.SurveyServiceEnv.required.includes('OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE')); assert.ok(!('OPENIT_MODEL_RUNTIME_TOKEN_FILE' in S.SurveyServiceEnv.properties));
+  ok('InferenceEngineUrl', 'http://inference-engine:8000'); ok('InferenceEngineUrl', 'https://inference-engine:8000'); no('InferenceEngineUrl', 'ftp://inference-engine');
+  ok('HostsTable', { hosts: [{ name: 'survey-service', address: '192.0.2.10' }] }); no('HostsTable', { hosts: [{ name: 'survey-service' }] }, '주소 없는 줄'); no('HostsTable', { hosts: Array(7).fill({ name: 'a', address: '192.0.2.1' }) }, '7줄');
+  for (const k of ['OPENIT_PUBLIC_NAMES', 'OPENIT_INGRESS_CERTIFICATE_FILE', 'OPENIT_INGRESS_PRIVATE_KEY_FILE', 'OPENIT_SERVICE_PORT', 'OPENIT_ALERT_SMTP_SMARTHOST', 'OPENIT_ALERT_HEARTBEAT_INTERVAL']) { assert.ok(k in S.PlatformEnv.properties, k); assert.ok(!S.PlatformEnv.required.includes(k), `${k} 는 선택 입력`); }
+  ok('SmtpSmarthost', 'smtp.example.org:587'); no('SmtpSmarthost', 'smtp.example.org'); no('SmtpSmarthost', 'smtp.example.org:70000'); ok('AlertHeartbeatInterval', '5m'); ok('AlertHeartbeatInterval', '1m30s'); no('AlertHeartbeatInterval', '5 minutes');
+});
+test('9.0.0: 문항 세트 버전은 is_active 가 필수이고 문진표 선택 필요 사유와 모델 패키지 목록이 있다', () => {
+  const S = doc.components.schemas;
+  assert.ok(S.QuestionSetVersion.required.includes('is_active')); assert.ok(S.ProblemReason.enum.includes('QUESTIONNAIRE_REQUIRED')); assert.ok(S.ProblemReason['x-enum-descriptions'].QUESTIONNAIRE_REQUIRED.includes('startSession'));
+  const D = 'sha256:' + 'a'.repeat(64);
+  ok('ModelPackageList', { items: [{ package_digest: D, is_active: true, published_at: '2026-11-10T09:30:00+09:00' }, { package_digest: D, is_active: false }] }); no('ModelPackageList', { items: [{ package_digest: D }] }, 'is_active 없음');
+  assert.ok(ops.some((x) => x.file === 'model-runtime.yaml' && x.op.operationId === 'listModelPackages' && x.path === '/v1/model-packages' && x.method === 'get'));
+});

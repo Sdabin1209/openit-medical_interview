@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 8.0.0
+  version: 9.0.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -21,7 +21,7 @@ components:
     ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, examples: [ "/v1/extractions" ], description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     ProblemReason:
       type: string
-      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH, DEADLINE_EXCEEDED, CASE_VERSION_MISMATCH, PACKAGE_INVALID, ROLLBACK_TARGET_INVALID, RISK_DETECTION_DISABLED]
+      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH, DEADLINE_EXCEEDED, CASE_VERSION_MISMATCH, PACKAGE_INVALID, ROLLBACK_TARGET_INVALID, RISK_DETECTION_DISABLED, QUESTIONNAIRE_REQUIRED]
       x-enum-descriptions:
         OUTPUT_INVALID: "LoRA-A 출력이 끝내 합격 조건(ActionExtractionRules)을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다(openapi/model-runtime.yaml extractAction. model-runtime 의 output_guard)"
         TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(openapi/survey-service.yaml submitTurn 409, Retry-After 를 따른다. survey-service 의 turn)"
@@ -36,9 +36,10 @@ components:
         PACKAGE_INVALID: "레지스트리에서 받은 모델 패키지가 계약과 다르다(artifactType 이나 목록표가 틀렸거나 파일의 digest 가 목록표와 다르거나 모델 입출력 버전을 적재할 수 없다)(openapi/model-runtime.yaml getModelPackage, activateModelPackage 422. package_loader)"
         ROLLBACK_TARGET_INVALID: "되돌아갈 모델 패키지가 이전에 활성이었던 패키지가 아니다(openapi/model-runtime.yaml rollbackModelPackage 409. release)"
         RISK_DETECTION_DISABLED: "위험 감지가 꺼져 있어 위험 신호를 받지 않는다(openapi/survey-service.yaml receiveRiskSignal 403. link_risk_in)"
+        QUESTIONNAIRE_REQUIRED: "시작 코드에도 기기 배치에도 문진표가 정해져 있지 않고 요청에도 없는데 활성 문진표가 둘 이상이라 환자가 골라야 한다. 이 응답은 시작 코드를 쓰지 않은 것으로 하므로 같은 코드로 questionnaire_id 를 더해 다시 보낼 수 있다(openapi/survey-service.yaml startSession 422. start_code)"
       description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다"
       x-owner: head
-      x-basis: "RFC 9457 3.2(확장 멤버로 상태 코드만으로 가를 수 없는 사유를 낸다). 각 코드는 x-enum-descriptions 에 적은 작업이 쓰고, 그 작업을 맡는 docs/design.md 2절 컴포넌트(output_guard, package_loader, release, session, turn, start_code, failure_case, link_risk_in)가 낸다. 정본에 이름이 있는 코드는 OUTPUT_INVALID(D75(1))와 TURN_IN_PROGRESS(D86)이고 START_CODE_* 의 뜻은 docs/v7-flow-resolutions.md C20(일회용 시작 코드)이다"
+      x-basis: "RFC 9457 3.2(확장 멤버로 상태 코드만으로 가를 수 없는 사유를 낸다). 각 코드는 x-enum-descriptions 에 적은 작업이 쓰고, 그 작업을 맡는 docs/design.md 2절 컴포넌트(output_guard, package_loader, release, session, turn, start_code, failure_case, link_risk_in)가 낸다. QUESTIONNAIRE_REQUIRED 는 변경 요청 kiosk-frontend-001 의 1안(서버가 문진표 선택이 필요함을 사유로 알린다)에 따른 헤드 결정 2026-11-10 이다. 정본에 이름이 있는 코드는 OUTPUT_INVALID(D75(1))와 TURN_IN_PROGRESS(D86)이고 START_CODE_* 의 뜻은 docs/v7-flow-resolutions.md C20(일회용 시작 코드)이다"
     JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 사용자 결정 2026-11-10(UD-19)" }
     ProblemFieldError:
       type: object
@@ -73,7 +74,7 @@ components:
     # ---- 시간 상한(영역 사이 약속, D125) ----
     KioskRequestLimitSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)", x-owner: head, x-basis: "D125(키오스크 60초 > 게이트웨이 > survey 턴)" }
     KioskRetryBudgetSeconds: { type: integer, const: 120, minimum: 120, maximum: 120, description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)", x-owner: head, x-basis: "D125(재시도 예산 120초)" }
-    KioskIdleResetSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 환자의 입력 없이 기다리다 세션을 초기화하는 시간(초). 멈춘 세션은 만료하지 않는다", x-owner: head, x-basis: "D88 U10(유휴 초기화), 사용자 결정 2026-11-10(UD-17)" }
+    KioskIdleResetSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "유휴 만료의 시간(초). 서버는 ACTIVE 세션의 마지막 활동(startSession, submitTurn, requestStaffCall 호출) 뒤 이만큼 지나면 그 세션을 EXPIRED 로 본다. 키오스크도 입력 없이 이만큼 기다리면 화면을 초기화하며 이는 화면 동작이라 서버에 알리지 않아도 된다(알리려면 endSession). 멈춘(PAUSED) 세션은 만료하지 않는다", x-owner: head, x-basis: "D88 U10(유휴 초기화), 사용자 결정 2026-11-10(UD-17), 헤드 결정 2026-11-10(kiosk-frontend-002: 유휴 만료의 주체는 서버이고 활동은 startSession·submitTurn·requestStaffCall 호출이다)" }
     KioskProgressNoticeSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)", x-owner: head, x-basis: "D125(Nielsen 1초 진행 표시)" }
     GatewayConnectLimitSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
     GatewayPatientRouteLimitSeconds: { type: integer, const: 55, minimum: 55, maximum: 55, description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
@@ -94,7 +95,7 @@ components:
       properties:
         kiosk_request: { $ref: "#/components/schemas/KioskRequestLimitSeconds", description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)" }
         kiosk_retry_budget: { $ref: "#/components/schemas/KioskRetryBudgetSeconds", description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)" }
-        kiosk_idle_reset: { $ref: "#/components/schemas/KioskIdleResetSeconds", description: "키오스크가 입력 없이 기다리다 세션을 초기화하는 시간(초)" }
+        kiosk_idle_reset: { $ref: "#/components/schemas/KioskIdleResetSeconds", description: "서버가 마지막 활동 뒤 ACTIVE 세션을 만료로 보는 시간(초). 키오스크 화면 초기화도 같은 시간이다" }
         kiosk_progress_notice: { $ref: "#/components/schemas/KioskProgressNoticeSeconds", description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)" }
         gateway_connect: { $ref: "#/components/schemas/GatewayConnectLimitSeconds", description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)" }
         gateway_patient_route: { $ref: "#/components/schemas/GatewayPatientRouteLimitSeconds", description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)" }
@@ -236,23 +237,23 @@ components:
     MachineTokenEntry:
       type: object
       additionalProperties: false
-      description: "기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로"
+      description: "기계 호출자 하나와 그에게 허용한 권한, 그 호출자의 Keycloak 기계 클라이언트 비밀이 든 파일의 경로"
       x-owner: platform
-      x-basis: "D84(비밀은 파일), D122, D129"
-      required: [client, roles, token_file]
+      x-basis: "D84(비밀은 파일), D122, D129, RFC 6749 4.4(client credentials), 헤드 결정 2026-11-10(platform-002)"
+      required: [client, roles, client_secret_file]
       properties:
         client: { $ref: "#/components/schemas/MachineClientName", description: "호출자 이름" }
         roles: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들", x-basis: "MachineRole 값의 수 4" }
-        token_file: { $ref: "#/components/schemas/SecretFilePath", description: "토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)" }
+        client_secret_file: { $ref: "#/components/schemas/SecretFilePath", description: "호출자의 Keycloak 기계 클라이언트 비밀 파일의 경로(클라이언트 ID 는 machine-<client>, 값은 이 표에 적지 않는다)" }
     MachineTokenTable:
       type: object
       additionalProperties: false
-      description: "받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)"
+      description: "기계 호출자 표(호출자 이름, 권한, 클라이언트 비밀 파일의 경로. 비밀은 없다). platform 이 이 표로 Keycloak 기계 클라이언트와 그 서비스 계정의 역할을 만들고 배포가 파일로 준다"
       x-owner: platform
-      x-basis: "D84, D122, N13"
+      x-basis: "D84, D122, N13, RFC 6749 4.4(client credentials), RFC 9068, 헤드 결정 2026-11-10(platform-002: 기계 토큰은 client credentials 로 받는 JWT 접근 토큰)"
       required: [tokens]
       properties:
-        tokens: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineTokenEntry" }, description: "호출자별 권한과 토큰 파일", x-basis: "호출자 수: 기계 호출자 4(survey-service 가 model-runtime 을 부름, 설치처의 의료 정보 시스템, 위험 감지기, model-lab 이 survey-service 에서 실패 사례를 당겨 감, N03·N08·N09·N14)" }
+        tokens: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineTokenEntry" }, description: "호출자별 권한과 클라이언트 비밀 파일", x-basis: "호출자 수: 기계 호출자 4(survey-service 가 model-runtime 을 부름, 설치처의 의료 정보 시스템, 위험 감지기, model-lab 이 survey-service 에서 실패 사례를 당겨 감, N03·N08·N09·N14)" }
     RealmAccessClaim:
       type: object
       additionalProperties: false
@@ -307,6 +308,32 @@ components:
       description: "서비스가 반드시 확인하는 JWT 접근 토큰 클레임(RFC 9068 의 필수 클레임 iss, exp, aud, sub, client_id, iat, jti 와 역할). 서명은 IdP 공개 키(JWKS)로 서비스가 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다"
       x-owner: platform
       x-basis: "RFC 9068 2.2 와 4, RFC 7519, OpenID Connect Core 1.0, N12, D69, D88 U7"
+    MachineOidcClientId: { type: string, pattern: "^machine-[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", maxLength: 71, examples: [ "machine-survey-service" ], description: "기계 호출자의 Keycloak 클라이언트 식별자(client_id 클레임). machine- 다음에 호출자 이름(MachineClientName)이 온다", x-owner: platform, x-basis: "RFC 9068 2.2(client_id 필수), RFC 6749 2.2(client_id 는 문자열), 헤드 결정 2026-11-10(platform-002: 클라이언트 ID 는 machine-<client>), 최대 길이 71 은 접두어 machine- 8자 더하기 MachineClientName 의 63자" }
+    MachineSubjectId: { type: string, maxLength: 255, examples: [ "0b8c7d3e-91a4-4c1f-8e55-3a6d2f4b7c10" ], description: "기계 호출자의 서비스 계정 식별자(토큰의 sub 값)", x-owner: platform, x-basis: "OpenID Connect Core 1.0 2(sub 는 최대 255 ASCII 문자), RFC 9068 2.2(sub 필수), RFC 6749 4.4(client credentials 의 토큰은 클라이언트의 서비스 계정이 주체다)" }
+    MachineRealmAccessClaim:
+      type: object
+      additionalProperties: false
+      description: "기계 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임). 역할은 기계 권한(MachineRole)이다"
+      x-owner: platform
+      x-basis: "Keycloak 접근 토큰의 기본 클레임 realm_access.roles(제품 고유 클레임이며 표준이 아니다, RealmAccessClaim 과 같다), 헤드 결정 2026-11-10(platform-002 3: UserIdentityClaims 는 UserRole 만 허용하므로 기계 토큰용 클레임 스키마가 따로 필요하다), D122"
+      required: [roles]
+      properties:
+        roles: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 부여된 권한들", x-basis: "MachineRole 값의 수 4" }
+    MachineIdentityClaims:
+      allOf: [ { type: object } ]
+      required: [iss, sub, aud, exp, iat, jti, client_id, realm_access]
+      properties:
+        iss: { $ref: "#/components/schemas/OidcIssuerUrl", description: "토큰을 발급한 IdP 의 주소. 환경 입력의 발급자와 같아야 한다" }
+        sub: { $ref: "#/components/schemas/MachineSubjectId", description: "기계 호출자의 서비스 계정 식별자" }
+        aud: { $ref: "#/components/schemas/TokenAudienceClaim", description: "이 토큰을 받는 서비스. 자기 이름이 없으면 거절한다" }
+        exp: { $ref: "#/components/schemas/NumericDate", description: "토큰이 만료되는 때. 지난 토큰은 거절한다" }
+        iat: { $ref: "#/components/schemas/NumericDate", description: "토큰을 발급한 때" }
+        jti: { $ref: "#/components/schemas/TokenId", description: "토큰의 고유 식별자" }
+        client_id: { $ref: "#/components/schemas/MachineOidcClientId", description: "토큰을 받은 기계 클라이언트" }
+        realm_access: { $ref: "#/components/schemas/MachineRealmAccessClaim", description: "부여된 기계 권한" }
+      description: "서비스가 기계 호출의 JWT 접근 토큰에서 반드시 확인하는 클레임(RFC 9068 의 필수 클레임과 기계 권한). 모양은 UserIdentityClaims 를 따르되 client_id 는 machine-<호출자 이름> 이고 역할은 MachineRole 이다. 서명은 IdP 공개 키(JWKS)로 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다"
+      x-owner: platform
+      x-basis: "RFC 9068 2.2 와 4, RFC 6749 4.4, RFC 7519, 헤드 결정 2026-11-10(platform-002), D122, N12"
     DeviceId: { type: string, pattern: "^[A-Za-z0-9._-]+$", maxLength: 64, examples: [ "kiosk-01" ], description: "키오스크 기기의 식별자. 기기 인증서 주체의 CN 값이다", x-owner: platform, x-basis: "D136(허용 목록은 기기 ID 와 일련번호), D113(기기 ID 는 인증서 주체 CN), RFC 5280 부록 A(ub-common-name 은 64). 글자는 RFC 3986 2.3 의 unreserved 중 영숫자와 . _ - 이다" }
     DeviceSerialNumber: { type: string, pattern: "^[0-9a-f]{1,40}$", maxLength: 40, examples: [ "1a2b3c4d" ], description: "기기 인증서의 일련번호(소문자 16진수)", x-owner: platform, x-basis: "RFC 5280 4.1.2.2 (일련번호는 최대 20옥텟, 곧 16진수 40자), D136" }
 
@@ -371,10 +398,10 @@ components:
         PAUSED: "위험 신호나 직원 호출로 멈춤(까닭은 PauseReason)"
         ENDED_COMPLETE: "모든 문항을 마침"
         ENDED_PARTIAL: "환자가 중간에 끝냄(부분 결과가 남는다)"
-        EXPIRED: "유휴 초기화 60초로 끝남(UD-17, 멈춘 세션은 만료하지 않는다)"
+        EXPIRED: "유휴 만료로 끝남. 서버가 ACTIVE 세션의 마지막 활동(startSession, submitTurn, requestStaffCall 호출) 뒤 KioskIdleResetSeconds(60초)가 지나면 EXPIRED 로 본다. 만료 판정은 getSessionState, submitTurn, endSession 호출 때와 PURGE_EXPIRED 잡에서 한다. 멈춘(PAUSED) 세션은 만료하지 않는다(UD-17)"
       description: "세션의 상태"
       x-owner: survey-service
-      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 사용자 결정 UD-17(유휴 초기화 60초), D66(5)(위험 정지 중인 세션은 유휴 만료하지 않는다), D85(1)(부분 결과도 상태와 함께 조회), docs/design.md 2절 session 컴포넌트의 진행 규칙"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 사용자 결정 UD-17(유휴 초기화 60초), D66(5)(위험 정지 중인 세션은 유휴 만료하지 않는다), D85(1)(부분 결과도 상태와 함께 조회), docs/design.md 2절 session 컴포넌트의 진행 규칙, 헤드 결정 2026-11-10(kiosk-frontend-002: 유휴 만료의 주체는 서버)"
     PauseReason:
       type: string
       enum: [RISK_SIGNAL, STAFF_CALL]
@@ -404,7 +431,7 @@ components:
       required: [start_code]
       properties:
         start_code: { $ref: "#/components/schemas/StartCodeValue", description: "환자가 입력한 일회용 시작 코드" }
-        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다" }
+        questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다. 키오스크는 먼저 이 칸 없이 보내고 서버가 422 QUESTIONNAIRE_REQUIRED 로 답했을 때만 환자가 고른 값을 더해 다시 보낸다" }
     SessionStarted:
       type: object
       additionalProperties: false
@@ -453,7 +480,7 @@ components:
       required: [session_id, status, ended_at]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "끝난 세션" }
-        status: { $ref: "#/components/schemas/SessionStatus", description: "끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE)" }
+        status: { $ref: "#/components/schemas/SessionStatus", description: "끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE. 이미 유휴로 만료된 세션이면 EXPIRED)" }
         ended_at: { $ref: "#/components/schemas/Timestamp", description: "끝난 때" }
     SessionState:
       type: object
@@ -744,10 +771,10 @@ components:
     QuestionSetVersion:
       type: object
       additionalProperties: false
-      description: "올린 문항 세트의 한 버전. 한 번 저장하면 바뀌지 않는다"
+      description: "올린 문항 세트의 한 버전. 내용은 한 번 저장하면 바뀌지 않고 활성 여부(is_active)만 활성화에 따라 바뀐다"
       x-owner: survey-service
-      x-basis: "D31, D76, U85, U87, ADR 0019(문항 세트는 시스템 밖에서 만들어 올린다)"
-      required: [question_set_version_id, questionnaire_id, version_number, runtime_contract_version, content, content_hash, uploaded_by, created_at]
+      x-basis: "D31, D76, U85, U87, ADR 0019(문항 세트는 시스템 밖에서 만들어 올린다), 변경 요청 admin-console-004(목록에서 활성 버전을 알아야 한다)"
+      required: [question_set_version_id, questionnaire_id, version_number, runtime_contract_version, content, content_hash, uploaded_by, created_at, is_active]
       properties:
         question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "이 버전의 식별자" }
         questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표 식별자" }
@@ -757,6 +784,7 @@ components:
         content_hash: { $ref: "#/components/schemas/Sha256Digest", description: "내용의 해시(서버가 계산한다)" }
         uploaded_by: { $ref: "#/components/schemas/UserId", description: "올린 사람(OIDC 접근 토큰의 sub)" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "버전을 저장한 때" }
+        is_active: { $ref: "#/components/schemas/QuestionSetVersionIsActive", description: "이 버전이 그 문진표의 지금 활성 버전인지" }
     QuestionSetUpload:
       type: object
       additionalProperties: false
@@ -768,6 +796,7 @@ components:
         questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "올릴 문진표(이미 있으면 새 버전이 된다)" }
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "올리는 문항 은행과 칸 키의 정수 버전" }
         content: { $ref: "#/components/schemas/QuestionSetContent", description: "문진표 내용" }
+    QuestionSetVersionIsActive: { type: boolean, examples: [ true ], description: "문항 세트 버전이 그 문진표의 지금 활성 버전이면 참. 문진표마다 활성 버전은 하나이고 활성화하면 이전 활성 버전은 거짓이 된다", x-owner: survey-service, x-basis: "ADR 0019(문항 세트 활성화), docs/design.md 2절(question_bank 의 활성 목록), 변경 요청 admin-console-004" }
     QuestionSetVersionPage:
       type: object
       additionalProperties: false
@@ -912,9 +941,9 @@ components:
     ActionExtractionRules:
       type: object
       additionalProperties: false
-      description: "LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH. 기준 문항과 건너뛰기는 NextItemRuleKind 가 labels.py a_target·next_after 대로 정한다), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다"
+      description: "LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH. 기준 문항과 건너뛰기는 NextItemRuleKind 가 labels.py a_target·next_after 대로 정한다), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다. 값 고쳐 쓰기의 교차 검사 중 R1(횟수가 있으면 마심으로 고친다)과 R3(최대 음주량이 평소 음주량보다 적으면 확인)은 적용하지 않는다(명시적 비활성). 정본(contracts/inputs)에 R3 의 술 종류별 mL 환산표와 R1 의 규칙 데이터가 없고 값을 지어내지 않기 위해서이며 정본 제공은 dataset-change-requests.md 의 DC-11 로 요청했다. R2(횟수가 날수보다 크면 COUNT_EXCEEDS_DAYS 로 되묻는다)의 기간별 날수도 정본에 데이터가 없어 달력의 가장 긴 값 7(주), 31(달), 366(해)을 쓴다. 한 문항에서 REASK 와 CONFIRM 이 한도(ReaskLimit)에 닿으면 서비스가 그 문항을 건너뛴다. 문진 끝에 다시 묻는 재질문 단계는 제품에 없어서 이 명세에는 그 단계의 예외가 없다"
       x-owner: head
-      x-basis: "D104(2)(합격 조건은 데이터 명세), D108(2), D75(3), D115, D97, R7, ADR 0019, docs/design.md 2절(output_guard), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 46655행이 이 저장 규칙의 status 와 save 의 짝, value 가 null 인 status(MISSING·UNCLEAR·UNKNOWN·REJECTED 합 11992 = null 11992)와 맞는다"
+      x-basis: "D104(2)(합격 조건은 데이터 명세), D108(2), D75(3), D115(R1·R3 은 정본에 데이터가 없어 적용하지 않고 R2 만 적용), 변경 요청 model-runtime-002(날수 7·31·366 은 달력의 가장 긴 값이고 학습 정답에서 받아들인 최대 횟수는 주 7, 월 30, 년 15 이며 모두 위반 0), 변경 요청 survey-service-007(재질문 단계는 제품에 없다), D97, R7, ADR 0019, docs/design.md 2절(output_guard), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 46655행이 이 저장 규칙의 status 와 save 의 짝, value 가 null 인 status(MISSING·UNCLEAR·UNKNOWN·REJECTED 합 11992 = null 11992)와 맞는다"
       required: [saved_statuses, null_value_statuses, actions_with_targets, next_item_rules, current_item_rule]
       properties:
         saved_statuses: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ValueStatus" }, description: "save 가 참인 상태들(ANSWERED, CORRECTION)이고 나머지 상태는 save 가 거짓이다(SAVE_RULE)", x-basis: "ValueStatus 값의 수 7, contracts/inputs/SQL.md 6.1(ANSWERED·CORRECTION 만 확정값으로 저장), 실측 status 와 save 의 짝" }
@@ -958,7 +987,7 @@ components:
       enum: [CONFLICT_WITH_PREVIOUS, CONFLICT_MAX_BELOW_USUAL, CONFLICT_DOES_NOT_DRINK, REQUEST_SKIP, REFUSED, OUT_OF_SCHEMA, ASK_PURPOSE, OFF_TOPIC, UNCERTAIN, MISSING, OUT_OF_RANGE, UNKNOWN_UNIT, VAGUE_QUANTITY, OTHER_BEVERAGE, BEVERAGE_MISSING, MISSING_NUMBER, RANGE_SPANS_OPTIONS, INVALID_OPTION, COUNT_EXCEEDS_DAYS, UNPARSED_VALUE]
       x-enum-descriptions:
         CONFLICT_WITH_PREVIOUS: "이번에 말한 값이 저장된 값과 다르다(CONFIRM)"
-        CONFLICT_MAX_BELOW_USUAL: "가장 많이 마신 날의 양이 평소 양보다 적게 나왔다(CONFIRM)"
+        CONFLICT_MAX_BELOW_USUAL: "가장 많이 마신 날의 양이 평소 양보다 적게 나왔다(CONFIRM). model-runtime 의 출력 검증은 이 사유를 규칙으로 만들지 않는다(R3 비활성, ActionExtractionRules)"
         CONFLICT_DOES_NOT_DRINK: "술을 안 마신다는 저장 값과 이번 음주량이 충돌한다(CONFIRM)"
         REQUEST_SKIP: "환자가 넘어가자고 했다(SKIP)"
         REFUSED: "환자가 답하기를 거절했다(SKIP)"
@@ -1482,11 +1511,33 @@ components:
       enum: ["application/vnd.openit.model.package.config.v1+json", "application/vnd.openit.model.adapter.weights.v1", "application/vnd.openit.model.adapter.system-prompt.v1"]
       x-enum-descriptions:
         "application/vnd.openit.model.package.config.v1+json": "모델 패키지의 config 파일. 내용은 ModelPackageManifest(JSON)다"
-        "application/vnd.openit.model.adapter.weights.v1": "어댑터 가중치 파일 한 겹(layer)"
+        "application/vnd.openit.model.adapter.weights.v1": "어댑터 가중치 한 겹(layer). 어댑터 폴더(vLLM 의 LoRA 어댑터: adapter_config.json 과 가중치)를 같은 입력이면 같은 바이트가 되게 묶은 tar 한 파일이다"
         "application/vnd.openit.model.adapter.system-prompt.v1": "어댑터와 짝이 되는 시스템 프롬프트 파일 한 겹(layer)"
       description: "모델 패키지 OCI 아티팩트 안의 파일 하나(config 와 layer)의 미디어 유형"
       x-owner: head
       x-basis: "OCI Image Spec 1.1 descriptor.md(mediaType 은 RFC 6838 형식), manifest.md(config 와 layers 의 descriptor), RFC 6838 3.2(공급자 트리 vnd.), ADR 0019"
+    ModelPackageIsActive: { type: boolean, examples: [ false ], description: "모델 패키지가 지금 활성 패키지(ModelStatus.package_digest)이면 참", x-owner: model-runtime, x-basis: "N07, 변경 요청 admin-console-002(활성 여부), ModelStatus" }
+    ModelPackageSummary:
+      type: object
+      additionalProperties: false
+      description: "게시된 모델 패키지 하나의 요약(식별자, 게시한 때, 활성 여부). 목록표와 평가 보고서는 getModelPackage 로 읽는다"
+      x-owner: model-runtime
+      x-basis: "N07, 변경 요청 admin-console-002(승인자가 목록에서 패키지를 고른다), OCI Image Spec 1.1(매니페스트의 digest 가 식별자), ADR 0019"
+      required: [package_digest, is_active]
+      properties:
+        package_digest: { $ref: "#/components/schemas/OciDigest", description: "패키지의 매니페스트 digest" }
+        published_at: { $ref: "#/components/schemas/Timestamp", description: "게시한 때(OCI 매니페스트의 주석 org.opencontainers.image.created 가 있으면 그 값이고 없으면 없다)" }
+        is_active: { $ref: "#/components/schemas/ModelPackageIsActive", description: "지금 활성인 패키지인지" }
+    ModelPackageList:
+      type: object
+      additionalProperties: false
+      description: "레지스트리에 게시된 모델 패키지 목록 한 쪽"
+      x-owner: model-runtime
+      x-basis: "PageLimit 의 쪽 나누기 규칙, 변경 요청 admin-console-002, N07"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ModelPackageSummary" }, description: "모델 패키지들(최근 것이 먼저)", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
     ModelPackageBlobDescriptor:
       type: object
       additionalProperties: false
@@ -1890,7 +1941,8 @@ components:
     ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, examples: [ 180 ], description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: survey-service, x-basis: "L12(사용자 결정: 180일 유지), C03" }
-    ModelProfileName: { type: string, maxLength: 63, examples: [ "rtx4090-24g" ], description: "추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 사용자 결정 2026-11-10(UD-14)" }
+    ModelProfileName: { type: string, maxLength: 63, examples: [ "rtx4090-24g" ], description: "추론 서버의 GPU 크기별 프로파일 이름. 이름이 가리키는 표(기반 모델, 서빙 크기)는 model-runtime 영역 안의 값이라 영역이 소유하고 이 계약에 싣지 않는다", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 사용자 결정 2026-11-10(UD-14), 헤드 결정 2026-11-10(model-runtime-003 6: 프로파일 표는 영역 안의 값이고 구조 규칙 5 에 따라 영역이 책임진다)" }
+    InferenceEngineUrl: { type: string, format: uri, pattern: "^https?://", maxLength: 8000, examples: [ "http://inference-engine:8000" ], description: "영역 안 추론 엔진(vLLM 의 OpenAI 호환 서버)의 기준 주소. 영역 안 컨테이너 사이 호출이라 http 와 https 를 모두 허용한다", x-owner: model-runtime, x-basis: "헤드 결정 2026-11-10(model-runtime-003 1: 추론 엔진 주소는 환경 입력), RFC 3986 3.1(scheme), TLS 를 의무로 하는 것은 영역 사이 호출이고(C14·D127) 영역 안 호출은 아니다, 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
     HostName: { type: string, format: hostname, maxLength: 253, examples: [ "inference.example.org" ], description: "서버를 가리키는 DNS 호스트 이름(예를 들어 survey-service 나 inference.example)", x-owner: deploy, x-basis: "RFC 1123 2.1, 최대 길이 253 은 RFC 1035 2.3.4" }
     Ipv4Address: { type: string, format: ipv4, maxLength: 15, examples: [ "192.0.2.10" ], description: "IPv4 주소(점으로 구분한 십진 표기)", x-owner: deploy, x-basis: "RFC 2673 3.2 dotted-quad, 최대 길이 15 는 xxx.xxx.xxx.xxx" }
     Ipv6Address: { type: string, format: ipv6, maxLength: 45, examples: [ "2001:db8::10" ], description: "IPv6 주소(콜론 표기, IPv4 가 섞인 표기 포함)", x-owner: deploy, x-basis: "RFC 4291 2.2, 최대 길이 45 는 RFC 4291 2.2 의 IPv4 혼합 표기" }
@@ -1902,6 +1954,26 @@ components:
       description: "서버의 호스트 이름 또는 IP 주소"
       x-owner: deploy
       x-basis: "N13(서버 배치), RFC 1123 2.1(호스트 이름), RFC 4291 2.2 와 RFC 2673 3.2(IP 주소)"
+    HostsTableEntry:
+      type: object
+      additionalProperties: false
+      description: "이름 표의 줄 하나. 호스트 이름을 주소로 찾게 한다"
+      x-owner: model-runtime
+      x-basis: "hosts(5)(줄마다 주소와 이름), 헤드 결정 2026-11-10(model-runtime-003 3), D129(다른 서버에서는 이름 표와 루트 인증서로 https://영역이름 에 닿는다)"
+      required: [name, address]
+      properties:
+        name: { $ref: "#/components/schemas/HostName", description: "찾을 호스트 이름(영역 이름이나 레지스트리 이름)" }
+        address: { $ref: "#/components/schemas/HostAddress", description: "그 이름이 가리키는 서버의 주소" }
+    HostsTable:
+      type: object
+      additionalProperties: false
+      description: "deploy 가 model-runtime 에 파일로 주는 이름 표(다른 서버에 있는 survey-service 와 레지스트리를 찾는다). 다른 서버일 때만 준다"
+      x-owner: model-runtime
+      x-basis: "D129(compose 밖 호출자는 이름 표와 루트 인증서로 닿는다), N13, 헤드 결정 2026-11-10(model-runtime-003 3)"
+      examples: [ { hosts: [ { name: "survey-service", address: "192.0.2.10" }, { name: "registry", address: "192.0.2.11" } ] } ]
+      required: [hosts]
+      properties:
+        hosts: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/HostsTableEntry" }, description: "이름과 주소의 줄들", x-basis: "찾을 이름의 수 최대 6: 영역 서비스 이름 5(ServiceName 값의 수) 더하기 레지스트리 1. 줄 수를 측정하지 않았고 구조에서 나온 값이다" }
     DevicePlacementTable:
       type: object
       additionalProperties: false
@@ -1918,22 +1990,22 @@ components:
       description: "deploy 가 survey-service 에 주는 환경 입력. 비밀은 NAME_FILE 경로로만 준다"
       x-owner: survey-service
       x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
-      required: [OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_MODEL_RUNTIME_URL, OPENIT_MODEL_RUNTIME_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_VAPID_PRIVATE_KEY_FILE, OPENIT_VAPID_SUBJECT, OPENIT_EGRESS_PROXY]
+      required: [OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_MODEL_RUNTIME_URL, OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_VAPID_PRIVATE_KEY_FILE, OPENIT_VAPID_SUBJECT, OPENIT_EGRESS_PROXY]
       properties:
-        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_admin_api" }
-        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_admin_api" }
-        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_admin_api" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람·기계 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절하고 model-runtime 을 부를 기계 토큰도 이 발급자에서 받는다. 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in, link_model_client" }
+        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in" }
+        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 사람·기계 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in" }
         OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api, link_model_client" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api, link_model_client" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스가 이웃을 부를 때 보이는 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 영역 게이트웨이의 인증서 에이전트(ACME, RFC 8555)가 발급·갱신해 영역 안 공유 폴더에 둔다. 서비스는 TLS 를 끝내지 않는다(서버 쪽 TLS 와 클라이언트 인증서 검증은 영역 게이트웨이가 한다). 필요한 컴포넌트: link_model_client" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 클라이언트 인증서에 짝인 개인키 파일(인증서와 같이 영역 게이트웨이의 인증서 에이전트가 발급·갱신해 영역 안 공유 폴더에 둔다). 필요한 컴포넌트: link_model_client" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "영역 안 평문 HTTP 로 요청을 받을 포트. 서비스 컨테이너는 영역 전용 내부 네트워크에서 이 포트를 들으며 영역 게이트웨이만 닿는다(TLS 는 게이트웨이가 끝낸다). 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api" }
         OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 컴포넌트" }
         OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널. 필요한 컴포넌트: link_model_client, link_push" }
         OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "문진 데이터베이스 접속 주소. 필요한 컴포넌트: store" }
         OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "문진 데이터베이스 비밀번호 파일. 필요한 컴포넌트: store" }
         OPENIT_MODEL_RUNTIME_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "추론을 부를 model-runtime 주소. 필요한 컴포넌트: link_model_client" }
-        OPENIT_MODEL_RUNTIME_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-runtime 에 보일 기계 토큰 파일. 필요한 컴포넌트: link_model_client" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_hospital_api, link_risk_in, 실패 사례를 내보내는 link_admin_api" }
+        OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-runtime 을 부를 기계 토큰을 받는 데 쓰는 이 서비스의 Keycloak 기계 클라이언트(machine-survey-service) 비밀 파일. 토큰은 OAuth 2.0 client credentials(RFC 6749 4.4)로 발급자(OPENIT_OIDC_ISSUER_URL)에서 받는다. 필요한 컴포넌트: link_model_client" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 필요한 컴포넌트: link_hospital_api, link_risk_in, 실패 사례를 내보내는 link_admin_api" }
         OPENIT_VAPID_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "웹 푸시 VAPID 개인키 파일. 필요한 컴포넌트: link_push" }
         OPENIT_VAPID_SUBJECT: { $ref: "#/components/schemas/VapidSubject", description: "VAPID 연락처. 필요한 컴포넌트: link_push" }
         SURVEY_FHIR_CANONICAL_BASE_URL: { $ref: "#/components/schemas/FhirCanonicalBaseUrl", description: "FHIR 결과의 questionnaire 정본 URL 의 기준 주소. 필요한 컴포넌트: result" }
@@ -1946,34 +2018,35 @@ components:
     ModelRuntimeEnv:
       type: object
       additionalProperties: false
-      description: "deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다)"
+      description: "deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다). 어댑터 폴더 규칙: model-runtime 은 패키지의 어댑터 폴더를 푼 경로를 추론 엔진에 알려 주고 vLLM 의 LoRA 어댑터 경로(lora_path)는 엔진 컨테이너가 보는 경로이므로, 엔진 컨테이너는 그 폴더(ContainerInputs.writable_paths 에 선언한 유지되는 경로)를 model-runtime 과 같은 경로로 읽기 전용 마운트한다(배치 규칙이며 OPENIT_MODEL_CACHE_DIR 와 별개다)"
       x-owner: model-runtime
       x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
-      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_MODEL_PROFILE, OPENIT_MODEL_CACHE_DIR]
+      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_MODEL_PROFILE, OPENIT_MODEL_CACHE_DIR, OPENIT_INFERENCE_ENGINE_URL]
       properties:
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_api, link_registry" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_api, link_registry" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_api" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트. 필요한 컴포넌트: link_api" }
+        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_registry" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스가 이웃을 부를 때 보이는 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 영역 게이트웨이의 인증서 에이전트(ACME, RFC 8555)가 발급·갱신해 영역 안 공유 폴더에 둔다. 서비스는 TLS 를 끝내지 않는다(서버 쪽 TLS 와 클라이언트 인증서 검증은 영역 게이트웨이가 한다). 필요한 컴포넌트: link_registry" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 클라이언트 인증서에 짝인 개인키 파일(인증서와 같이 영역 게이트웨이의 인증서 에이전트가 발급·갱신해 영역 안 공유 폴더에 둔다). 필요한 컴포넌트: link_registry" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "영역 안 평문 HTTP 로 요청을 받을 포트. 서비스 컨테이너는 영역 전용 내부 네트워크에서 이 포트를 들으며 영역 게이트웨이만 닿는다(TLS 는 게이트웨이가 끝낸다). 필요한 컴포넌트: link_api" }
         OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 컴포넌트" }
         OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널(같은 서버에 있을 때). 필요한 컴포넌트: link_registry" }
-        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "활성화 승인과 롤백을 호출하는 사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "활성화 승인과 롤백을 호출하는 사람 접근 토큰과 기계 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api" }
         OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_api" }
-        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api" }
+        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 사람·기계 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api" }
         OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 digest 로 받을 레지스트리 주소(OCI Distribution). 필요한 컴포넌트: link_registry" }
         OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지가 올라 있는 레지스트리 저장소 이름. 필요한 컴포넌트: link_registry" }
-        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 필요한 컴포넌트: link_registry" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_api" }
-        OPENIT_MODEL_PROFILE: { $ref: "#/components/schemas/ModelProfileName", description: "GPU 크기별 프로파일 이름. 필요한 컴포넌트: inference" }
+        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 내용은 한 줄 사용자:비밀번호 이고 OCI Distribution 의 HTTP 기본 인증(RFC 7617)에 쓴다. 필요한 컴포넌트: link_registry" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 필요한 컴포넌트: link_api" }
+        OPENIT_MODEL_PROFILE: { $ref: "#/components/schemas/ModelProfileName", description: "GPU 크기별 프로파일 이름. 이름이 가리키는 표(기반 모델, 서빙 크기)는 model-runtime 영역 안의 값이고 영역이 소유한다. 필요한 컴포넌트: inference" }
         OPENIT_MODEL_CACHE_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "기반 모델 가중치를 받아 두는 유지되는 폴더(모델 허브에서 처음 시작할 때 받는다). 필요한 컴포넌트: inference" }
-        OPENIT_HOSTS_TABLE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(다른 서버일 때만). 필요한 컴포넌트: link_registry" }
+        OPENIT_HOSTS_TABLE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(HostsTable 모양, 다른 서버일 때만). 필요한 컴포넌트: link_registry" }
+        OPENIT_INFERENCE_ENGINE_URL: { $ref: "#/components/schemas/InferenceEngineUrl", description: "영역 안 추론 엔진의 주소. 엔진 컨테이너는 어댑터 폴더를 model-runtime 과 같은 경로로 읽기 전용 마운트한다(ModelRuntimeEnv 의 어댑터 폴더 규칙). 필요한 컴포넌트: inference" }
     ModelLabEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 model-lab 잡에 주는 환경 입력. model-lab 은 상시 서버가 아니라서 요청을 받는 포트와 데이터베이스가 없다"
       x-owner: model-lab
       x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
-      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_SURVEY_SERVICE_URL, OPENIT_SURVEY_SERVICE_TOKEN_FILE, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_DATASET_DIR, OPENIT_WORK_DIR, OPENIT_TRAINING_CONFIG_FILE, OPENIT_EGRESS_PROXY]
+      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_SURVEY_SERVICE_URL, OPENIT_SURVEY_SERVICE_CLIENT_SECRET_FILE, OPENIT_OIDC_ISSUER_URL, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_DATASET_DIR, OPENIT_WORK_DIR, OPENIT_TRAINING_CONFIG_FILE, OPENIT_EGRESS_PROXY]
       properties:
         OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_failure_cases, publish" }
         OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 잡의 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 필요한 컴포넌트: link_failure_cases" }
@@ -1981,10 +2054,11 @@ components:
         OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 잡 단계" }
         OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널. 필요한 컴포넌트: link_failure_cases, publish" }
         OPENIT_SURVEY_SERVICE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "확정된 비식별 실패 사례를 당겨 올 survey-service 주소. 필요한 컴포넌트: link_failure_cases" }
-        OPENIT_SURVEY_SERVICE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "survey-service 에 보일 기계 토큰 파일(권한 case-reader). 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_SURVEY_SERVICE_CLIENT_SECRET_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "survey-service 를 부를 기계 토큰(권한 case-reader)을 받는 데 쓰는 이 잡의 Keycloak 기계 클라이언트(machine-model-lab) 비밀 파일. 토큰은 OAuth 2.0 client credentials(RFC 6749 4.4)로 발급자(OPENIT_OIDC_ISSUER_URL)에서 받는다. 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "기계 토큰을 받을 발급자의 주소(토큰 엔드포인트는 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_failure_cases" }
         OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 게시할 레지스트리 주소(OCI Distribution). 필요한 컴포넌트: publish" }
         OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지를 올릴 레지스트리 저장소 이름. 필요한 컴포넌트: publish" }
-        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에 올릴 때 보일 자격 파일(쓰기 권한). 필요한 컴포넌트: publish" }
+        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에 올릴 때 보일 자격 파일(쓰기 권한). 내용은 한 줄 사용자:비밀번호 이고 OCI Distribution 의 HTTP 기본 인증(RFC 7617)에 쓴다. 필요한 컴포넌트: publish" }
         OPENIT_DATASET_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "데이터셋 담당이 확정한 학습·평가 데이터가 놓인 폴더(읽기). 필요한 컴포넌트: import_dataset" }
         OPENIT_WORK_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "잡 단계 사이의 중간 산출물(학습 입력, 어댑터, 평가 집합)을 두는 유지되는 폴더. 필요한 컴포넌트: prepare, train, evaluate, publish(단계 사이의 중간 산출물)" }
         OPENIT_TRAINING_CONFIG_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "학습·평가 설정 파일(모델 성능 시행착오를 설정으로 바꾼다). 필요한 컴포넌트: prepare, train, evaluate" }
@@ -2047,6 +2121,8 @@ components:
       x-basis: "ADR 0015(입구 인증서 방식), D88 U5(TLS 는 내부 CA 가 기본이고 공인 인증서는 설정), RFC 8555(ACME), docs/design.md 2절 gateway·ca 컴포넌트"
     AcmeDirectoryUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://acme-v02.api.letsencrypt.org/directory" ], description: "ACME 서버의 디렉터리 주소(공개 입구 인증서를 공인 ACME CA 에서 받을 때)", x-owner: platform, x-basis: "RFC 8555 7.1.1(디렉터리 URL), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     AlertReceiverUrl: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:alerts@example.org" ], description: "감시 경보를 받을 주소(https 웹훅 또는 mailto)", x-owner: platform, x-basis: "D10(서버 전체 중단은 서버 밖 감시로 알린다는 감시 배치의 원칙이며 수신처 주소의 위치를 정하지 않는다), RFC 6068(mailto), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
+    SmtpSmarthost: { type: string, pattern: "^[A-Za-z0-9.-]{1,253}:(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})$", maxLength: 259, examples: [ "smtp.example.org:587" ], description: "감시 경보 메일을 내보낼 SMTP 서버의 호스트와 포트(호스트:포트)", x-owner: platform, x-basis: "Prometheus Alertmanager 설정 smtp_smarthost(host:port), RFC 1123 2.1(호스트 이름)과 RFC 9293 3.1(포트 16비트), 최대 길이 259 는 호스트 253(RFC 1035 2.3.4) 더하기 콜론과 포트 5자, 헤드 결정 2026-11-10(platform-001)" }
+    AlertHeartbeatInterval: { type: string, pattern: "^([1-9][0-9]*(ms|s|m|h|d|w|y))+$", maxLength: 32, examples: [ "5m" ], description: "서버 전체가 멈췄음을 수신처가 알아차리게 하는 생존 신호(Watchdog 경보)를 보내는 간격(Prometheus 기간 표기)", x-owner: platform, x-basis: "D10(서버 전체 중단은 서버 밖 감시로 알린다), Prometheus 문서의 기간 표기(숫자와 단위 ms·s·m·h·d·w·y 를 잇는다), 최대 길이 32 는 이 계약의 선택이고 값 자체는 설치처가 정한다. 측정하지 않았다, 헤드 결정 2026-11-10(platform-001)" }
     PlatformEnv:
       type: object
       additionalProperties: false
@@ -2070,8 +2146,14 @@ components:
         OPENIT_DEVICE_ALLOWLIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 허용 목록 파일(DeviceAllowlist 모양). 필요한 컴포넌트: gateway" }
         OPENIT_DEVICE_CA_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 인증서를 발급하는 조직 PKI 의 루트 인증서 파일. 필요한 컴포넌트: gateway" }
         OPENIT_EXPOSURES_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "영역들의 노출 선언(Exposure)을 모은 폴더. 공개 입구가 이것으로 경로를 구성하고 같은 공개 경로를 두 영역이 열면 시작하지 않는다. 필요한 컴포넌트: gateway" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "공개 입구가 기계 토큰 경로를 가르는 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: gateway" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 입구가 기계 토큰 경로를 가르고 identity 가 Keycloak 기계 클라이언트와 역할을 만든다. 필요한 컴포넌트: gateway, identity" }
         OPENIT_ALERT_RECEIVER_URL: { $ref: "#/components/schemas/AlertReceiverUrl", description: "감시 경보 수신처. 필요한 컴포넌트: monitoring" }
+        OPENIT_PUBLIC_NAMES: { type: array, minItems: 1, maxItems: 32, items: { $ref: "#/components/schemas/HostName" }, description: "입구 인증서의 이름(SAN)이자 입구가 서비스하는 이름들. OPENIT_OIDC_ISSUER_URL 의 호스트가 이 안에 있어야 한다(선택). 필요한 컴포넌트: gateway, ca", x-basis: "한 인증서의 이름 수: 호스트 목록 상한(Exposure.egress 의 UD-11, 32)과 같게 맞춘 이 계약의 선택이고 공인 ACME CA 의 대표(Let's Encrypt)의 인증서당 이름 한도 100 을 넘지 않는다. 측정하지 않았다, 헤드 결정 2026-11-10(platform-001)" }
+        OPENIT_INGRESS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "조직이 발급한 입구 인증서 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway" }
+        OPENIT_INGRESS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "조직이 발급한 입구 인증서의 개인키 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway" }
+        OPENIT_SERVICE_PORT: { $ref: "#/components/schemas/ListenPort", description: "입구와 감시가 영역 서비스(https://<서비스 이름>)에 접속하는 포트(선택). 모든 영역 서비스가 같은 포트를 쓰며, 서비스 컨테이너가 영역 안 평문 HTTP 로 듣는 OPENIT_LISTEN_PORT 와는 별개다(요청은 영역 게이트웨이가 받는다). 필요한 컴포넌트: gateway, monitoring" }
+        OPENIT_ALERT_SMTP_SMARTHOST: { $ref: "#/components/schemas/SmtpSmarthost", description: "감시 경보 메일을 내보낼 SMTP 서버(OPENIT_ALERT_RECEIVER_URL 이 mailto 일 때 필수, 선택). 필요한 컴포넌트: monitoring" }
+        OPENIT_ALERT_HEARTBEAT_INTERVAL: { $ref: "#/components/schemas/AlertHeartbeatInterval", description: "생존 신호(Watchdog 경보)를 보내는 간격(선택). 필요한 컴포넌트: monitoring" }
     # ---- 이미지 선언(이미지 라벨), 배치 설정 ----
     ExposureAudience:
       type: string
@@ -2113,15 +2195,15 @@ components:
       oneOf:
         - { $ref: "#/components/schemas/ServiceName" }
         - { $ref: "#/components/schemas/ExternalEgressTarget" }
-      description: "나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트)"
+      description: "나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트). 서비스 이름 platform 은 사람·기계 토큰의 발급자(OIDC 발급자 주소의 호스트와 포트)로 나가는 터널을 뜻한다. 발급자 주소는 설치처 값이라 선언에 못 박지 못한다. 토큰 검증(JWKS)이나 기계 토큰 발급이 필요한 서비스는 egress 에 platform 을 선언한다"
       x-owner: deploy
-      x-basis: "D128(나가는 허용 목록은 Exposure.egress), C11(브라우저 푸시 서비스)(모델 허브), C09(서버 밖 백업 대상), ADR 0019(model-lab 은 survey-service 에서 당겨 오고 레지스트리에 게시한다: 서비스 이름으로 가리킨다)"
+      x-basis: "D128(나가는 허용 목록은 Exposure.egress), C11(브라우저 푸시 서비스)(모델 허브), C09(서버 밖 백업 대상), ADR 0019(model-lab 은 survey-service 에서 당겨 오고 레지스트리에 게시한다: 서비스 이름으로 가리킨다), 헤드 결정 2026-11-10(platform-002: 토큰 발급자는 설치처 값이라 서비스 이름 platform 으로 가리킨다)"
     Exposure:
       type: object
       additionalProperties: false
-      description: "영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다"
+      description: "영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다. 노출 선언은 경로와 대상만 정한다. 경로가 요구하는 역할의 정본은 OpenAPI 3.1 의 작업 security 요구이고 입구 설정 생성기가 노출 선언과 계약 작업의 인증 요구를 곱해 라우트를 만든다(입구가 읽는 것은 영역 코드가 아니라 헤드 소유 계약이다)"
       x-owner: deploy
-      x-basis: "C23, D128(허용 목록은 Exposure.egress), D129, D132"
+      x-basis: "C23, D128(허용 목록은 Exposure.egress), D129, D132, 헤드 결정 2026-11-10(platform-003: ExposureRoute 에 roles 를 더하지 않는다. 역할을 두 곳에 쓰면 어긋나고 OpenAPI 3.1 4.8.30 이 필요한 역할 이름을 작업의 security 요구에 두게 한다)"
       required: [routes, egress]
       properties:
         routes: { type: array, maxItems: 29, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들", x-basis: "이 계약에서 서비스 하나의 작업 수 최대 29(survey-service, 건강 상태와 지표 포함)" }
@@ -2226,7 +2308,7 @@ components:
         encryption_key_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖으로 보내는 백업의 암호화 키 파일" }
         offsite_url: { $ref: "#/components/schemas/OffsiteBackupUrl", description: "서버 밖 백업 대상 주소. 없으면 시작하지 않고 경보(CRIT)를 낸다" }
         offsite_credentials_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖 백업 대상의 자격 파일" }
-    ContractsVersionLabel: { type: string, pattern: "^8\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", maxLength: 64, examples: [ "8.0.0" ], description: "이미지가 따르는 계약 버전(8.x.y)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2(숫자 부분은 선행 0 없이), 8 은 이 계약 문서의 메이저 버전(components.yaml 의 info.version 8.0.0, 요청 모양이 바뀌는 깨지는 변경이라 SemVer 2.0.0 8 에 따라 메이저를 올렸다. contracts/README.md 의 변경 기록)이고 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
+    ContractsVersionLabel: { type: string, pattern: "^9\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", maxLength: 64, examples: [ "9.0.0" ], description: "이미지가 따르는 계약 버전(9.x.y)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2(숫자 부분은 선행 0 없이), 9 는 이 계약 문서의 메이저 버전(components.yaml 의 info.version 9.0.0, 기계 토큰 파일의 칸 이름과 환경 입력의 필수 칸이 바뀌는 깨지는 변경이라 SemVer 2.0.0 8 에 따라 메이저를 올렸다. contracts/README.md 의 변경 기록)이고 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
     ImageDeclaration:
       type: object
       additionalProperties: false
@@ -2295,19 +2377,20 @@ components:
   securitySchemes:
     device_mtls:
       type: mutualTLS
-      description: 키오스크 기기는 mTLS 로 인증한다(RFC 8705 의 상호 TLS 인증). 클라이언트 인증서는 영역 게이트웨이가 조직 PKI 의 CA 와 허용 목록(DeviceAllowlist)으로 검증하고, 서비스에는 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 넘긴다. 서비스는 게이트웨이와의 mTLS 연결로 온 요청의 이 헤더만 믿고, 게이트웨이는 클라이언트가 보낸 같은 헤더를 지우고 다시 쓴다(forward_client_cert_details SANITIZE_SET). 기기 ID 는 헤더의 Subject CN 이다(D136, D113).
+      description: 키오스크 기기는 mTLS 로 인증한다(RFC 8705 의 상호 TLS 인증). 기기 인증서는 입구(Envoy)가 조직 PKI 의 CA 와 허용 목록(DeviceAllowlist)으로 검증하고 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 넘기며, 클라이언트가 보낸 같은 헤더는 지우고 다시 쓴다(forward_client_cert_details SANITIZE_SET). 영역 게이트웨이(Caddy)는 클라이언트 인증서를 요구해 검증하고(area_mtls) 입구의 클라이언트 인증서(SAN 이 gateway)로 온 요청에서만 이 헤더를 서비스로 넘기며 그 밖의 요청에서는 지운다. 서비스 컨테이너는 영역 전용 내부 네트워크에서 평문 HTTP 로 듣고 게이트웨이만 서비스에 닿는 영역 네트워크 구성을 근거로 이 헤더를 믿는다(서비스가 헤더의 출처를 따로 확인하지 않는다). 기기 ID 는 헤더의 Subject CN 이다(D136, D113).
     oidc:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: 사람은 OIDC(Keycloak)로 로그인하고 JWT 접근 토큰(RFC 9068)을 낸다. 서비스는 서명을 IdP 의 공개 키 집합(JWKS, RFC 7517)으로 검증하고 iss, aud, exp 를 확인한다. 읽는 클레임은 UserIdentityClaims 이며 그 밖의 클레임은 허용한다. 발급자 주소는 설치처마다 달라 환경 입력(OidcIssuerUrl)으로 받는다. 필요한 역할(UserRole)은 작업의 security 요구에 역할 이름으로 적는다(OpenAPI 3.1 4.8.30 의 role 이름 목록)(U82, D127).
+      description: 사람은 OIDC(Keycloak)로 로그인하고 JWT 접근 토큰(RFC 9068)을 낸다. 서비스는 서명을 IdP 의 공개 키 집합(JWKS, RFC 7517)으로 검증하고 iss, aud, exp 를 확인한다. aud 가 맞지 않는 토큰은 서비스가 401 로 거절하고, 입구의 jwt_authn 은 같은 토큰을 403 으로 거절할 수 있다(열리지 않는 것은 같다). 읽는 클레임은 UserIdentityClaims 이며 그 밖의 클레임은 허용한다. 발급자 주소는 설치처마다 달라 환경 입력(OidcIssuerUrl)으로 받는다. 필요한 역할(UserRole)은 작업의 security 요구에 역할 이름으로 적는다(OpenAPI 3.1 4.8.30 의 role 이름 목록)(U82, D127).
     machine_token:
       type: http
       scheme: bearer
-      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 필요한 권한은 작업의 security 요구에 권한 이름으로 적는다(D122, D84).
+      bearerFormat: JWT
+      description: 기계 호출은 OAuth 2.0 client credentials(RFC 6749 4.4)로 받은 JWT 접근 토큰(RFC 9068)이다. 호출자는 자기 Keycloak 기계 클라이언트(machine-<호출자 이름>)와 비밀 파일(MachineTokenEntry.client_secret_file)로 토큰 엔드포인트에서 토큰을 받는다. 받는 쪽은 oidc 와 같게 서명(JWKS), iss, aud, exp 를 검증하고 JWT 접근 토큰의 realm_access.roles 로 호출자의 권한(MachineRole)을 가른다. 읽는 클레임은 MachineIdentityClaims 이다. aud 가 맞지 않는 토큰은 서비스가 401 로 거절하고, 입구의 jwt_authn 은 같은 토큰을 403 으로 거절할 수 있다(열리지 않는 것은 같다). 필요한 권한은 작업의 security 요구에 권한 이름으로 적는다(D122, D84).
     area_mtls:
       type: mutualTLS
-      description: 영역 사이 호출은 사설 CA(C14, step-ca)가 발급한 인증서의 mTLS 이다(RFC 8705). 서비스는 같은 CA 의 클라이언트 인증서를 낸 호출만 받는다. 같은 서버 밖에서 오는 외부 기계 호출자(설치처의 의료 정보 시스템, 위험 감지기)는 TLS 와 기계 토큰만으로 오므로 그 작업의 요구에는 이 체계가 없다(D129).
+      description: 영역 사이 호출은 사설 CA(C14, step-ca)가 발급한 인증서의 mTLS 이다(RFC 8705). TLS 는 받는 영역의 게이트웨이(Caddy)가 끝내고 클라이언트 인증서를 요구해 같은 CA 의 인증서를 낸 호출만 받는다(서비스 컨테이너는 게이트웨이만 닿는 영역 네트워크에서 평문 HTTP 로 듣는다). 부르는 서비스는 자기 클라이언트 인증서(OPENIT_TLS_CERTIFICATE_FILE)를 보인다. 같은 서버 밖에서 오는 외부 기계 호출자(설치처의 의료 정보 시스템, 위험 감지기)는 TLS 와 기계 토큰만으로 오므로 그 작업의 요구에는 이 체계가 없다(D129).
   parameters:
     Limit:
       name: limit
@@ -2325,7 +2408,7 @@ components:
       name: X-Forwarded-Client-Cert
       in: header
       required: false
-      description: 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 게이트웨이가 항상 넣는다. 서비스는 게이트웨이와의 mTLS 연결에서만 이 값을 믿는다
+      description: 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다
       schema: { $ref: "#/components/schemas/ForwardedClientCertValue" }
     IdempotencyKey:
       name: Idempotency-Key

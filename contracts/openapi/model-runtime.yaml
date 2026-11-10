@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 추론 서버(model-runtime) API
-  version: 8.0.0
+  version: 9.0.0
   description: >-
     레지스트리의 모델 패키지(OCI 아티팩트)를 digest 로 받아 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고, 적재 상태와 모델 패키지 활성화 승인·롤백을 받는다. 승인한 사람의 신원은 OIDC 접근 토큰(RFC 9068)의 sub 클레임에서 얻는다.
   contact: { name: head }
@@ -60,6 +60,23 @@ paths:
       security: [ { area_mtls: [], machine_token: [inference-caller] }, { oidc: [operator] }, { oidc: [release-approver] } ]
       responses:
         "200": { description: 모델 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/model-packages:
+    get:
+      operationId: listModelPackages
+      tags: [activation]
+      summary: 게시된 모델 패키지 목록 읽기
+      description: 레지스트리에 게시된 모델 패키지(OCI 아티팩트)를 최근 것이 먼저 나오게 쪽으로 나누어 준다. 항목마다 digest, 게시한 때(알 수 있을 때), 지금 활성인지를 담는다. 승인자가 활성화를 승인하기 전에 이 목록에서 패키지를 골라 getModelPackage 로 평가 보고서를 본다(N07, N10). 이 작업은 패키지를 적재하거나 활성화하지 않는다.
+      x-owner: model-runtime
+      security: [ { oidc: [operator] }, { oidc: [release-approver] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 모델 패키지 목록 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageList" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
         "503": { $ref: "../components.yaml#/components/responses/Unavailable" }

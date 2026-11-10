@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 키오스크 화면(kiosk-frontend) API
-  version: 8.0.0
+  version: 9.0.0
   description: >-
     키오스크 화면은 정적 화면이며 서버 작업이 없다. 건강 상태와 지표만 낸다. 서버와의 대화는 survey-service 의 작업으로 한다.
   contact: { name: head }
