@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info: { title: 시험용, version: 0.0.0, description: 린트 자체 시험의 정상 문서, contact: { name: head } }
+servers: [ { url: "https://example.invalid" } ]
+tags: [ { name: t, description: 시험 } ]
+paths:
+  /v1/turns:
+    post:
+      operationId: postTurn
+      tags: [t]
+      summary: 턴 보내기
+      description: 키오스크가 환자 발화 한 턴을 보낸다
+      x-owner: survey-service
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TurnRequest" } } }
+      responses:
+        "200":
+          description: 처리 결과
+          content: { application/json: { schema: { $ref: "#/components/schemas/TurnRequest" } } }
+components:
+  schemas:
+    UserUtterance: { type: string, minLength: 1, maxLength: 1000, description: 환자가 이번 턴에 한 말, x-owner: kiosk-frontend, x-basis: 시험 }
+    TurnCount: { type: integer, minimum: 0, maximum: 500, description: 세션의 턴 수, x-owner: survey-service, x-basis: 시험 }
+    Action: { type: string, enum: [NEXT, REASK], x-enum-descriptions: { NEXT: 다음 문항, REASK: 다시 묻기 }, description: 다음 행동, x-owner: survey-service, x-basis: 시험 }
+    Utterances: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/UserUtterance" }, description: 발화 목록, x-owner: survey-service, x-basis: 시험 }
+    TurnRequest:
+      type: object
+      additionalProperties: false
+      description: 턴 요청
+      x-owner: survey-service
+      x-basis: 시험
+      required: [utterance]
+      properties:
+        utterance: { $ref: "#/components/schemas/UserUtterance", description: 이번 턴의 발화 }
+        history: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/UserUtterance" }, description: 앞선 발화 }

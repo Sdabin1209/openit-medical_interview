@@ -1,0 +1,92 @@
+# openit v7 계약 린트 규칙. 표준 규칙(spectral:oas) 위에, 값마다 뜻·범위·주인·근거를 강제하는 규칙을 더한다.
+extends: [["spectral:oas", "recommended"]]
+functions: [uniqueDescriptions, enumMeanings]
+functionsDir: ./functions
+rules:
+  openit-schema-meaning:
+    description: 컴포넌트 스키마는 뜻(description)이 있어야 한다
+    severity: error
+    given: $.components.schemas[*]
+    then: { field: description, function: truthy }
+  openit-schema-owner-basis:
+    description: 컴포넌트 스키마는 주인(x-owner)과 근거(x-basis)가 있어야 한다
+    severity: error
+    given: $.components.schemas[*]
+    then:
+      - { field: x-owner, function: truthy }
+      - { field: x-basis, function: truthy }
+  openit-property-meaning:
+    resolved: false   # 왜: $ref 를 푼 문서에서는 참조 여부와 참조 옆의 description 을 볼 수 없다
+    description: 객체의 칸마다 뜻(description)이 있어야 한다
+    severity: error
+    given: $.components.schemas[*].properties[*]
+    then: { field: description, function: truthy }
+  openit-property-ref:
+    resolved: false   # 왜: $ref 를 푼 문서에서는 참조 여부와 참조 옆의 description 을 볼 수 없다
+    description: 칸은 컴포넌트를 참조만 한다($ref, 또는 컴포넌트를 담는 배열). 칸에 타입을 직접 정의하지 않는다
+    severity: error
+    given: $.components.schemas[*].properties[*]
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          oneOf:
+            - { required: ["$ref"] }
+            - { required: [type, items, maxItems], properties: { type: { const: array }, items: { required: ["$ref"] } } }
+  openit-string-range:
+    description: 문자열은 범위가 있어야 한다(maxLength, enum, const, 또는 형식 format 중 하나)
+    severity: error
+    given: $.components.schemas[?(@.type == 'string')]
+    then:
+      function: schema
+      functionOptions: { schema: { anyOf: [ { required: [maxLength] }, { required: [enum] }, { required: [const] }, { required: [format] } ] } }
+  openit-number-range:
+    description: 수는 최솟값과 최댓값이 있어야 한다
+    severity: error
+    given: $.components.schemas[?(@.type == 'integer' || @.type == 'number')]
+    then:
+      - { field: minimum, function: defined }
+      - { field: maximum, function: defined }
+  openit-array-range:
+    description: 배열은 최대 개수(maxItems)가 있어야 한다
+    severity: error
+    given: $.components.schemas[?(@.type == 'array')]
+    then: { field: maxItems, function: defined }
+  openit-object-closed:
+    description: 객체는 모르는 칸을 거부해야 한다(additionalProperties false)
+    severity: error
+    given: $.components.schemas[?(@.type == 'object')]
+    then:
+      function: schema
+      functionOptions: { schema: { required: [additionalProperties], properties: { additionalProperties: { const: false } } } }
+  openit-enum-meanings:
+    description: enum 값마다 뜻이 있어야 한다(x-enum-descriptions)
+    severity: error
+    given: $.components.schemas[*]
+    then: { function: enumMeanings }
+  openit-unique-meaning:
+    description: 같은 뜻의 컴포넌트를 두 번 정의하지 않는다
+    severity: error
+    given: $.components.schemas
+    then: { function: uniqueDescriptions }
+  openit-body-ref:
+    resolved: false   # 왜: $ref 를 푼 문서에서는 참조 여부와 참조 옆의 description 을 볼 수 없다
+    description: 요청·응답 본문은 컴포넌트를 참조만 한다. 작업 안에 스키마를 직접 정의하지 않는다
+    severity: error
+    given: ["$.paths[*][*].requestBody.content[*].schema", "$.paths[*][*].responses[*].content[*].schema"]
+    then: { field: "$ref", function: truthy }
+  openit-operation-owner:
+    description: 작업은 주인(x-owner)과 설명이 있어야 한다
+    severity: error
+    given: $.paths[*][get,put,post,delete,patch]
+    then:
+      - { field: x-owner, function: truthy }
+      - { field: description, function: truthy }
+  openit-owner-area:
+    description: 주인(x-owner)은 영역 목록(areas.yaml)의 이름이어야 한다
+    severity: error
+    given: ["$.components.schemas[*].x-owner", "$.paths[*][get,put,post,delete,patch].x-owner"]
+    then:
+      function: enumeration
+      functionOptions:
+        values: [head, boundary-contracts, model-runtime, model-lab, synthetic-data, survey-service, release-gate, ops-feedback, question-authoring, kiosk-frontend, admin-console, platform, deploy, link]

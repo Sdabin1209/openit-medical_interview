@@ -1,0 +1,2 @@
+# 영역 목록(출처: 기존 작업 공간 head/shared/areas.json 의 이름 14개). x-owner 는 이 이름만 쓴다(린트 규칙 openit-owner-area, 일치 시험 lint/tests).
+areas: [head, boundary-contracts, model-runtime, model-lab, synthetic-data, survey-service, release-gate, ops-feedback, question-authoring, kiosk-frontend, admin-console, platform, deploy, link]
