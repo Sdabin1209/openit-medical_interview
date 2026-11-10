@@ -1,5 +1,7 @@
 # survey-service-006: Env 의 TLS 입력과 서비스 틀의 평문 HTTP, 기기 헤더를 믿는 근거가 서로 맞지 않는다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), ADR 0021): TLS 는 영역 게이트웨이(Caddy)가 끝내고 서비스는 영역 전용 네트워크에서 평문 HTTP 다. OPENIT_TLS_*_FILE 은 이웃을 부를 때의 클라이언트 인증서다. 영역 e47d70e, 게이트웨이 a56d244, compose 91cdb3a.
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: 헤드.
 

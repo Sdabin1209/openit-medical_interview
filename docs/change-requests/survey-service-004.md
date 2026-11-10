@@ -1,5 +1,7 @@
 # survey-service-004: 계약 타입 생성기가 format uri 와 같이 있는 pattern 을 버려 PeerBaseUrl 의 https 조건이 생성 모델에서 빠진다
 
+처리됨(생성기 af13587, 영역 e47d70e): 생성기가 format uri 와 pattern 이 같이 있으면 pattern 을 모델에 싣는다. 영역의 따로 확인하는 코드를 지웠다.
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: 헤드.
 

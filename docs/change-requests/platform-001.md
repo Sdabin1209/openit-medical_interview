@@ -1,5 +1,7 @@
 # platform-001: PlatformEnv 에 없는 설치 값
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), platform a56d244): PlatformEnv 에 선택 입력 6개를 더했다.
+
 상태: 요청(헤드 검토 전). 대상 계약: `contracts/components.yaml` 의 `PlatformEnv`(태그 `contracts-v7.0.0`).
 
 ## 문제

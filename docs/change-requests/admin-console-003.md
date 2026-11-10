@@ -1,5 +1,7 @@
 # 변경 요청 admin-console-003: 알림 스트림 이벤트 타입이 생성 타입에 없다
 
+처리됨(화면 77e2eb5, 화면 ADR 0007): 계약은 그대로 두고 생성기 입력에 components.yaml 을 더해 생성 타입에 들였다.
+
 - 영역: admin-console
 - 대상 계약: `contracts/openapi/survey-service.yaml`(`streamStaffAlerts`), `contracts/components.yaml`(`StaffAlertEvent`, `AlertEventName`, `AlertStreamHeartbeatSeconds`)
 - 상태: 헤드 결정 대기. 그동안 화면이 이 세 값을 `src/link/alerts.ts` 에 적고 `tests/contract/contract.test.ts` 가 계약 파일과 대조한다.

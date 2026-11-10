@@ -1,5 +1,7 @@
 # platform-004: 포트의 최솟값과 경보 수신처 방식이 스키마 밖에서 거절된다
 
+처리됨(848dbcb, platform a56d244): AlertReceiverUrl pattern 과 UnprivilegedListenPort(최솟값 1024)를 스키마에 두고 코드의 따로 검사를 지웠다(같은 9.0.0, 태그 전).
+
 상태: 요청(2026-11-11, platform 작업). 대상 계약: `ListenPort`, `AlertReceiverUrl`(`PlatformEnv`).
 
 ## 무엇이 어긋나나

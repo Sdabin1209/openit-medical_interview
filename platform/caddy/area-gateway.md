@@ -19,7 +19,7 @@ TLS 를 이 컨테이너가 끝내므로 서비스 컨테이너는 영역 전용
 | 이름 | 뜻 | 값의 출처 |
 |---|---|---|
 | `OPENIT_AREA_NAME` | 서비스 이름. 인증서의 이름이고 입구가 부르는 이름이다 | 이미지 라벨의 서비스 이름 |
-| `OPENIT_AREA_UPSTREAM` | 영역 안 서비스 주소 `host:port`(평문) | 서비스 컨테이너 이름과 그 `OPENIT_LISTEN_PORT` |
+| `OPENIT_AREA_UPSTREAM` | 영역 안 서비스 주소 `host:port`(평문) | 서비스 컨테이너의 영역 네트워크 전용 별칭(`<영역>-app`, 서비스 이름은 게이트웨이의 backend 별칭과 겹쳐 자기 자신으로 풀릴 수 있다)과 그 `OPENIT_LISTEN_PORT` |
 | `OPENIT_SERVICE_PORT` | TLS 포트(컨테이너 안, 1024 이상). 입구가 이 포트로 접속한다 | 계약 `PlatformEnv.OPENIT_SERVICE_PORT`(`settings.service_port`) |
 | `OPENIT_INTERNAL_ACME_DIRECTORY_URL` | 사설 CA 의 ACME 디렉터리 | 설치 설정(`deploy/env.example`) |
 

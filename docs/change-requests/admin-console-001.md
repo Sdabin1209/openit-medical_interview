@@ -1,5 +1,7 @@
 # 변경 요청 admin-console-001: 로그인한 사용자의 역할을 화면이 알 방법이 계약에 없다
 
+처리됨(platform a56d244, 화면 77e2eb5): /oauth2/userinfo 의 groups 로 확정. Keycloak 매퍼가 realm 역할을 groups 로 내고 oauth2-proxy 는 oidc 제공자를 쓴다. 계약 변경 없음(계약 9.0.0(5f3c616, 848dbcb) README 에 결정 기록).
+
 - 영역: admin-console
 - 대상 계약: `contracts/openapi/survey-service.yaml`, `contracts/components.yaml`(`UserRole`, `UserIdentityClaims`)
 - 상태: 헤드 결정 대기. 그동안 화면은 oauth2-proxy 의 표준 엔드포인트 `/oauth2/userinfo` 의 `groups` 를 쓴다(ADR admin-console 0002).

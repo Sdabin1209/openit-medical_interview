@@ -1,5 +1,7 @@
 # 변경 요청 model-runtime-002: D115 값 고쳐 쓰기 R1·R3 의 규칙 데이터가 없다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), 영역 55b6689): 정본(contracts/inputs)에 술 환산표·R1 규칙이 없어 R1·R3 은 명시적으로 비활성(DISABLED_RULES, DC-11), R2 날수는 달력 최댓값 7·31·366.
+
 - 영역: model-runtime(libs/model-io `core/guard.py`)
 - 대상: `ActionExtractionRules`(규칙 명세), `contracts/inputs`(데이터셋 정본)
 - 상태: 헤드 결정 대기. R1·R3 은 만들지 않았다(값을 지어내지 않기 위해).

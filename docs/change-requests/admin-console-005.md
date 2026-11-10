@@ -1,5 +1,7 @@
 # 변경 요청 admin-console-005: 브라우저가 두 서비스를 한 출처에서 부르는 경로가 계약에 없다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), platform a56d244, 화면 0e5103a, ADR 0021): 각 서비스가 자기 Exposure 로 경로를 선언하고 입구가 합친다. 두 화면은 /console/·/kiosk/ 접두어로 나눴다. 알림 스트림은 입구가 전체 시간 제한을 끈다.
+
 - 영역: admin-console
 - 대상 계약: `contracts/components.yaml`(`Exposure`, `ExposureRoute`), 두 openapi 의 `servers`
 - 상태: 확인 요청. 화면은 같은 출처의 상대 경로(`/v1/...`, `/oauth2/...`)를 쓴다(ADR admin-console 0002).

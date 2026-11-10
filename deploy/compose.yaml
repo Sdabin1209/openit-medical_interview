@@ -408,7 +408,9 @@ services:
       - ./machine-callers.json:/etc/openit/machine-callers.json:ro
       - ./secrets/machine-clients/survey-service:/run/machine-clients/survey-service:ro
       - survey-service-certs:/area-certs:ro
-    networks: [survey-service-area]
+    # 왜 별칭 survey-service-app: 영역 네트워크에서 서비스 이름(survey-service)은 게이트웨이의 backend 별칭과 겹쳐 게이트웨이가 자기 자신으로 풀 수 있다. 게이트웨이는 이 이름으로만 서비스를 부른다
+    networks:
+      survey-service-area: { aliases: [survey-service-app] }
 
   survey-service-gateway:
     <<: *area-gateway
@@ -416,7 +418,7 @@ services:
       step-ca: { condition: service_healthy }
     environment:
       OPENIT_AREA_NAME: survey-service
-      OPENIT_AREA_UPSTREAM: survey-service:8080
+      OPENIT_AREA_UPSTREAM: survey-service-app:8080
       OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
       OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
     volumes:
@@ -470,7 +472,9 @@ services:
       - ./machine-callers.json:/etc/openit/machine-callers.json:ro
       - model-runtime-data:/var/lib/openit/model-runtime
       - model-runtime-certs:/area-certs:ro
-    networks: [model-runtime-area]
+    # 왜 별칭 model-runtime-app: 영역 네트워크에서 서비스 이름(model-runtime)은 게이트웨이의 backend 별칭과 겹쳐 게이트웨이가 자기 자신으로 풀 수 있다. 게이트웨이는 이 이름으로만 서비스를 부른다
+    networks:
+      model-runtime-area: { aliases: [model-runtime-app] }
 
   model-runtime-gateway:
     <<: *area-gateway
@@ -478,7 +482,7 @@ services:
       step-ca: { condition: service_healthy }
     environment:
       OPENIT_AREA_NAME: model-runtime
-      OPENIT_AREA_UPSTREAM: model-runtime:8080
+      OPENIT_AREA_UPSTREAM: model-runtime-app:8080
       OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
       OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
     volumes:
@@ -533,7 +537,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
-    networks: [admin-console-area]
+    # 왜 별칭 admin-console-app: 영역 네트워크에서 서비스 이름(admin-console)은 게이트웨이의 backend 별칭과 겹쳐 게이트웨이가 자기 자신으로 풀 수 있다. 게이트웨이는 이 이름으로만 서비스를 부른다
+    networks:
+      admin-console-area: { aliases: [admin-console-app] }
 
   admin-console-gateway:
     <<: *area-gateway
@@ -541,7 +547,7 @@ services:
       step-ca: { condition: service_healthy }
     environment:
       OPENIT_AREA_NAME: admin-console
-      OPENIT_AREA_UPSTREAM: admin-console:8080
+      OPENIT_AREA_UPSTREAM: admin-console-app:8080
       OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
       OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
     volumes:
@@ -568,7 +574,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp]
-    networks: [kiosk-frontend-area]
+    # 왜 별칭 kiosk-frontend-app: 영역 네트워크에서 서비스 이름(kiosk-frontend)은 게이트웨이의 backend 별칭과 겹쳐 게이트웨이가 자기 자신으로 풀 수 있다. 게이트웨이는 이 이름으로만 서비스를 부른다
+    networks:
+      kiosk-frontend-area: { aliases: [kiosk-frontend-app] }
 
   kiosk-frontend-gateway:
     <<: *area-gateway
@@ -576,7 +584,7 @@ services:
       step-ca: { condition: service_healthy }
     environment:
       OPENIT_AREA_NAME: kiosk-frontend
-      OPENIT_AREA_UPSTREAM: kiosk-frontend:8080
+      OPENIT_AREA_UPSTREAM: kiosk-frontend-app:8080
       OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
       OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
     volumes:

@@ -1,5 +1,7 @@
 # kiosk-frontend-001: 시작 코드에 문진표가 묶였는지 키오스크가 알 방법이 없다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), 영역 e47d70e, 화면 877a72e): startSession 이 422 QUESTIONNAIRE_REQUIRED 로 답한다.
+
 ## 상태
 요청(2026-11-10, kiosk-frontend 작업자). 대상: 헤드.
 

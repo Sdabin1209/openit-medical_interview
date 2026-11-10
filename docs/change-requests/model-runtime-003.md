@@ -1,5 +1,7 @@
 # 변경 요청 model-runtime-003: 환경 입력과 패키지 파일 형식에서 계약이 비어 있는 곳
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), 영역 55b6689, 2a4f576, deploy 91cdb3a, ADR 0021·0022·0023): 8가지 모두 닫았다(엔진 주소 입력, 어댑터 같은 경로 마운트, HostsTable, 기본 인증, 결정적 tar, 프로파일 표는 영역 소유, 게이트웨이 TLS 종단, 라벨 경로).
+
 - 영역: model-runtime
 - 대상 계약: `ModelRuntimeEnv`, `ModelPackageBlobMediaType`, `ModelPackageBlobDescriptor`
 - 상태: 헤드 결정 대기. 아래 임시 선택으로 구현했다(ADR services/model-runtime 0002, 0003).

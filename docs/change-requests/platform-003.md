@@ -1,5 +1,7 @@
 # platform-003: 노출 선언(Exposure)에 요구 역할이 없다 / platform 자신의 익명 경로
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), platform a56d244): 노출 선언 × 작업 security 가 정본(ExposureRoute 에 roles 없음), 로그인 경로는 계약 밖 내부 구현, aud 불일치는 서비스 401·입구 403 을 계약이 인정한다.
+
 상태: 요청(헤드 판단 필요). 대상 계약: `Exposure`, `ExposureRoute`, `ExposureAudience`.
 
 ## 문제 1: 역할은 계약의 OpenAPI 에만 있다

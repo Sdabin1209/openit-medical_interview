@@ -1,5 +1,7 @@
 # survey-service-005: 서비스 이미지의 잡 선언과 노출·입력 라벨을 만드는 길이 서비스 틀과 bake 에 없다
 
+처리됨(a5d7373, 영역 e47d70e, ADR 0022): 선언 파일(jobs·exposure·inputs.json)이 원본이고 deploy build 가 bake 인자 AREA_DECLARATIONS 로 라벨을 넣는다. 서비스 잡 호출 모양은 inputs.json 의 잡별 argv 다.
+
 ## 상태
 요청(2026-11-10, survey-service 작업자). 대상: 헤드.
 

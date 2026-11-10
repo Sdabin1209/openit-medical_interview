@@ -1,5 +1,7 @@
 # platform-002: 기계 토큰의 형태(MachineTokenTable 의 token_file 과 Keycloak 기계 클라이언트)
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), platform a56d244): 기계 토큰은 client credentials JWT 로 확정, MachineTokenEntry.client_secret_file, MachineIdentityClaims.
+
 상태: 요청(헤드 판단 필요). 대상 계약: `MachineTokenTable`, `MachineTokenEntry`, `securitySchemes.machine_token`, `OPENIT_MACHINE_TOKENS_FILE`.
 
 ## 문제

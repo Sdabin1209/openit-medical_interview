@@ -1,5 +1,7 @@
 # 변경 요청 admin-console-002: 승인할 모델 패키지를 찾을 방법이 없다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), 영역 55b6689, 화면 77e2eb5): GET /v1/model-packages(listModelPackages).
+
 - 영역: admin-console
 - 대상 계약: `contracts/openapi/model-runtime.yaml`(`getModelPackage`, `getModelStatus`)
 - 상태: 헤드 결정 대기. 그동안 승인자가 digest 를 직접 입력한다.

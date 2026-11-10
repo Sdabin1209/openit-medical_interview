@@ -1,5 +1,7 @@
 # 변경 요청 admin-console-004: 문항 세트 목록에 어느 버전이 활성인지 없다
 
+처리됨(계약 9.0.0(5f3c616, 848dbcb), 영역 e47d70e, 화면 77e2eb5): QuestionSetVersion.is_active.
+
 - 영역: admin-console
 - 대상 계약: `contracts/openapi/survey-service.yaml`(`listQuestionSetVersions`, `listActiveQuestionnaires`), `contracts/components.yaml`(`QuestionSetVersion`, `QuestionnaireSummary`, `ActiveQuestionSet`)
 - 상태: 헤드 결정 대기. 그동안 화면은 활성화를 막 한 직후의 응답(`ActiveQuestionSet`)만 보인다.
