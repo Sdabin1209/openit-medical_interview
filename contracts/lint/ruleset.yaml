@@ -1,8 +1,15 @@
 # openit v7 계약 린트 규칙. 표준 규칙(spectral:oas) 위에, 값마다 뜻·범위·주인·근거를 강제하는 규칙을 더한다.
 extends: [["spectral:oas", "recommended"]]
-functions: [uniqueDescriptions, enumMeanings]
+functions: [uniqueDescriptions, enumMeanings, examplesValid]
 functionsDir: ./functions
 rules:
+  # 예시 검증: 표준 규칙 oas3-valid-schema-example 은 recommended 묶음에서 꺼져 있어 켠다. 예시(examples)가 스키마를 어기면 오류다.
+  oas3-valid-schema-example: error
+  openit-examples-valid:
+    description: 컴포넌트의 examples 는 자기 스키마를 만족해야 한다(표준 examples 검증)
+    severity: error
+    given: $.components.schemas[*]
+    then: { function: examplesValid }
   openit-schema-meaning:
     description: 컴포넌트 스키마는 뜻(description)이 있어야 한다
     severity: error

@@ -12,6 +12,9 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@stoplight/spectral-cli": "^6.17.1"
+    "@stoplight/spectral-cli": "^6.17.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "yaml": "^2.9.1"
   }
 }
