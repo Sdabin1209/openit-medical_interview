@@ -64,9 +64,25 @@ head 는 영역 사이 값(`x-owner: head`)의 주인이다. boundary-contracts 
 
 LoRA-A 출력의 합격 조건은 조건 하나에 위반 코드 하나다(`ViolationCode`). 출력 형식은 `ActionExtraction` 스키마(`OUTPUT_SCHEMA`), 저장 규칙·targets·next_item·현재 문항은 `ActionExtractionRules`(`SAVE_RULE`, `TARGET_NOT_IN_VALUES`, `NEXT_ITEM_MISMATCH`, `OUT_OF_CURRENT_ITEM`), 문항·칸·자료형·선택지·범위는 요청의 순서표와 칸 규격(`UNKNOWN_ITEM`, `UNKNOWN_SLOT`, `VALUE_TYPE_MISMATCH`, `VALUE_NOT_IN_OPTIONS`, `VALUE_OUT_OF_RANGE`)이 정한다. model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 의미 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다.
 
+## 모델 입력의 글은 model-runtime 이 만든다
+
+`extractAction` 과 `generateResponse` 의 요청(`ExtractionRequest`, `ResponseGenerationRequest`)은 구조화된 값만 싣는다(ADR 0019 의 책임선, 헤드 결정 2026-11-10, 변경 요청 survey-service-002 의 2안). 데이터셋 정본(`inputs/labels.py`, `IO_SPEC.md`)의 표와 규칙으로 만드는 글은 요청에 없고 model-runtime 의 `prompt` 가 만든다.
+
+| 구분 | 서비스가 보내는 값 | model-runtime 이 만드는 것 |
+|---|---|---|
+| LoRA-A 입력 | 지금 묻는 문항(`question_id`), 직전에 물은 문항(`previous_question_id`), 화면에 보인 직전 문장(`current_question`), 환자 발화(`user_utterance`), 저장된 칸 값(`slots`) | 입력 객체와 state(지금 문항, 직전에 물은 문항, 참조 원천 문항 REF_SOURCE 의 저장 값을 `slots` 에서 골라 놓는다) |
+| LoRA-B 입력 | 행동·사유, A 출력의 `values`·`targets`·`note`, 지금 묻던 문항, 직전에 물은 문항, 발화, 저장된 칸 값, 서비스가 정한 다음 자리(`next` 의 종류와 문항) | `topic`, `known`, `ask`, `previous`, `current`, `hold`, `next.text` |
+
+- 서비스가 보내는 글은 화면에 보인 직전 문장과 환자 발화뿐이다. 둘 다 서비스가 화면에서 이미 아는 글이다.
+- **`slots`(저장된 칸 값):** 이번 턴을 반영하기 전에 세션에 저장된 모든 칸 값과 다시 묻는 중인 칸(MISSING·UNCLEAR, 값 null)이다. 서비스는 참조 원천 표(`taxonomy.REF_SOURCE`)를 모르므로 필요한 범위를 고르지 않고 전체를 보낸다. 상한 136은 문항 은행의 칸 수 68(SQL.md 5.2 의 칸 52개 중 술 칸 4개가 술 5종)의 2배이고(`StoredSlots` 의 x-basis), 요청 전체의 크기는 측정하지 않았다. 배열의 순서가 모델 입력 state 의 칸 순서다(D77).
+- **저장 값의 정밀도(precision)는 보내지 않는다.** 정본에서 state 의 항목은 값과 상태뿐이고 이전 값(`previous`)은 항상 `exact` 로 쓴다(`labels.py` `a_state`, `previous_text`). 이번 턴에 정해진 값의 정밀도는 A 출력의 `values` 에 있다.
+- **지운 스키마:** `ActionExtractionInput`, `CollectedState`, `StateEntry`, `StateStatus`, `StateKeyOrder`, `CurrentQuestionText`, `ResponseRequest`, `TopicText`, `KnownText`, `AskText`, `PreviousValueText`, `CurrentValueText`, `HoldText`. 모델 입력 객체와 글 조각은 영역 사이에 오가지 않고 model-runtime 안에서만 만들어져 쓰인다. 구조 규칙 5 에 따라 영역 안 값은 그 영역의 `types` 가 정의하고, model-runtime 과 model-lab 이 같은 규칙을 쓰는 공유 라이브러리 `libs/model-io` 가 가진다(D97). `CurrentQuestionText` 는 `ResponseSentence` 와 같은 뜻의 같은 상한(344)이라 하나로 합쳤다(D117).
+- **계약에 남긴 `ModelInputSerialization`:** 모델 입력의 글자 규칙(키 정렬, 비 ASCII 이스케이프 없음, state 칸 순서)은 model-lab 의 학습 데이터와 model-runtime 의 서빙이 글자까지 같아야 하는 두 영역 사이의 값이라 계약에 둔다(구조 규칙 6). 모델 입력 객체의 칸과 글은 데이터셋 정본이 정한다.
+- **정본에 없어 정하지 못한 것:** (1) 참조 원천 표 `taxonomy.REF_SOURCE` 의 내용(정본 입력에는 예 `Q10 -> Q9_1` 하나뿐이다). (2) `next.text` 를 찾을 문항 문장 표(SQL.md 7.3 의 `data/question_bank.json`)를 model-runtime 이 받는 길(계약에는 모델 패키지 목록표나 요청 어디에도 없다). (3) state 의 칸 순서 규칙(OPEN_GAPS G13: `prev_state.py` 의 시나리오 원래 값이 먼저라는 규칙은 서비스가 모른다). 지금은 `slots` 배열의 순서를 그대로 쓴다.
+
 ## 모델 입출력의 버전
 
-LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본이고, 계약의 해당 값은 그 사본이라 정본과 글자까지 같다. 지금의 사본은 **모델 입출력 v2**(`ModelIoVersion` 의 `model-io-v2`, 데이터셋 `dataset_10_29` 와 `labels.py`)다. 모델 패키지(`ModelPackageManifest`)가 이 버전을 싣는다. 확인 중 상태(`confirming`), 질문의 뜻을 묻는 분류(`MEANING_ASKED`) 같은 v2 에 없는 것은 v2 에 넣지 않고 `model-io-v3-proposal.md`(활성이 아님)와 `dataset-change-requests.md` 에만 둔다.
+LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본이다. 계약에 있는 사본은 LoRA-A 의 출력(`ActionExtraction`과 그 조각)과 모델 입력의 글자 규칙(`ModelInputSerialization`)이고 정본과 글자까지 같다. 모델 입력 객체와 그 글 조각은 계약에 없다(다음 절). 지금의 사본은 **모델 입출력 v2**(`ModelIoVersion` 의 `model-io-v2`, 데이터셋 `dataset_10_29` 와 `labels.py`)다. 모델 패키지(`ModelPackageManifest`)가 이 버전을 싣는다. 확인 중 상태(`confirming`), 질문의 뜻을 묻는 분류(`MEANING_ASKED`) 같은 v2 에 없는 것은 v2 에 넣지 않고 `model-io-v3-proposal.md`(활성이 아님)와 `dataset-change-requests.md` 에만 둔다.
 
 서비스는 적재한 모델 패키지의 모델 입출력 버전에 맞는 모델 통신 컴포넌트로만 모델과 이야기하고, 나머지 컴포넌트는 서비스 내부 타입만 안다. 그 버전을 아는 통신 컴포넌트가 없는 패키지는 적재하지 않는다.
 
@@ -102,6 +118,26 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 5. **결정 기록**의 결정 번호.
 
 위 어느 것에서도 값이 나오지 않은 것은 `user-decisions-needed.md` 에 올려 사용자가 정했고, `x-basis` 는 "사용자 결정 2026-11-10(UD-n)"을 가리킨다.
+
+## 계약의 판과 변경 기록
+
+계약의 판은 Semantic Versioning 2.0.0(MAJOR.MINOR.PATCH)을 따른다. 요청·응답의 모양이 바뀌어 기존 호출자가 깨지면 MAJOR, 하위 호환이 되는 칸·작업·값의 추가는 MINOR, 뜻과 모양이 같은 설명·근거·시험의 고침은 PATCH 를 올린다(SemVer 2.0.0 항목 6~8). 판은 `components.yaml` 과 `openapi/*.yaml` 의 `info.version` 6곳이 같은 값을 갖고, 이미지 라벨 `io.openit.contracts` 의 형식(`ContractsVersionLabel`)이 그 MAJOR 를 가리킨다. 판마다 git 태그 `contracts-vMAJOR.MINOR.PATCH` 를 단다. `package.json` 의 `version` 은 린트·시험 도구 묶음의 값이라 계약의 판과 다르고 올리지 않는다.
+
+### 8.0.0 (2026-11-10, 깨지는 변경)
+
+survey-service-002 의 2안: 모델 입력의 글을 만드는 책임을 model-runtime 으로 옮겼다. 요청 모양이 바뀌어 7.0.0 호출자는 깨진다.
+
+- `ExtractionRequest`: `input`, `state_key_order` 를 지우고 `question_id`, `previous_question_id`(선택), `current_question`, `user_utterance`, `slots` 를 더했다. `runtime_contract_version`, `flow`, `fields` 는 그대로다.
+- `ResponseGenerationRequest`: `input`(`ResponseRequest`)을 지우고 `action`, `reason`, `question_id`, `previous_question_id`, `user_utterance`, `slots`, `values`, `targets`, `note`, `next` 를 본문 칸으로 올렸다(START 에는 `action` 과 `next` 만). `topic`, `known`, `ask`, `previous`, `current`, `hold` 가 없어졌다.
+- `ResponseNext`: `text` 를 지웠다(질문 문장은 model-runtime 이 `question_id` 로 찾는다).
+- 더한 스키마: `StoredSlotStatus`, `StoredSlot`, `StoredSlots`(저장된 칸 값, 상한 136).
+- 지운 스키마: 위 '모델 입력의 글은 model-runtime 이 만든다' 절의 목록 13개.
+- `ModelInputSerialization`, `InsertionOrder` 의 설명을 요청 `slots` 배열의 순서로 고쳤다. `ContractsVersionLabel` 의 형식을 8.x.y 로 바꿨다. `JsonPointer` 의 예를 새 요청의 위치(`/user_utterance`)로 고쳤다.
+- 영향: survey-service 의 `link_model_client`·`turn`, model-runtime 의 `link_api`·`prompt`, `libs/model-io`(`ActionExtractionInput` 을 생성해 쓰던 설정), 그 계약 타입 생성물, 배포의 계약 태그.
+
+### 7.0.0
+
+ADR 0019 의 영역 7개 구성으로 만든 판. 태그 `contracts-v7.0.0`.
 
 ## 점검
 

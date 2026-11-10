@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 7.0.0
+  version: 8.0.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -39,7 +39,7 @@ components:
       description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다"
       x-owner: head
       x-basis: "RFC 9457 3.2(확장 멤버로 상태 코드만으로 가를 수 없는 사유를 낸다). 각 코드는 x-enum-descriptions 에 적은 작업이 쓰고, 그 작업을 맡는 docs/design.md 2절 컴포넌트(output_guard, package_loader, release, session, turn, start_code, failure_case, link_risk_in)가 낸다. 정본에 이름이 있는 코드는 OUTPUT_INVALID(D75(1))와 TURN_IN_PROGRESS(D86)이고 START_CODE_* 의 뜻은 docs/v7-flow-resolutions.md C20(일회용 시작 코드)이다"
-    JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/input/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 사용자 결정 2026-11-10(UD-19)" }
+    JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 사용자 결정 2026-11-10(UD-19)" }
     ProblemFieldError:
       type: object
       additionalProperties: false
@@ -361,7 +361,7 @@ components:
     SessionId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "문진 세션 하나의 식별자. 서버가 발급한다", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D110(서버 발급 session_id)" }
     TurnId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
     UtteranceText: { type: string, minLength: 1, maxLength: 300, examples: [ "뇌졸중 진단 받았고 약도 먹고 있어요" ], description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36,145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배, docs/v7-flow-resolutions.md), 학습 서버 final·finaltest 93,429행 실측(2026-11-10)로 A 입력 46655행의 user_utterance 최대 140자 확인, D88 U3(음성은 기기 안 처리)" }
-    ResponseSentence: { type: string, minLength: 1, maxLength: 344, examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 current_question 이 되므로 CurrentQuestionText 와 같은 상한이다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
+    ResponseSentence: { type: string, minLength: 1, maxLength: 344, examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 추출 요청(ExtractionRequest.current_question)에도 들어가므로 그 자리의 상한을 겸한다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
     QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, examples: [ "Q1.D01" ], description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SessionStatus:
       type: string
@@ -812,33 +812,27 @@ components:
       description: "칸 하나에 담긴 값(예 또는 아니오, 수, 선택지 코드, 자유 글, 값 없음 중 하나)"
       x-owner: head
       x-basis: "데이터셋 학습 데이터 values[].value 의 실측 형식(bool, int, float, str, null), labels.py, SQL.md 의 data_type 5종"
-    StateStatus:
+    StoredSlotStatus:
       type: string
       enum: [ANSWERED, MISSING, UNCLEAR]
       x-enum-descriptions: { ANSWERED: "답이 저장되어 있다", MISSING: "앞 턴에서 빠져 다시 물은 칸이다(값 null)", UNCLEAR: "앞 턴에서 불분명해 다시 물은 칸이다(값 null)" }
-      description: "LoRA-A 입력 state 안의 칸 하나의 상태"
-      x-owner: head
-      x-basis: "데이터셋 labels.py a_state(ANSWERED 와 pending_rows 의 status), 실측 학습 데이터 state 의 status 값 3종"
-    StateEntry:
+      description: "서비스가 저장하고 있는 칸 하나의 상태"
+      x-owner: survey-service
+      x-basis: "데이터셋 labels.py a_state(저장 값은 ANSWERED, pending_rows 는 앞 턴에서 비거나 불분명해 다시 물은 칸의 status), SQL.md 7.1(resolution_status PARTIAL·AMBIGUOUS 는 MISSING·UNCLEAR), 실측 학습 데이터 state 의 status 값 3종"
+    StoredSlot:
       type: object
       additionalProperties: false
-      description: "state 안의 칸 하나(저장된 값과 상태)"
-      x-owner: head
-      x-basis: "데이터셋 labels.py a_state, 실측 학습 데이터 state 항목의 키(value, status)"
-      required: [value, status]
+      description: "서비스가 저장하고 있는 칸 하나(어느 칸인지, 저장된 값, 상태)"
+      x-owner: survey-service
+      x-basis: "데이터셋 labels.py a_state(칸 키와 value·status), SQL.md 7.1(current_answers 의 확정값과 다시 묻는 중인 칸)"
+      required: [key, value, status]
       properties:
+        key: { $ref: "#/components/schemas/SlotRefString", description: "저장된 칸" }
         value: { $ref: "#/components/schemas/SlotAnswer", description: "저장된 값(다시 물은 칸이면 null)" }
-        status: { $ref: "#/components/schemas/StateStatus", description: "칸의 상태" }
-    CollectedState:
-      type: object
-      additionalProperties: false
-      patternProperties:
-        "^[A-Za-z0-9_.]+(\\[[a-z]+\\])?\\.[a-z][a-z0-9_]*$": { $ref: "#/components/schemas/StateEntry" }
-      maxProperties: 18
-      description: "칸을 가리키는 키(문항.칸, 술은 문항[술코드].칸)에서 그 칸의 값과 상태로 가는 표. 항목의 순서가 의미를 가진다(모델 입력 글자는 학습 데이터와 같게 만든다)"
-      x-owner: head
-      x-basis: "데이터셋 labels.py a_state(state 의 의미), D77(state 안은 삽입 순서 보존), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 입력 state 항목 수 최대 9. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)로 18"
-    CurrentQuestionText: { type: string, maxLength: 344, examples: [ "안녕하세요. 먼저 질환부터 여쭤볼게요. 뇌졸중으로 진단받으셨거나 현재 약물 치료 중이신가요?" ], description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문). 환자의 말은 이 질문에 대한 답으로 읽는다", x-owner: head, x-basis: "데이터셋 labels.py a_input(current_question), IO_SPEC.md 2.1(상담원이 방금 한 말), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(사용자 말은 직전 화면 질문에 대한 답으로 읽는다), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): current_question 최대 172자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)로 344" }
+        status: { $ref: "#/components/schemas/StoredSlotStatus", description: "칸의 상태" }
+      if: { properties: { status: { enum: [MISSING, UNCLEAR] } }, required: [status], x-basis: "labels.py a_state: pending_rows(앞 턴에서 비거나 불분명해 다시 물은 칸)는 value 를 None 으로 쓴다" }
+      then: { properties: { value: { type: "null" } }, x-basis: "labels.py a_state: 다시 물은 칸은 값 없이 상태만 넣는다(SQL.md 7.1)" }
+    StoredSlots: { type: array, maxItems: 136, items: { $ref: "#/components/schemas/StoredSlot" }, description: "이번 턴을 반영하기 전에 세션에 저장된 모든 칸 값과 다시 묻는 중인 칸의 목록. 배열의 순서가 모델 입력 state 에서 칸을 놓을 순서다. 같은 칸이 다시 나오면 값은 나중 것을 쓰고 자리는 처음 나온 자리를 쓴다(a_state 가 dict 에 쓰는 규칙). 이 중 어느 문항의 칸을 모델 입력에 넣을지는 model-runtime 이 정한다", x-owner: survey-service, x-basis: "IO_SPEC.md 2.1(state 는 지금 문항·직전에 물은 문항·참조 원천 문항(REF_SOURCE)의 저장 값이고, 참조 원천 문항의 표 taxonomy.REF_SOURCE 는 데이터셋 정본이라 서비스는 모른다), SQL.md 7.1, D77(state 안은 삽입 순서 보존), RFC 8259 5(배열은 순서가 있는 값의 나열), ADR 0019(모델 입력 글과 문항 고르기는 model-runtime). 상한 136: 문항 은행의 칸(키) 수는 SQL.md 5.2 의 칸 52개 중 반복 키가 있는 4개(Q7_1.amount, Q7_1.unit, Q7_2.amount, Q7_2.unit)가 각각 술 5종이라 52−4+4×5 = 68이고, 상한은 같은 문항 은행의 칸 규격(QuestionFieldSpecs 52개의 2배 104)과 같은 방식으로 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)다. 요청 전체의 크기는 측정하지 않았다" }
     ModelIoFeature:
       type: string
       enum: [CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN]
@@ -877,18 +871,6 @@ components:
       description: "모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다"
       x-owner: head
       x-basis: "IO_SPEC.md 머리말(LoRA-A·B 입력·출력 형식 v2 확정, 2026-10-13), D74(입출력은 데이터셋 정의가 정본이고 바꿀 수 없다), D75(2)(모델 패키지가 학습한 버전), D77, docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(v3 는 데이터셋 반영과 재학습 뒤). model-io-v2·model-io-v3 의 글자 표기는 이 계약의 정의다"
-    ActionExtractionInput:
-      type: object
-      additionalProperties: false
-      description: "LoRA-A 의 입력. 지금 묻는 문항과 상담원이 한 말과 환자의 말과 저장된 값들"
-      x-owner: head
-      x-basis: "D74(입출력은 데이터셋 정의가 정본), 데이터셋 labels.py a_input 과 실측 학습 데이터 A 입력 키 4개, D77(글자 단위로 학습 입력과 같은 직렬화)"
-      required: [question_id, current_question, user_utterance, state]
-      properties:
-        question_id: { $ref: "#/components/schemas/QuestionItemId", description: "지금 묻고 있는 문항" }
-        current_question: { $ref: "#/components/schemas/CurrentQuestionText", description: "상담원이 방금 한 말" }
-        user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말" }
-        state: { $ref: "#/components/schemas/CollectedState", description: "지금 문항과 직전 문항과 참조 문항의 저장 값들" }
     NextItemRuleKind:
       type: string
       enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
@@ -910,7 +892,7 @@ components:
       type: string
       enum: [CURRENT_ITEM, ITEM_RANGE_TO_NEXT_ITEM, ITEM_FAMILY]
       x-enum-descriptions:
-        CURRENT_ITEM: "지금 묻는 문항(요청의 input.question_id)의 칸"
+        CURRENT_ITEM: "지금 묻는 문항(요청의 question_id)의 칸"
         ITEM_RANGE_TO_NEXT_ITEM: "순서표 순서에서 지금 문항부터 출력의 next_item 까지 구간 안의 문항의 칸(건너뛴 문항 포함)"
         ITEM_FAMILY: "지금 문항과 같은 문항 계열의 문항의 칸. 계열은 문항 식별자에서 첫 _ 또는 . 앞 부분이 같은 문항들이다(Q7_1 과 Q7_2 는 Q7 계열, Q1.D01 과 Q1.D02 는 Q1 계열)"
       description: "저장하는 값의 칸이 있어도 되는 자리의 종류"
@@ -942,18 +924,18 @@ components:
         current_item_rule: { $ref: "#/components/schemas/CurrentItemRule", description: "저장하는 값의 칸이 있어도 되는 자리와 정정 예외(OUT_OF_CURRENT_ITEM)" }
     AlphabeticalOrder: { type: string, const: alphabetical, description: "키를 문자 순(유니코드 코드 포인트 순)으로 정렬해 쓴다는 뜻", x-owner: head, x-basis: "D77(A 는 최상위 키 알파벳 순, B 는 모든 수준 정렬)" }
     EnsureAscii: { type: boolean, const: false, description: "모델 입력 글자에서 비 ASCII 글자를 이스케이프하지 않는다는 뜻(항상 거짓)", x-owner: head, x-basis: "D77(json.dumps 의 ensure_ascii=False)" }
-    InsertionOrder: { type: string, const: insertion, description: "키를 요청이 정한 순서대로 쓴다는 뜻(state_key_order)", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존)" }
+    InsertionOrder: { type: string, const: insertion, description: "키를 요청의 slots 배열이 정한 순서대로 쓴다는 뜻", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존)" }
     ModelInputSerialization:
       type: object
       additionalProperties: false
-      description: "모델 입력 글자의 직렬화 규칙(데이터). 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청의 state_key_order 가 정한다"
+      description: "모델 입력 글자의 직렬화 규칙(데이터). model-runtime 이 데이터셋 정본(labels.py)으로 만든 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청 slots 배열의 순서가 정한다"
       x-owner: head
-      x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4, 실측 학습 파일 A 와 B 의 user 메시지"
+      x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4(객체의 순서는 의미가 없다)와 5(배열은 순서가 있다), 실측 학습 파일 A 와 B 의 user 메시지. 모델 입력 객체 자체는 model-runtime 안의 값이지만(구조 규칙 5) 이 글자 규칙은 model-lab 의 학습 데이터와 model-runtime 의 서빙이 같아야 하는 두 영역 사이 값이라 계약에 둔다(구조 규칙 6)"
       required: [ensure_ascii, a_top_level_key_order, a_nested_key_order, b_key_order]
       properties:
         ensure_ascii: { $ref: "#/components/schemas/EnsureAscii", description: "비 ASCII 글자를 이스케이프할지(항상 거짓)" }
         a_top_level_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-A 입력의 최상위 키 순서" }
-        a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 키 순서(요청이 정한 순서)" }
+        a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 키 순서(요청 slots 배열의 순서)" }
         b_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-B 입력의 모든 수준의 키 순서" }
     ExtractionAction:
       type: string
@@ -1055,18 +1037,20 @@ components:
         - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason], x-basis: "IO_SPEC.md 2.2(REDIRECT 의 OUT_OF_SCHEMA 는 note 로 짧은 요약을 넣는다), labels.py a_target 의 note" }
           then: { required: [note], x-basis: "IO_SPEC.md 2.2" }
           else: { not: { required: [note] }, x-basis: "labels.py a_target: note 는 OUT_OF_SCHEMA 일 때만 있다" }
-    StateKeyOrder: { type: array, maxItems: 18, items: { $ref: "#/components/schemas/SlotRefString" }, description: "state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존), RFC 8259 4(객체의 순서는 의미가 없다), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): state 항목 수 최대 9. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)로 18" }
     ExtractionRequest:
       type: object
       additionalProperties: false
-      description: "추론 서버에 LoRA-A 추출을 요청하는 본문"
+      description: "추론 서버에 LoRA-A 추출을 요청하는 본문. 지금 묻는 문항, 상담원이 방금 한 말, 환자의 말, 저장된 칸 값, 순서표, 칸 규격의 구조화된 값만 싣는다. 모델 입력의 글자와 state 에 넣을 문항의 선택은 model-runtime 이 데이터셋 정본(labels.py, IO_SPEC.md 2.1)으로 만든다"
       x-owner: head
-      x-basis: "N03, D108(1)(input 과 flow), D115(fields), D104(5), D77, D46, ADR 0019 과 docs/design.md 3절(문항 은행 버전은 추출 요청마다 보낸다)"
-      required: [runtime_contract_version, input, state_key_order, flow, fields]
+      x-basis: "N03, ADR 0019, docs/design.md 2절(prompt)과 3절(N03), 헤드 결정 2026-11-10(survey-service-002: 모델 입력 글은 model-runtime 이 만든다), D108(1)(순서표), D115(fields), D104(5), D77, D46, 데이터셋 labels.py a_input·a_state, IO_SPEC.md 2.1(입력 4키와 state 규칙)"
+      required: [runtime_contract_version, question_id, current_question, user_utterance, slots, flow, fields]
       properties:
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다" }
-        input: { $ref: "#/components/schemas/ActionExtractionInput", description: "모델에 들어가는 입력" }
-        state_key_order: { $ref: "#/components/schemas/StateKeyOrder", description: "input.state 의 칸 키를 모델 입력 글자에서 놓을 순서" }
+        question_id: { $ref: "#/components/schemas/QuestionItemId", description: "지금 묻고 있는 문항(모델 입력의 question_id)" }
+        previous_question_id: { $ref: "#/components/schemas/QuestionItemId", description: "대화에서 직전에 물은 문항(건너뛰기를 반영한 것, IO_SPEC.md 2.1 의 state 규칙). 첫 문항이면 없다. 세션의 진행을 아는 쪽만 알 수 있어 서비스가 보낸다(ADR 0019 의 책임선)" }
+        current_question: { $ref: "#/components/schemas/ResponseSentence", description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문, 모델 입력의 current_question). 서비스가 화면에 보인 글이라 서비스가 보낸다. 환자의 말은 이 질문에 대한 답으로 읽는다" }
+        user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말" }
+        slots: { $ref: "#/components/schemas/StoredSlots", description: "이번 턴을 반영하기 전에 저장된 칸 값들. model-runtime 이 지금 문항·직전에 물은 문항·참조 원천 문항의 것만 골라 모델 입력 state 로 쓴다" }
         flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "출력의 다음 문항을 보증하는 순서표" }
         fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "출력 값을 보증하는 칸 규격들" }
     ExtractionResult:
@@ -1093,79 +1077,55 @@ components:
       description: "응답 뒤에 가는 자리의 종류"
       x-owner: head
       x-basis: "데이터셋 B 시스템 프롬프트(next.type), 실측 학습 데이터 next.type 3종"
-    TopicText: { type: string, maxLength: 88, examples: [ "뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지" ], description: "지금 다루는 문항을 사람 말로 풀어 쓴 설명(예를 들어 뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지)", x-owner: head, x-basis: "데이터셋 labels.py topic(), IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 topic 최대 44자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
-    KnownText: { type: string, maxLength: 124, examples: [ "진단 받음, 지금 약 먹음" ], description: "이번 턴에 정해진 값을 사람 말로 되짚은 문장들(쉼표로 이은 글)", x-owner: head, x-basis: "데이터셋 labels.py b_input 의 known, IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 known 최대 62자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
-    AskText: { type: string, maxLength: 92, examples: [ "일주일에 며칠 하는지" ], description: "되묻거나 확인할 내용을 사람 말로 쓴 문장 틀", x-owner: head, x-basis: "데이터셋 labels.py ask_text, IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 ask 최대 46자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
-    PreviousValueText: { type: string, maxLength: 30, examples: [ "일주일에 3일" ], description: "CONFIRM 에서 이전에 저장된 값을 사람 말로 쓴 글", x-owner: head, x-basis: "데이터셋 labels.py previous_text, IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 previous 최대 15자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
-    CurrentValueText: { type: string, maxLength: 30, examples: [ "일주일에 5일" ], description: "CONFIRM 에서 이번에 말한 값을 사람 말로 쓴 글", x-owner: head, x-basis: "데이터셋 labels.py b_input 의 current, IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 current 최대 15자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
-    HoldText: { type: string, maxLength: 36, examples: [ "일반담배 중 피운 기간" ], description: "HOLD 나 SKIP 으로 비워 두는 부분의 이름", x-owner: head, x-basis: "데이터셋 labels.py hold_text, IO_SPEC.md 4.1(B 입력), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 hold 최대 18자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
     ResponseNext:
       type: object
       additionalProperties: false
-      description: "응답 뒤에 가는 자리(종류, 문항, 그 질문 문장)"
+      description: "응답 뒤에 가는 자리(종류와 문항). 그 문항의 질문 문장은 model-runtime 이 만든다"
       x-owner: head
-      x-basis: "데이터셋 labels.py b_input 의 next, 실측 학습 데이터 next 의 키(type, question_id, text)"
+      x-basis: "데이터셋 labels.py b_input 의 next(type, question_id), IO_SPEC.md 4.1, 헤드 결정 2026-11-10(next.text 는 model-runtime 이 question_id 로 찾는다), 실측 학습 데이터 next 의 키(type, question_id, text)"
       required: [type]
       properties:
         type: { $ref: "#/components/schemas/ResponseNextType", description: "자리의 종류" }
         question_id: { $ref: "#/components/schemas/QuestionItemId", description: "가는 문항(END 에는 없다)" }
-        text: { $ref: "#/components/schemas/QuestionText", description: "그 문항의 질문 문장(END 에는 없다)" }
       if: { properties: { type: { const: END } }, required: [type], x-basis: "labels.py b_input: next_item 이 END 면 next 는 type END 만 가진다(IO_SPEC.md 5.9)" }
-      then: { not: { anyOf: [ { required: [question_id] }, { required: [text] } ] }, x-basis: "labels.py b_input: END 의 next 에는 question_id 와 text 가 없다" }
-      else: { required: [question_id, text], x-basis: "labels.py b_input: NEXT 와 SAME 의 next 는 question_id 와 text 를 가진다" }
-    ResponseRequest:
+      then: { not: { required: [question_id] }, x-basis: "labels.py b_input: END 의 next 에는 question_id 와 text 가 없다" }
+      else: { required: [question_id], x-basis: "labels.py b_input: NEXT 와 SAME 의 next 는 question_id 를 가진다(text 는 model-runtime 이 만든다)" }
+    ResponseGenerationRequest:
       type: object
       additionalProperties: false
-      description: "LoRA-B 의 입력(모델 입출력 v2). 어떤 절차로 어떤 문장을 만들지와 다음에 갈 자리를 알려 주는 모든 것"
+      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold, next.text)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다"
       x-owner: head
-      x-basis: "N03, D74, D77, 데이터셋 labels.py b_input 과 start_b_input, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
-      required: [action, topic, next]
+      x-basis: "N03, D46, D77, ADR 0019, docs/design.md 2절(prompt)과 3절(N03), 헤드 결정 2026-11-10(survey-service-002: 모델 입력 글은 model-runtime 이 만든다), 데이터셋 labels.py b_input 과 start_b_input(원재료: a_out, asked_item, utterance, state), IO_SPEC.md 3장과 4.1, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
+      required: [runtime_contract_version, action, next]
       properties:
-        action: { $ref: "#/components/schemas/ResponseAction", description: "문장을 만들 절차" }
-        reason: { $ref: "#/components/schemas/ActionReason", description: "그 절차의 사유" }
-        topic: { $ref: "#/components/schemas/TopicText", description: "지금 다루는 문항의 설명" }
+        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다" }
+        action: { $ref: "#/components/schemas/ResponseAction", description: "문장을 만들 절차(A 출력의 action, 시작이면 START)" }
+        reason: { $ref: "#/components/schemas/ActionReason", description: "그 절차의 사유(A 출력의 reason)" }
+        question_id: { $ref: "#/components/schemas/QuestionItemId", description: "A 를 부를 때 지금 묻고 있던 문항(START 에는 없다). 값이 없는 보류·거절에서 비우는 부분을 가리킬 때 쓴다" }
+        previous_question_id: { $ref: "#/components/schemas/QuestionItemId", description: "대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다" }
         user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말(START 에는 없다)" }
-        known: { $ref: "#/components/schemas/KnownText", description: "이번 턴에 정해진 값의 설명(START 에는 없다)" }
-        ask: { $ref: "#/components/schemas/AskText", description: "REASK 와 CONFIRM 에서 되묻는 내용" }
-        previous: { $ref: "#/components/schemas/PreviousValueText", description: "CONFIRM 에서 이전에 저장된 값" }
-        current: { $ref: "#/components/schemas/CurrentValueText", description: "CONFIRM 에서 이번에 말한 값" }
-        hold: { $ref: "#/components/schemas/HoldText", description: "HOLD 와 SKIP 에서 비워 두는 부분" }
-        note: { $ref: "#/components/schemas/OutOfSchemaNote", description: "REDIRECT 의 OUT_OF_SCHEMA 에서 환자가 말한 문진표 밖 건강 이야기" }
-        next: { $ref: "#/components/schemas/ResponseNext", description: "응답 뒤에 가는 자리" }
+        slots: { $ref: "#/components/schemas/StoredSlots", description: "이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다)" }
+        values: { $ref: "#/components/schemas/ExtractedValues", description: "A 출력의 values 그대로(START 에는 없다). 이번 턴에 정해진 값과 충돌한 값의 원재료다" }
+        targets: { $ref: "#/components/schemas/SlotRefStrings", description: "A 출력의 targets 그대로(REASK, CONFIRM, HOLD, SKIP)" }
+        note: { $ref: "#/components/schemas/OutOfSchemaNote", description: "A 출력의 note 그대로(REDIRECT 의 OUT_OF_SCHEMA)" }
+        next: { $ref: "#/components/schemas/ResponseNext", description: "응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항)" }
       allOf:
         - if: { properties: { action: { const: START } }, required: [action], x-basis: "labels.py start_b_input 와 IO_SPEC.md 5.1(문진 시작은 환자 말 없이 LoRA-A 를 부르지 않는다)" }
-          then: { not: { anyOf: [ { required: [reason] }, { required: [user_utterance] }, { required: [known] }, { required: [ask] }, { required: [previous] }, { required: [current] }, { required: [hold] }, { required: [note] } ] }, properties: { next: { properties: { type: { const: NEXT } } } }, x-basis: "start_b_input 은 action, topic, next 만 만들고 next.type 은 NEXT 다" }
-        - if: { properties: { action: { enum: [NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT] } }, required: [action], x-basis: "labels.py b_input(action 이 START 가 아니면 user_utterance 와 known 을 항상 만든다)" }
-          then: { required: [user_utterance, known], x-basis: "labels.py b_input: topic, user_utterance, known 은 START 밖의 모든 action 에 있다" }
-        - if: { properties: { action: { enum: [NEXT, CORRECT] } }, required: [action], x-basis: "labels.py a_target 과 labels.py b_input(NEXT 와 CORRECT 에는 reason 이 없다)" }
-          then: { not: { anyOf: [ { required: [reason] }, { required: [ask] }, { required: [previous] }, { required: [current] }, { required: [hold] } ] }, x-basis: "labels.py b_input: reason 은 A 출력에 있을 때만, ask 는 REASK·CONFIRM, previous·current 는 CONFIRM, hold 는 HOLD·SKIP 에서만 만든다" }
-        - if: { properties: { action: { enum: [REASK, CONFIRM, HOLD, SKIP, REDIRECT] } }, required: [action], x-basis: "labels.py a_target(reason 은 NEXT·CORRECT 가 아닐 때 붙는다)" }
-          then: { required: [reason], x-basis: "IO_SPEC.md 1장(이 action 들의 reason 표)" }
-        - if: { properties: { action: { const: REASK } }, required: [action], x-basis: "labels.py b_input(ask 는 REASK·CONFIRM 에서 만든다)" }
-          then: { required: [ask], not: { anyOf: [ { required: [previous] }, { required: [current] }, { required: [hold] } ] }, x-basis: "IO_SPEC.md 4.1: REASK 는 ask 가 있고 previous·current·hold 는 없다" }
-        - if: { properties: { action: { const: CONFIRM } }, required: [action], x-basis: "labels.py b_input(CONFIRM 은 ask, previous, current 를 만든다)" }
-          then: { required: [ask, previous, current], not: { required: [hold] }, x-basis: "IO_SPEC.md 4.1 과 5.5: CONFIRM 은 ask·previous·current 가 있고 hold 는 없다" }
-        - if: { properties: { action: { enum: [HOLD, SKIP] } }, required: [action], x-basis: "labels.py b_input(hold 는 HOLD·SKIP 에서 만든다)" }
-          then: { required: [hold], not: { anyOf: [ { required: [ask] }, { required: [previous] }, { required: [current] } ] }, x-basis: "IO_SPEC.md 5.7: HOLD·SKIP 은 hold 가 있고 ask·previous·current 는 없다" }
-        - if: { properties: { action: { const: REDIRECT } }, required: [action], x-basis: "IO_SPEC.md 5.8(REDIRECT)" }
-          then: { not: { anyOf: [ { required: [ask] }, { required: [previous] }, { required: [current] }, { required: [hold] } ] }, x-basis: "IO_SPEC.md 5.8: REDIRECT 에는 ask·previous·current·hold 가 없다" }
+          then: { not: { anyOf: [ { required: [reason] }, { required: [question_id] }, { required: [previous_question_id] }, { required: [user_utterance] }, { required: [slots] }, { required: [values] }, { required: [targets] }, { required: [note] } ] }, properties: { next: { properties: { type: { const: NEXT } } } }, x-basis: "start_b_input 은 action, topic, next 만 만들고 next.type 은 NEXT 다. topic 은 next 의 문항에서 model-runtime 이 만든다" }
+          else: { required: [question_id, user_utterance, slots, values], x-basis: "labels.py b_input(질문 문항·발화·저장 값·A 출력의 값은 START 밖의 모든 action 의 원재료다)" }
+        - if: { properties: { action: { enum: [NEXT, CORRECT] } }, required: [action], x-basis: "labels.py a_target(NEXT 와 CORRECT 에는 reason 이 없고 targets·note 도 붙지 않는다)" }
+          then: { not: { anyOf: [ { required: [reason] }, { required: [targets] }, { required: [note] } ] }, x-basis: "labels.py a_target: reason 은 NEXT·CORRECT 가 아닐 때, targets 는 REASK·CONFIRM·HOLD·SKIP 에서만, note 는 OUT_OF_SCHEMA 에서만 붙는다" }
+        - if: { properties: { action: { enum: [REASK, CONFIRM, HOLD, SKIP] } }, required: [action], x-basis: "labels.py a_target(이 action 들은 reason 과 targets 를 가진다), IO_SPEC.md 1장" }
+          then: { required: [reason, targets], x-basis: "IO_SPEC.md 1장의 reason 표와 2.2(targets 는 해당 칸들)" }
+        - if: { properties: { action: { const: REDIRECT } }, required: [action], x-basis: "IO_SPEC.md 1장(REDIRECT 의 reason: ASK_PURPOSE, OFF_TOPIC, OUT_OF_SCHEMA), labels.py a_target" }
+          then: { required: [reason], not: { required: [targets] }, x-basis: "labels.py a_target: targets 는 REDIRECT 에 붙지 않는다" }
         - if: { properties: { action: { enum: [REASK, CONFIRM, REDIRECT] } }, required: [action], x-basis: "labels.py b_input(SAME_ITEM_ACTIONS = REASK, CONFIRM, REDIRECT 는 next.type 이 SAME)" }
-          then: { properties: { next: { properties: { type: { const: SAME } } } }, x-basis: "labels.py b_input: SAME_ITEM_ACTIONS 의 next.type 은 SAME 이다" }
+          then: { properties: { next: { properties: { type: { const: SAME } } } }, x-basis: "labels.py b_input: SAME_ITEM_ACTIONS 의 next.type 은 SAME 이다. 다음 문항이 END 이면 END 다(IO_SPEC.md 5.9)" }
         - if: { properties: { action: { enum: [NEXT, CORRECT, HOLD, SKIP] } }, required: [action], x-basis: "labels.py b_input(그 밖의 action 은 next.type 이 NEXT, 다음 문항이 END 면 END)" }
           then: { properties: { next: { properties: { type: { enum: [NEXT, END] } } } }, x-basis: "labels.py b_input: next_item 이 END 면 END, 아니면 NEXT 다" }
         - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason], x-basis: "IO_SPEC.md 2.2(REDIRECT 의 OUT_OF_SCHEMA 는 note 를 넣는다)" }
           then: { required: [note], x-basis: "labels.py b_input(a_out 에 note 가 있으면 note 를 넣는다)" }
           else: { not: { required: [note] }, x-basis: "labels.py b_input(a_out 에 note 가 있으면 note 를 넣는다)" }
-    ResponseGenerationRequest:
-      type: object
-      additionalProperties: false
-      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
-      x-owner: head
-      x-basis: "N03, D46, D77, ADR 0019 과 docs/design.md 3절"
-      required: [runtime_contract_version, input]
-      properties:
-        runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다" }
-        input: { $ref: "#/components/schemas/ResponseRequest", description: "모델에 들어가는 입력" }
     ResponseResult:
       type: object
       additionalProperties: false
@@ -1815,7 +1775,7 @@ components:
     DatasetRow:
       type: object
       additionalProperties: false
-      description: "LoRA-A 또는 LoRA-B 학습·검증·평가 파일의 한 줄(한 턴). 메시지 셋은 시스템 지시문, 입력, 정답 순서다. LoRA-A 의 입력과 정답은 ActionExtractionInput 과 ActionExtraction, LoRA-B 는 ResponseRequest 와 응답 문장을 JSON 글자로 쓴 것이다"
+      description: "LoRA-A 또는 LoRA-B 학습·검증·평가 파일의 한 줄(한 턴). 메시지 셋은 시스템 지시문, 입력, 정답 순서다. LoRA-A 의 입력은 데이터셋 정본(labels.py a_input)의 객체이고 정답은 ActionExtraction, LoRA-B 의 입력은 데이터셋 정본(labels.py b_input)의 객체이고 정답은 응답 문장이며, 객체는 JSON 글자로 쓴 것이다"
       x-owner: head
       x-basis: "D74(정본은 데이터셋 정의), D77, 학습 서버 final·finaltest 93,429행 실측(2026-11-10): 모든 행의 키가 human_review, messages, scenario_id, split 이다"
       required: [human_review, messages, scenario_id, split]
@@ -2263,7 +2223,7 @@ components:
         encryption_key_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖으로 보내는 백업의 암호화 키 파일" }
         offsite_url: { $ref: "#/components/schemas/OffsiteBackupUrl", description: "서버 밖 백업 대상 주소. 없으면 시작하지 않고 경보(CRIT)를 낸다" }
         offsite_credentials_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖 백업 대상의 자격 파일" }
-    ContractsVersionLabel: { type: string, pattern: "^7\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", maxLength: 64, examples: [ "7.0.0" ], description: "이미지가 따르는 계약 버전(7.x.y)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2(숫자 부분은 선행 0 없이), 7 은 이 계약 문서의 메이저 버전(components.yaml 의 info.version 7.0.0)이고 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
+    ContractsVersionLabel: { type: string, pattern: "^8\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", maxLength: 64, examples: [ "8.0.0" ], description: "이미지가 따르는 계약 버전(8.x.y)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2(숫자 부분은 선행 0 없이), 8 은 이 계약 문서의 메이저 버전(components.yaml 의 info.version 8.0.0, 요청 모양이 바뀌는 깨지는 변경이라 SemVer 2.0.0 8 에 따라 메이저를 올렸다. contracts/README.md 의 변경 기록)이고 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
     ImageDeclaration:
       type: object
       additionalProperties: false

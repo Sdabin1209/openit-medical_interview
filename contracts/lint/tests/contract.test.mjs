@@ -45,24 +45,58 @@ test('JWT 클레임은 RFC 9068 필수 클레임이 빠지면 거부하고 그 �
 test('JOSE 헤더: typ 이 at+jwt 또는 application/at+jwt 가 아니거나 alg 가 none 이면 거부한다', () => {
   ok('AccessTokenHeader', { typ: 'at+jwt', alg: 'RS256', kid: 'k1' }); ok('AccessTokenHeader', { typ: 'application/at+jwt', alg: 'ES256' }); no('AccessTokenHeader', { typ: 'application/jwt', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'JWT', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'at+jwt', alg: 'none' });
 });
-const NEXT_B = { action: 'NEXT', known: '진단 받음, 지금 약 먹음', topic: '뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지', user_utterance: '중풍 진단 받았고, 약도 먹고 있어예.', next: { type: 'NEXT', question_id: 'Q1.D02', text: '혹시 심근경색이나 협심증으로 진단받으셨거나 현재 약물 치료 중이신가요?' } };
-test('ResponseRequest: 정본 행은 받고 행동별 필수·금지 키와 next 조합을 어기면 거부한다', () => {
-  ok('ResponseRequest', NEXT_B);
-  ok('ResponseRequest', { action: 'START', topic: NEXT_B.topic, next: NEXT_B.next });
-  ok('ResponseRequest', { action: 'REASK', reason: 'MISSING', ask: '일주일에 며칠 하는지', known: '', topic: 't', user_utterance: 'x', next: { type: 'SAME', question_id: 'Q8_1', text: 'q' } });
-  ok('ResponseRequest', { action: 'CONFIRM', reason: 'CONFLICT_WITH_PREVIOUS', ask: 'a', previous: '일주일에 3일', current: '일주일에 5일', known: '', topic: 't', user_utterance: 'x', next: { type: 'SAME', question_id: 'Q8_1', text: 'q' } });
-  ok('ResponseRequest', { action: 'SKIP', reason: 'REFUSED', hold: '일반담배', known: '', topic: 't', user_utterance: 'x', next: { type: 'END' } });
-  ok('ResponseRequest', { action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', note: '손발이 저림', known: '', topic: 't', user_utterance: 'x', next: { type: 'SAME', question_id: 'Q1.D01', text: 'q' } });
-  no('ResponseRequest', { ...NEXT_B, action: 'START' }, 'START 에 known');
-  const { known, ...noKnown } = NEXT_B; no('ResponseRequest', noKnown, 'NEXT 에 known 없음');
-  const { user_utterance, ...noUtt } = NEXT_B; no('ResponseRequest', noUtt, 'NEXT 에 user_utterance 없음');
-  no('ResponseRequest', { ...NEXT_B, action: 'REASK', reason: 'MISSING', next: { type: 'SAME', question_id: 'Q8_1', text: 'q' } }, 'REASK 에 ask 없음');
-  no('ResponseRequest', { ...NEXT_B, action: 'CONFIRM', reason: 'CONFLICT_WITH_PREVIOUS', ask: 'a', next: { type: 'SAME', question_id: 'Q8_1', text: 'q' } }, 'CONFIRM 에 previous·current 없음');
-  no('ResponseRequest', { ...NEXT_B, ask: 'a' }, 'NEXT 에 ask');
-  no('ResponseRequest', { ...NEXT_B, next: { type: 'SAME', question_id: 'Q1.D02', text: 'q' } }, 'NEXT 에 SAME');
-  no('ResponseRequest', { action: 'REASK', reason: 'MISSING', ask: 'a', known: '', topic: 't', user_utterance: 'x', next: { type: 'NEXT', question_id: 'Q8_1', text: 'q' } }, 'REASK 에 NEXT');
-  no('ResponseRequest', { ...NEXT_B, next: { type: 'END', question_id: 'Q1.D02' } }, 'END 에 question_id');
-  no('ResponseRequest', { ...NEXT_B, next: { type: 'NEXT' } }, 'NEXT 에 question_id·text 없음');
+const RV = { runtime_contract_version: 1 };
+const SLOTS = [{ key: 'Q1.D01.diagnosed', value: true, status: 'ANSWERED' }, { key: 'Q9_2.duration_minutes', value: null, status: 'MISSING' }];
+const NEXT_B = { ...RV, action: 'NEXT', question_id: 'Q1.D01', user_utterance: '중풍 진단 받았고, 약도 먹고 있어예.', slots: [], values: [val('Q1.D01.diagnosed', true), val('Q1.D01.on_medication', true)], next: { type: 'NEXT', question_id: 'Q1.D02' } };
+const SAME = (qid) => ({ type: 'SAME', question_id: qid });
+test('StoredSlot: 다시 물은 칸(MISSING·UNCLEAR)은 값이 null 이어야 하고 모르는 칸은 거부한다', () => {
+  for (const s of SLOTS) ok('StoredSlot', s);
+  ok('StoredSlot', { key: 'Q7_1[soju].amount', value: 2, status: 'ANSWERED' }); ok('StoredSlot', { key: 'Q4.answer', value: false, status: 'ANSWERED' });
+  ok('StoredSlot', { key: 'Q9_2.duration_minutes', value: null, status: 'UNCLEAR' });
+  no('StoredSlot', { key: 'Q9_2.duration_minutes', value: 15, status: 'MISSING' }, 'MISSING 에 값'); no('StoredSlot', { key: 'Q9_2.duration_minutes', value: 15, status: 'UNCLEAR' }, 'UNCLEAR 에 값');
+  no('StoredSlot', { key: 'Q1.D01.diagnosed', value: true }, '상태 없음'); no('StoredSlot', { key: 'Q1.D01.diagnosed', value: true, status: 'CONFLICT' }, '저장 상태가 아닌 값');
+  no('StoredSlot', { key: 'Q1.D01.diagnosed', value: true, status: 'ANSWERED', precision: 'exact' }, '정본 state 에 없는 칸(precision)');
+  no('StoredSlot', { key: 'bad key', value: true, status: 'ANSWERED' }, '칸 키 형식');
+  ok('StoredSlots', []); no('StoredSlots', Array.from({ length: 137 }, (_, i) => ({ key: `Q1.D01.diagnosed`, value: true, status: 'ANSWERED' })), '상한 136 초과');
+  ok('StoredSlots', Array.from({ length: 136 }, () => SLOTS[0]));
+});
+test('ExtractionRequest: 구조화된 값만 받고, 글 조각·옛 칸(input, state_key_order)·필수 값 빠짐은 거부한다', () => {
+  const flow = { start_item: 'Q1.D01', rules: [] };
+  const req = { ...RV, question_id: 'Q7_1', previous_question_id: 'Q7', current_question: '술을 마시는 날은 평균적으로 어느 정도 드시나요?', user_utterance: '위스키를 잔 단위로 마십니다', slots: SLOTS, flow, fields: [] };
+  ok('ExtractionRequest', req);
+  const { previous_question_id, ...first } = req; ok('ExtractionRequest', first);
+  for (const k of ['runtime_contract_version', 'question_id', 'current_question', 'user_utterance', 'slots', 'flow', 'fields']) { const c = { ...req }; delete c[k]; no('ExtractionRequest', c, `${k} 없음`); }
+  no('ExtractionRequest', { ...req, input: {} }, '옛 칸 input'); no('ExtractionRequest', { ...req, state_key_order: [] }, '옛 칸 state_key_order'); no('ExtractionRequest', { ...req, state: {} }, 'state 는 model-runtime 이 만든다');
+  no('ExtractionRequest', { ...req, current_question: 'x'.repeat(345) }, '화면 글 상한 344 초과'); no('ExtractionRequest', { ...req, topic: '지금 문항 설명' }, '글 조각');
+  no('ExtractionRequest', { ...req, slots: [{ key: 'Q1.D01.diagnosed', value: true, status: 'ANSWERED', precision: 'exact' }] }, '저장된 칸의 모르는 칸');
+});
+test('ResponseGenerationRequest: 구조화된 값만 받고 행동별 필수·금지 칸과 next 조합을 어기면 거부한다', () => {
+  const START = { ...RV, action: 'START', next: { type: 'NEXT', question_id: 'Q1.D01' } };
+  ok('ResponseGenerationRequest', NEXT_B); ok('ResponseGenerationRequest', START);
+  ok('ResponseGenerationRequest', { ...NEXT_B, previous_question_id: 'Q1.D01', slots: SLOTS });
+  ok('ResponseGenerationRequest', { ...NEXT_B, action: 'CORRECT', next: { type: 'END' } });
+  ok('ResponseGenerationRequest', { ...RV, action: 'REASK', reason: 'MISSING', question_id: 'Q7_1', user_utterance: 'x', slots: SLOTS, values: [val('Q7_1[whisky].amount', null, 'MISSING', false, 'unspecified')], targets: ['Q7_1[whisky].amount'], next: SAME('Q7_1') });
+  ok('ResponseGenerationRequest', { ...RV, action: 'CONFIRM', reason: 'CONFLICT_WITH_PREVIOUS', question_id: 'Q9_2', user_utterance: 'x', slots: SLOTS, values: [val('Q9_2.duration_minutes', 16, 'CONFLICT', false)], targets: ['Q9_2.duration_minutes'], next: SAME('Q9_2') });
+  ok('ResponseGenerationRequest', { ...RV, action: 'SKIP', reason: 'REFUSED', question_id: 'Q4_1', user_utterance: 'x', slots: [], values: [val('Q4_1.status', null, 'REJECTED', false, 'unspecified')], targets: ['Q4_1.status'], next: { type: 'END' } });
+  ok('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', note: '손발이 저림', question_id: 'Q1.D01', user_utterance: 'x', slots: [], values: [], next: SAME('Q1.D01') });
+  ok('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'ASK_PURPOSE', question_id: 'Q8_2', user_utterance: 'x', slots: [], values: [], next: SAME('Q8_2') });
+  no('ResponseGenerationRequest', { ...START, user_utterance: 'x' }, 'START 에 발화'); no('ResponseGenerationRequest', { ...START, slots: [] }, 'START 에 저장 값'); no('ResponseGenerationRequest', { ...START, question_id: 'Q1.D01' }, 'START 에 지금 문항');
+  no('ResponseGenerationRequest', { ...START, next: { type: 'SAME', question_id: 'Q1.D01' } }, 'START 에 SAME');
+  for (const k of ['question_id', 'user_utterance', 'slots', 'values']) { const c = { ...NEXT_B }; delete c[k]; no('ResponseGenerationRequest', c, `NEXT 에 ${k} 없음`); }
+  const { runtime_contract_version, ...noRv } = NEXT_B; no('ResponseGenerationRequest', noRv, '문항 은행 버전 없음');
+  no('ResponseGenerationRequest', { ...NEXT_B, reason: 'MISSING' }, 'NEXT 에 reason'); no('ResponseGenerationRequest', { ...NEXT_B, targets: ['Q1.D01.diagnosed'] }, 'NEXT 에 targets');
+  no('ResponseGenerationRequest', { ...NEXT_B, next: SAME('Q1.D02') }, 'NEXT 에 SAME');
+  no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'NEXT' } }, 'NEXT 에 question_id 없음'); no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'END', question_id: 'Q1.D02' } }, 'END 에 question_id');
+  no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'NEXT', question_id: 'Q1.D02', text: '질문 문장' } }, 'next.text 는 model-runtime 이 만든다');
+  for (const k of ['topic', 'known', 'ask', 'previous', 'current', 'hold']) no('ResponseGenerationRequest', { ...NEXT_B, [k]: '글' }, `글 조각 ${k}`);
+  no('ResponseGenerationRequest', { ...NEXT_B, input: {} }, '옛 칸 input');
+  const reask = { ...RV, action: 'REASK', reason: 'MISSING', question_id: 'Q8_1', user_utterance: 'x', slots: [], values: [], targets: ['Q8_1.days'], next: SAME('Q8_1') };
+  ok('ResponseGenerationRequest', reask);
+  const { reason: _r, ...noReason } = reask; no('ResponseGenerationRequest', noReason, 'REASK 에 reason 없음'); const { targets: _t, ...noTargets } = reask; no('ResponseGenerationRequest', noTargets, 'REASK 에 targets 없음');
+  no('ResponseGenerationRequest', { ...reask, next: { type: 'NEXT', question_id: 'Q8_2' } }, 'REASK 에 NEXT');
+  no('ResponseGenerationRequest', { ...reask, action: 'REDIRECT', reason: 'OFF_TOPIC' }, 'REDIRECT 에 targets');
+  no('ResponseGenerationRequest', { ...reask, note: '손발이 저림' }, 'OUT_OF_SCHEMA 가 아닌데 note');
+  no('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', question_id: 'Q1.D01', user_utterance: 'x', slots: [], values: [], next: SAME('Q1.D01') }, 'OUT_OF_SCHEMA 에 note 없음');
 });
 test('ActionExtraction: 정본 행은 받고 행동별 reason·targets·note 규칙을 어기면 거부한다', () => {
   const v1 = val('Q1.D01.diagnosed', true), v2 = val('Q1.D01.on_medication', true);
@@ -125,7 +159,6 @@ test('모델 활성화와 롤백: 신원은 본문에 없고 digest 로 가리�
   ok('ActivationRequest', { package_digest: D('a'), reason: '평가 보고서를 확인했다' }); no('ActivationRequest', { package_digest: D('a'), reason: '' }, '사유 없음'); no('ActivationRequest', { package_digest: D('a'), reason: 'x', approved_by: 'u1' }, '본문의 신원');
   ok('RollbackCommand', { target_package_digest: D('b'), reason: '출력 불가가 늘었다' }); no('RollbackCommand', { target_package_digest: D('b') }, '사유 없음');
   ok('ModelStatus', { state: 'READY', package_digest: D('a'), previous_package_digest: D('b'), runtime_contract_version: 1, model_io_version: 'model-io-v2', activated_by: 'u1', activated_at: '2026-11-10T09:30:00+09:00', loaded_at: '2026-11-10T09:31:00+09:00' }); ok('ModelStatus', { state: 'NOT_LOADED' });
-  no('ExtractionRequest', { input: {}, state_key_order: [], flow: { start_item: 'Q1.D01', rules: [] }, fields: [] }, '문항 은행 버전 없음');
 });
 test('실패 사례: 기계 독자용 모양에는 발화 원문이 없고, CONFIRMED 에는 기대 출력이 있어야 한다', () => {
   const base = { case_id: U, case_version: 1, kind: 'EXTRACT_FAILED', questionnaire_id: 'national-health', item_id: 'Q1.D01', created_at: '2026-11-10T09:30:00+09:00' };
