@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -126,10 +127,26 @@ class JwksCache:
 class OidcVerifier:
     """접근 토큰 검증 프로파일(계약 README, RFC 9068 4)을 그대로 확인한다."""
 
-    def __init__(self, jwks: JwksCache, issuer: str, audience: str) -> None:
+    def __init__(
+        self, jwks: JwksCache, issuer: str, audience: str, now: Callable[[], datetime] = lambda: datetime.now(UTC)
+    ) -> None:
         self._jwks = jwks
         self._issuer = issuer
         self._audience = audience
+        # 왜 주입: exp·iat·nbf 를 이 시계로 가른다. 시험이 실제 시각 없이 만료를 정한다(PyJWT 는 시계를 주입받지 않는다)
+        self._now = now
+
+    def _check_times(self, claims: Mapping[str, Any]) -> None:
+        """exp 가 지났거나 iat·nbf 가 아직 오지 않았으면 거부한다(RFC 7519 4.1.4~4.1.6, 여유 시간 0)."""
+        at = self._now().timestamp()
+        exp, iat, nbf = claims["exp"], claims["iat"], claims.get("nbf")
+        for value in (exp, iat) if nbf is None else (exp, iat, nbf):
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise InvalidTokenError("시각 클레임이 숫자가 아니다")
+        if exp <= at:
+            raise jwt.ExpiredSignatureError("exp")
+        if iat > at or (nbf is not None and nbf > at):
+            raise jwt.ImmatureSignatureError("iat/nbf")
 
     async def verify(self, token: str) -> Mapping[str, Any]:
         """통과하면 클레임을 돌려준다. 하나라도 어기면 401."""
@@ -150,8 +167,14 @@ class OidcVerifier:
                 algorithms=[algorithm],
                 audience=self._audience,
                 issuer=self._issuer,
-                options={"require": list(_REQUIRED_CLAIMS)},
+                options={
+                    "require": list(_REQUIRED_CLAIMS),
+                    "verify_exp": False,
+                    "verify_iat": False,
+                    "verify_nbf": False,
+                },
             )
+            self._check_times(claims)
         except InvalidTokenError as error:
             raise unauthorized("토큰 검증에 실패했다") from error
         return claims

@@ -1,8 +1,8 @@
 """시험 공용 도구: 시험용 신원 공급자(JWKS), 기계 토큰, 어댑터 폴더, 평가 집합, 앱 조립."""
 
 import json
-import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,13 @@ from model_runtime.link.registry import OciPackageSource
 from model_runtime.main import Dependencies, Settings, create_app
 
 ISSUER = "https://idp.test/realms/openit"
+NOW = datetime(2026, 11, 10, 9, 0, 0, tzinfo=UTC)  # 시험의 고정 시각. 토큰 발급과 검증이 같은 시계를 쓴다
+
+
+def fixed_now() -> datetime:
+    return NOW
+
+
 AUDIENCE = "model-runtime"
 BASE_MODEL = "Qwen/Qwen3-8B"  # 프로파일 rtx4090-24g 의 기반 모델(src/model_runtime/profiles.json)
 REGISTRY_USER, REGISTRY_PASSWORD = "reader", "registry-password"
@@ -41,7 +48,7 @@ class Identity:
         return {"keys": [{**jwk, "kid": self.kid, "use": "sig", "alg": "RS256"}]}
 
     def token(self, roles: list[str], sub: str = "approver-1", **override: Any) -> str:  # noqa: ANN401
-        now = int(time.time())
+        now = int(NOW.timestamp())
         claims: dict[str, Any] = {
             "iss": ISSUER,
             "sub": sub,
@@ -161,7 +168,7 @@ def make_app(settings: Settings, pki: Pki, identity: Identity, engine: FakeEngin
         adapters=vllm,
         authenticator=Authenticator(
             CallerTable(settings.machine_tokens_file),
-            OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE),
+            OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE, fixed_now),
         ),
         engine_ready=vllm.healthy,
         closers=[source.close],

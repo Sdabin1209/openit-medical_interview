@@ -2,7 +2,6 @@
 
 import base64
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from model_runtime.link.auth import Authenticator, CallerTable, JwksCache, OidcVerifier, bearer_token
 from model_runtime.types import ServiceFault
-from support import AUDIENCE, ISSUER, Identity
+from support import AUDIENCE, ISSUER, NOW, Identity, fixed_now
 
 pytestmark = pytest.mark.anyio
 
@@ -31,7 +30,9 @@ def machines(tmp_path: Path) -> CallerTable:
 
 def authenticator(tmp_path: Path, identity: Identity, jwks_url: str | None = None) -> Authenticator:
     idp = httpx.AsyncClient(transport=httpx.ASGITransport(app=identity.idp_app()))
-    return Authenticator(machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, jwks_url), ISSUER, AUDIENCE))
+    return Authenticator(
+        machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, jwks_url), ISSUER, AUDIENCE, fixed_now)
+    )
 
 
 async def status_of(call: Any) -> int:  # noqa: ANN401
@@ -156,7 +157,7 @@ def b64(data: dict[str, Any]) -> str:
 async def test_access_token_profile_violations_are_401(tmp_path: Path, case: str) -> None:
     identity = Identity.new()
     auth = authenticator(tmp_path, identity)
-    now = int(time.time())
+    now = int(NOW.timestamp())
     tokens: dict[str, str] = {
         "expired": identity.token(["release-approver"], exp=now - 10),
         "wrong_issuer": identity.token(["release-approver"], iss="https://evil.test"),
@@ -213,7 +214,7 @@ async def test_unknown_kid_does_not_hammer_the_issuer(tmp_path: Path) -> None:
         return await call_next(request)
 
     idp = httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
-    auth = Authenticator(machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE))
+    auth = Authenticator(machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE, fixed_now))
     bad = identity.token(["operator"], _headers={"kid": "nope"})
     for _ in range(5):
         assert await status_of(auth.require(f"Bearer {bad}", human_roles=["operator"])) == 401
@@ -227,7 +228,7 @@ async def test_unreachable_issuer_is_503_not_401(tmp_path: Path) -> None:
         raise httpx.ConnectError("down")
 
     idp = httpx.AsyncClient(transport=httpx.MockTransport(down))
-    auth = Authenticator(machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE))
+    auth = Authenticator(machines(tmp_path), OidcVerifier(JwksCache(idp, ISSUER, None), ISSUER, AUDIENCE, fixed_now))
     assert await status_of(auth.require(f"Bearer {identity.token(['operator'])}", human_roles=["operator"])) == 503
 
 

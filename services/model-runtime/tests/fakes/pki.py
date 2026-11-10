@@ -31,6 +31,11 @@ def _write_key(path: Path, key: ec.EllipticCurvePrivateKey) -> None:
     )
 
 
+# 왜 고정한 넓은 기간: TLS 라이브러리는 실제 시각으로 유효 기간을 본다. 시험이 지금 시각에 기대지 않게 한다
+_NOT_BEFORE = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+_NOT_AFTER = datetime.datetime(2100, 1, 1, tzinfo=datetime.UTC)
+
+
 def _issue(
     ca_key: ec.EllipticCurvePrivateKey,
     ca_name: x509.Name,
@@ -39,15 +44,14 @@ def _issue(
     names: list[x509.GeneralName],
 ) -> tuple[x509.Certificate, ec.EllipticCurvePrivateKey]:
     key = ec.generate_private_key(ec.SECP256R1())
-    now = datetime.datetime.now(datetime.UTC)
     builder = (
         x509.CertificateBuilder()
         .subject_name(_name(common))
         .issuer_name(ca_name)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=1))
-        .not_valid_after(now + datetime.timedelta(hours=1))
+        .not_valid_before(_NOT_BEFORE)
+        .not_valid_after(_NOT_AFTER)
         .add_extension(x509.ExtendedKeyUsage([usage]), critical=False)
     )
     if names:
@@ -60,15 +64,14 @@ def make_pki(folder: Path) -> Pki:
     folder.mkdir(parents=True, exist_ok=True)
     ca_key = ec.generate_private_key(ec.SECP256R1())
     ca_name = _name("openit-test-root")
-    now = datetime.datetime.now(datetime.UTC)
     ca = (
         x509.CertificateBuilder()
         .subject_name(ca_name)
         .issuer_name(ca_name)
         .public_key(ca_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=1))
-        .not_valid_after(now + datetime.timedelta(hours=1))
+        .not_valid_before(_NOT_BEFORE)
+        .not_valid_after(_NOT_AFTER)
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
