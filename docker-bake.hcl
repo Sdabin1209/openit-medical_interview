@@ -52,8 +52,10 @@ variable "VERSION" {
   }
 }
 
-# 영역 이름 -> JobsDeclaration. deploy/deploy build 가 jobs/<영역>/jobs.json 에서 만든다
-variable "JOB_DECLARATIONS" {
+# 대상 이름 -> {jobs, exposure, inputs}(각각 한 줄 JSON 글자). 이미지 라벨 io.openit.jobs·io.openit.exposure·io.openit.inputs 의 값이다.
+# 왜: 원본은 영역 폴더의 jobs.json(JobsDeclaration)·exposure.json(Exposure)·inputs.json(ContainerInputs) 하나씩이다. HCL 에는 파일 읽기 함수가 없어
+# deploy/deploy build 가 파일을 읽어 이 변수로 넣는다. 파일이 없으면 그 칸은 빈 글자다(Dockerfile 에 JSON 을 복사해 두지 않는다)
+variable "AREA_DECLARATIONS" {
   default = "{}"
 }
 
@@ -76,6 +78,9 @@ target "service" {
     CONTRACTS_VERSION = CONTRACTS_VERSION
     SOURCE_URL        = SOURCE_URL
     SERVICE           = trimprefix(area, "_")
+    JOBS              = try(jsondecode(AREA_DECLARATIONS)[area].jobs, "")
+    EXPOSURE          = try(jsondecode(AREA_DECLARATIONS)[area].exposure, "")
+    INPUTS            = try(jsondecode(AREA_DECLARATIONS)[area].inputs, "")
   }
 }
 
@@ -92,9 +97,9 @@ target "job" {
     CONTRACTS_VERSION = CONTRACTS_VERSION
     SOURCE_URL        = SOURCE_URL
     SERVICE           = trimprefix(area, "_")
-    # 왜: io.openit.jobs 라벨(JobsDeclaration)의 원본은 영역의 jobs.json 하나다. HCL 에는 파일 읽기 함수가 없어
-    # deploy/deploy build 가 모든 jobs/<영역>/jobs.json 을 한 줄 JSON 으로 모아 JOB_DECLARATIONS 로 넣는다
-    JOBS = jsonencode(jsondecode(JOB_DECLARATIONS)[area])
+    JOBS              = try(jsondecode(AREA_DECLARATIONS)[area].jobs, "")
+    EXPOSURE          = ""
+    INPUTS            = try(jsondecode(AREA_DECLARATIONS)[area].inputs, "")
   }
 }
 
@@ -110,5 +115,7 @@ target "web" {
     CONTRACTS_VERSION = CONTRACTS_VERSION
     SOURCE_URL        = SOURCE_URL
     SERVICE           = "web-${trimprefix(area, "_")}"
+    EXPOSURE          = try(jsondecode(AREA_DECLARATIONS)["web-${trimprefix(area, "_")}"].exposure, "")
+    INPUTS            = try(jsondecode(AREA_DECLARATIONS)["web-${trimprefix(area, "_")}"].inputs, "")
   }
 }

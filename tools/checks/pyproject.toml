@@ -10,6 +10,9 @@ dependencies = [
   "license-expression", # SPDX 표현식 파서(Apache-2.0, ADR 0007)
   "datamodel-code-generator",  # 계약에서 Pydantic v2 모델 생성(MIT, ADR 0020)
   "pyyaml",  # 계약 YAML 읽기(MIT)
+  "jsonschema>=4.26.0",
+  "rfc3339-validator>=0.1.4",
+  "rfc3986-validator>=0.1.1",
 ]
 
 [project.scripts]

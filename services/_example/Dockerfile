@@ -27,11 +27,19 @@ ARG VERSION
 ARG CONTRACTS_VERSION
 ARG SOURCE_URL
 ARG SERVICE
+# 왜 인자: io.openit.jobs(JobsDeclaration)·io.openit.exposure(Exposure)·io.openit.inputs(ContainerInputs) 라벨의 원본은 영역 폴더의 jobs.json·exposure.json·inputs.json 이다.
+# deploy build 가 파일을 읽어 한 줄 JSON 으로 bake 인자로 넣는다(파일이 없으면 빈 값). Dockerfile 에 JSON 을 복사해 두지 않는다(원본이 둘이 되면 어긋난다)
+ARG JOBS
+ARG EXPOSURE
+ARG INPUTS
 LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
-      io.openit.contracts="${CONTRACTS_VERSION}"
+      io.openit.contracts="${CONTRACTS_VERSION}" \
+      io.openit.jobs="${JOBS}" \
+      io.openit.exposure="${EXPOSURE}" \
+      io.openit.inputs="${INPUTS}"
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /app/.venv /app/.venv

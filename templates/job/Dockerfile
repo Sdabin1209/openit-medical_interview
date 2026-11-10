@@ -29,12 +29,16 @@ ARG SOURCE_URL
 ARG SERVICE
 # 왜 JOBS 인자: io.openit.jobs 라벨(계약 JobsDeclaration)의 원본은 jobs.json 하나다. bake 가 읽어 JSON 한 줄로 넣는다
 ARG JOBS
+ARG EXPOSURE
+ARG INPUTS
 LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
       io.openit.contracts="${CONTRACTS_VERSION}" \
-      io.openit.jobs="${JOBS}"
+      io.openit.jobs="${JOBS}" \
+      io.openit.exposure="${EXPOSURE}" \
+      io.openit.inputs="${INPUTS}"
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /app/.venv /app/.venv

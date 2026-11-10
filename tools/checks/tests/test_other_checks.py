@@ -209,3 +209,22 @@ def test_hadolint_requires_config(tmp_path: Path) -> None:
     write(tmp_path, "deploy/deploy", "#!/bin/sh\nexit 0\n", mode=0o755)
     write(tmp_path, "services/a/Dockerfile", GOOD_DOCKERFILE)
     assert any(".hadolint.yaml" in v.where for v in dockerfile_lint.run(tmp_path))
+
+
+def test_declarations_check_accepts_contract_shapes_and_rejects_others(tmp_path: Path) -> None:
+    """jobs.json·exposure.json·inputs.json 은 계약 스키마로 검증된다(이미지 라벨의 원본)."""
+    import shutil
+
+    from openit_checks import declarations
+
+    root = Path(__file__).resolve().parents[3]
+    (tmp_path / "contracts").mkdir()
+    shutil.copy(root / "contracts" / "components.yaml", tmp_path / "contracts" / "components.yaml")
+    area = tmp_path / "services" / "demo"
+    area.mkdir(parents=True)
+    (area / "jobs.json").write_text('{"jobs":[{"job":"PURGE_EXPIRED","timeout_seconds":600}]}', encoding="utf-8")
+    (area / "exposure.json").write_text('{"routes":[],"egress":[]}', encoding="utf-8")
+    assert declarations.run(tmp_path) == []
+    (area / "exposure.json").write_text('{"routes":[{"path_prefix":"v1","methods":["GET"],"audience":"HUMAN_OIDC"}],"egress":[]}', encoding="utf-8")
+    violations = declarations.run(tmp_path)
+    assert violations and "Exposure" in violations[0].message
