@@ -1,11 +1,13 @@
 // 로그인 상태와 역할. 로그인은 oauth2-proxy 가 앞에서 맡고(OIDC, Keycloak) 화면 코드는 토큰을 만지지 않는다.
-// 이 화면이 oauth2-proxy 에 묻는 것은 /oauth2/userinfo 하나뿐이다(oauth2-proxy 의 표준 엔드포인트). 계약에는 역할을 묻는 작업이 없다: docs/change-requests/admin-console-001.md
+// 이 화면이 oauth2-proxy 에 묻는 것은 /oauth2/userinfo 하나뿐이다(oauth2-proxy 의 표준 엔드포인트). 계약에는 역할을 묻는 작업이 없고 oauth2-proxy 의 groups 를 쓰기로 확정했다(계약 README 9.0.0, ADR 0002).
 import { useQuery } from "@tanstack/react-query";
 
-// 계약 components.yaml 의 UserRole(Keycloak realm 역할 이름). 어떤 작업도 UserRole 을 스키마로 쓰지 않고 security 요구에만 이름으로 적어
-// 생성 타입(src/contract)에 들어오지 않는다. 그래서 여기에 한 번 적고, tests/contract/roles.test.ts 가 계약의 enum 과 같은지 본다.
-export const USER_ROLES = ["staff", "clinician", "author", "reviewer", "release-approver", "operator", "admin"] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+import type { components } from "../contract/components";
+
+// 계약 UserRole(Keycloak realm 역할 이름)은 생성 타입(src/contract/components.d.ts)에서 얻는다(변경 요청 admin-console-003).
+// 걸러낼 때 쓸 실행 시점 목록은 Record 로 둔다: 키가 UserRole 과 하나라도 다르면 tsc 가 막아 계약과 어긋나지 않는다.
+export type UserRole = components["schemas"]["UserRole"];
+const USER_ROLE_SET: Record<UserRole, true> = { staff: true, clinician: true, author: true, reviewer: true, "release-approver": true, operator: true, admin: true };
 
 export interface CurrentUser {
   /** 화면에 보일 이름(preferredUsername, 없으면 email) */
@@ -30,7 +32,7 @@ interface UserInfo {
 }
 
 export function parseUser(info: UserInfo): CurrentUser {
-  const roles = (info.groups ?? []).filter((group): group is UserRole => (USER_ROLES as readonly string[]).includes(group));
+  const roles = (info.groups ?? []).filter((group): group is UserRole => Object.hasOwn(USER_ROLE_SET, group));
   return { name: info.preferredUsername ?? info.email ?? info.user ?? "", roles };
 }
 

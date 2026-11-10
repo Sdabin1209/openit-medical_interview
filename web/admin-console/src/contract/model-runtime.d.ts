@@ -64,6 +64,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 게시된 모델 패키지 목록 읽기
+         * @description 레지스트리에 게시된 모델 패키지(OCI 아티팩트)를 최근 것이 먼저 나오게 쪽으로 나누어 준다. 항목마다 digest, 게시한 때(알 수 있을 때), 지금 활성인지를 담는다. 승인자가 활성화를 승인하기 전에 이 목록에서 패키지를 골라 getModelPackage 로 평가 보고서를 본다(N07, N10). 이 작업은 패키지를 적재하거나 활성화하지 않는다.
+         */
+        get: operations["listModelPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-packages/{package_digest}": {
         parameters: {
             query?: never;
@@ -476,7 +496,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -614,6 +634,38 @@ export interface components {
             activated_at?: components["schemas"]["Timestamp"];
             /** @description 적재를 마친 때 */
             loaded_at?: components["schemas"]["Timestamp"];
+        };
+        /**
+         * @description 한 번에 받을 항목의 최대 개수
+         * @default 30
+         * @example 30
+         */
+        PageLimit: number;
+        /**
+         * @description 다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다
+         * @example eyJrIjoiM2YyYjhjMWUiLCJzIjoiYWJjIn0
+         */
+        PageCursor: string;
+        /**
+         * @description 모델 패키지가 지금 활성 패키지(ModelStatus.package_digest)이면 참
+         * @example false
+         */
+        ModelPackageIsActive: boolean;
+        /** @description 게시된 모델 패키지 하나의 요약(식별자, 게시한 때, 활성 여부). 목록표와 평가 보고서는 getModelPackage 로 읽는다 */
+        ModelPackageSummary: {
+            /** @description 패키지의 매니페스트 digest */
+            package_digest: components["schemas"]["OciDigest"];
+            /** @description 게시한 때(OCI 매니페스트의 주석 org.opencontainers.image.created 가 있으면 그 값이고 없으면 없다) */
+            published_at?: components["schemas"]["Timestamp"];
+            /** @description 지금 활성인 패키지인지 */
+            is_active: components["schemas"]["ModelPackageIsActive"];
+        };
+        /** @description 레지스트리에 게시된 모델 패키지 목록 한 쪽 */
+        ModelPackageList: {
+            /** @description 모델 패키지들(최근 것이 먼저) */
+            items: components["schemas"]["ModelPackageSummary"][];
+            /** @description 다음 쪽 커서 */
+            next_cursor?: components["schemas"]["PageCursor"];
         };
         /**
          * @description 기반 모델의 이름(모델 허브 식별자 형태, 예를 들어 Qwen/Qwen3-8B)
@@ -922,7 +974,12 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description 한 번에 받을 항목의 최대 개수 */
+        Limit: components["schemas"]["PageLimit"];
+        /** @description 이전 응답의 next_cursor. 없으면 첫 쪽 */
+        Cursor: components["schemas"]["PageCursor"];
+    };
     requestBodies: never;
     headers: {
         /** @description 인증 방식의 도전(RFC 9110 11.6.1, Bearer 는 RFC 6750 3) */
@@ -1010,6 +1067,35 @@ export interface operations {
                     "application/json": components["schemas"]["ModelStatus"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    listModelPackages: {
+        parameters: {
+            query?: {
+                /** @description 한 번에 받을 항목의 최대 개수 */
+                limit?: components["parameters"]["Limit"];
+                /** @description 이전 응답의 next_cursor. 없으면 첫 쪽 */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 모델 패키지 목록 한 쪽 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelPackageList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             503: components["responses"]["Unavailable"];

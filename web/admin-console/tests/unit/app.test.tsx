@@ -110,10 +110,11 @@ describe("화면 흐름", () => {
     await userEvent.click(screen.getByRole("button", { name: "확인했음 표시" }));
     expect(await screen.findByRole("status")).toHaveTextContent("doctor-1");
   });
-  it("승인자: digest 로 평가 보고서를 보고 승인하면 적재 중에서 준비됨이 된다", async () => {
+  it("승인자: 목록에서 후보를 골라 평가 보고서를 보고 승인하면 적재 중에서 준비됨이 되고 목록의 활성 표시가 바뀐다", async () => {
     const backend = renderApp({ roles: ["release-approver"] });
-    await userEvent.type(await screen.findByLabelText(/패키지 digest/), `sha256:${"b".repeat(64)}`);
-    await userEvent.click(screen.getByRole("button", { name: "평가 보고서 보기" }));
+    expect(await screen.findByRole("row", { name: /sha256:b+.*비활성/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /sha256:a+.*\s활성/ })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: `sha256:${"b".repeat(64)} 평가 보고서 보기` }));
     expect(await screen.findByText("next_item_accuracy")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "이 패키지 활성화 승인" }));
     await userEvent.type(screen.getByLabelText("사유"), "평가 통과");
@@ -121,11 +122,11 @@ describe("화면 흐름", () => {
     await waitFor(() => { expect(backend.calls.some((c) => c.path === "/v1/model-activations")).toBe(true); });
     await waitFor(() => { expect(screen.getAllByRole("status")[0]).toHaveTextContent("준비됨"); }, { timeout: 8000 });
   });
-  it("없는 패키지는 서버 오류를 보인다", async () => {
+  it("운영자: 목록은 보이고 승인 버튼은 없다", async () => {
     renderApp({ roles: ["operator"] });
-    await userEvent.type(await screen.findByLabelText(/패키지 digest/), `sha256:${"c".repeat(64)}`);
-    await userEvent.click(screen.getByRole("button", { name: "평가 보고서 보기" }));
-    expect(await screen.findByText("패키지가 없다")).toBeVisible();
+    await userEvent.click(await screen.findByRole("button", { name: `sha256:${"b".repeat(64)} 평가 보고서 보기` }));
+    expect(await screen.findByText("next_item_accuracy")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "이 패키지 활성화 승인" })).toBeNull();
   });
   it("검토자: 사례를 검토하면 새 버전으로 게시된다", async () => {
     const backend = renderApp({ roles: ["reviewer"] });
@@ -140,10 +141,14 @@ describe("화면 흐름", () => {
     const upload = { questionnaire_id: "nh2", runtime_contract_version: 1, content: { title: "새 세트", bank: { items: [] }, flow: { start_item: "Q1", rules: [] } } };
     await userEvent.upload(await screen.findByLabelText("문항 세트 파일(JSON)"), new File([JSON.stringify(upload)], "q.json", { type: "application/json" }));
     expect(await screen.findByText(/새 세트 버전 2 을\(를\) 저장했다/)).toBeVisible();
+    // 처음 활성인 버전(nh 1)의 버튼은 막혀 있고, 올린 버전은 비활성이다
+    expect(await screen.findByRole("button", { name: "national-health 버전 1 활성화" })).toBeDisabled();
     await userEvent.click(await screen.findByRole("button", { name: "nh2 버전 2 활성화" }));
     await userEvent.click(screen.getByRole("button", { name: "활성화" }));
     await waitFor(() => { expect(backend.calls.some((c) => c.path.endsWith("/activation"))).toBe(true); });
     expect(await screen.findByText(/활성 버전을 .* 로 바꿨다/)).toBeVisible();
+    // 목록을 다시 읽어 활성 표시가 옮겨진다
+    await waitFor(() => { expect(screen.getByRole("button", { name: "nh2 버전 2 활성화" })).toBeDisabled(); });
   });
 });
 

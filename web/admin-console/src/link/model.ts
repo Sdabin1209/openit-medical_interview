@@ -1,5 +1,5 @@
 // link_model: model-runtime 호출(N07). 적재 상태, 모델 패키지(평가 보고서) 읽기, 활성화 승인, 롤백.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { components } from "../contract/model-runtime";
 import { model, unwrap } from "./http";
@@ -7,6 +7,7 @@ import { model, unwrap } from "./http";
 type Schemas = components["schemas"];
 export type ModelStatus = Schemas["ModelStatus"];
 export type ModelPackageManifest = Schemas["ModelPackageManifest"];
+export type ModelPackageSummary = Schemas["ModelPackageSummary"];
 export type EvaluationReport = Schemas["EvaluationReport"];
 
 // 왜 3000ms: 적재가 끝났는지 getModelStatus 로 본다(계약). 적재 시간은 측정하지 않았다. 사람이 화면을 보며 기다리는 시간 단위(초)로 정한 값이고 ADR 0004 에 적었다.
@@ -18,6 +19,17 @@ export function useModelStatus() {
     queryFn: async ({ signal }) => unwrap(await model.GET("/v1/model-status", { signal })),
     // 적재 중(LOADING)에만 다시 읽는다. 끝나면(READY, FAILED) 멈춘다.
     refetchInterval: (query) => (query.state.data?.state === "LOADING" ? STATUS_POLL_MS : false),
+  });
+}
+
+/** 게시된 모델 패키지 목록(쪽 나누기, 최근 것이 먼저, 활성 여부 포함). 승인자가 digest 를 손으로 입력하지 않고 고르게 한다(계약 listModelPackages). */
+export function useModelPackages() {
+  return useInfiniteQuery({
+    queryKey: ["model-packages"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) =>
+      unwrap(await model.GET("/v1/model-packages", { params: { query: pageParam === undefined ? {} : { cursor: pageParam } }, signal })),
+    getNextPageParam: (page) => page.next_cursor,
   });
 }
 
@@ -41,7 +53,8 @@ export function useActivateModelPackage() {
       unwrap(await model.POST("/v1/model-activations", { body: { package_digest: input.packageDigest, reason: input.reason } })),
     onSuccess: (status) => {
       queryClient.setQueryData(["model-status"], status);
-      return queryClient.invalidateQueries({ queryKey: ["model-status"] });
+      // 활성 여부(is_active)가 바뀌므로 패키지 목록도 다시 읽는다
+      return Promise.all([queryClient.invalidateQueries({ queryKey: ["model-status"] }), queryClient.invalidateQueries({ queryKey: ["model-packages"] })]);
     },
   });
 }
@@ -53,7 +66,8 @@ export function useRollbackModelPackage() {
       unwrap(await model.POST("/v1/model-rollbacks", { body: { target_package_digest: input.targetPackageDigest, reason: input.reason } })),
     onSuccess: (status) => {
       queryClient.setQueryData(["model-status"], status);
-      return queryClient.invalidateQueries({ queryKey: ["model-status"] });
+      // 활성 여부(is_active)가 바뀌므로 패키지 목록도 다시 읽는다
+      return Promise.all([queryClient.invalidateQueries({ queryKey: ["model-status"] }), queryClient.invalidateQueries({ queryKey: ["model-packages"] })]);
     },
   });
 }

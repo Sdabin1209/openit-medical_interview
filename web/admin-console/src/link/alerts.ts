@@ -1,21 +1,18 @@
 // 직원 알림 스트림(SSE, streamStaffAlerts)과 웹 푸시 구독(RFC 8030·8291·8292). 영역 밖 통신이라 link 에만 둔다.
 import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
 
-import type { components } from "../contract/survey-service";
+import type { components } from "../contract/components";
 import { ApiError, survey, unwrap } from "./http";
 import { type StaffAlert, useAlertList } from "./survey";
 
-// 왜 여기에 손으로 적었나: 생성 타입(src/contract)에 StaffAlertEvent·AlertEventName·AlertStreamHeartbeatSeconds 가 없다.
-// 계약은 이들을 text/event-stream 의 x-event-data-schema 확장과 description 으로만 가리켜 openapi-typescript 가 버린다(docs/change-requests/admin-console-003.md).
-// 값은 계약 components.yaml 의 StaffAlertEvent 와 같다(tests/contract/alerts.test.ts 가 계약 파일과 대조한다).
-export type AlertEventName = "alert" | "resolved" | "heartbeat" | "resync";
-export interface StaffAlertEvent {
-  event: AlertEventName;
-  sequence: components["schemas"]["EventSequence"];
-  alert?: StaffAlert;
-}
-/** 계약 AlertStreamHeartbeatSeconds(const 15). */
-export const HEARTBEAT_SECONDS = 15;
+type Schemas = components["schemas"];
+
+// 왜 components 에서 가져오나: 이 세 스키마는 작업이 $ref 로 참조하지 않아 survey-service 생성 타입에 없다. 계약 공유 값 문서(components.yaml)를
+// 생성 입력으로 함께 쓰면(redocly.yaml, 변경 요청 admin-console-003) 손으로 옮기지 않고 생성 타입으로 얻는다.
+export type AlertEventName = Schemas["AlertEventName"];
+export type StaffAlertEvent = Schemas["StaffAlertEvent"];
+/** 계약 AlertStreamHeartbeatSeconds(const 15). 타입이 리터럴 15 라 계약 값이 바뀌면 tsc 가 막는다. */
+export const HEARTBEAT_SECONDS: Schemas["AlertStreamHeartbeatSeconds"] = 15;
 // 왜 3 배: heartbeat 를 세 번 연달아 놓치면 연결이 죽었다고 본다. EventSource 는 반쯤 끊긴 연결을 스스로 알아채지 못한다(계약 heartbeat 설명).
 // 3 은 표준이 아니라 이 화면이 고른 값이고 측정하지 않았다(ADR 0004).
 const STALE_AFTER_MS = HEARTBEAT_SECONDS * 3 * 1000;
@@ -31,7 +28,9 @@ export function applyAlertEvent(current: ReadonlyMap<string, StaffAlert>, event:
   return next;
 }
 
-const EVENT_NAMES: AlertEventName[] = ["alert", "resolved", "heartbeat", "resync"];
+// 왜 Record: 키가 AlertEventName 과 하나라도 다르면 tsc 가 막아 계약의 이름 넷과 어긋나지 않는다
+const EVENT_NAME_SET: Record<AlertEventName, true> = { alert: true, resolved: true, heartbeat: true, resync: true };
+const EVENT_NAMES = Object.keys(EVENT_NAME_SET) as AlertEventName[];
 
 /** 스트림을 열고, 닫는 함수를 돌려준다. 끊기면 EventSource 가 Last-Event-ID 로 스스로 다시 잇는다. */
 export function openAlertStream(handlers: { onEvent: (event: StaffAlertEvent) => void; onConnection: (state: Connection) => void }): () => void {

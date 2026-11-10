@@ -48,8 +48,8 @@ test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async
   // 3. 승인자가 평가 보고서를 보고 활성화를 승인한다
   await page.getByRole("link", { name: "모델 패키지" }).click();
   await expect(page.getByRole("status").first()).toContainText("준비됨");
-  await page.getByLabel(/패키지 digest/).fill(DIGESTS.candidate);
-  await page.getByRole("button", { name: "평가 보고서 보기" }).click();
+  await expect(page.getByRole("row", { name: new RegExp(`${DIGESTS.candidate}.*비활성`) })).toBeVisible();
+  await page.getByRole("button", { name: `${DIGESTS.candidate} 평가 보고서 보기` }).click();
   await expect(page.getByRole("row", { name: /next_item_accuracy/ })).toBeVisible();
   await page.getByRole("button", { name: "이 패키지 활성화 승인" }).click();
   const dialog = page.getByRole("dialog");
@@ -62,6 +62,8 @@ test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async
   // 적재가 끝나면(가짜는 곧 끝낸다) 활성 패키지가 승인한 것으로 바뀐다
   await expect(page.getByRole("status").first()).toContainText("준비됨", { timeout: 15_000 });
   await expect(page.getByText(DIGESTS.candidate).first()).toBeVisible();
+  // 목록의 활성 표시가 승인한 패키지로 옮겨진다
+  await expect(page.getByRole("row", { name: new RegExp(`${DIGESTS.candidate}.*\\s활성`) })).toBeVisible();
 });
 
 test("직원 알림: 스트림으로 새 위험 알림이 뜨고 정지 해제는 확인 뒤에 보낸다", async ({ page }) => {
@@ -102,9 +104,11 @@ test("문항 세트 올리기와 실패 사례 검토", async ({ page }) => {
   const upload = { questionnaire_id: "nh2", runtime_contract_version: 1, content: { title: "새 세트", bank: { items: [] }, flow: { start_item: "Q1", rules: [] } } };
   await page.getByLabel("문항 세트 파일(JSON)").setInputFiles({ name: "q.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(upload)) });
   await expect(page.getByText(/새 세트 버전 2/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "national-health 버전 1 활성화" })).toBeDisabled(); // 이미 활성인 버전
   await page.getByRole("button", { name: "nh2 버전 2 활성화" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "활성화" }).click();
   await expect(page.getByText(/활성 버전을/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "nh2 버전 2 활성화" })).toBeDisabled();
 
   await page.getByRole("link", { name: "실패 사례" }).click();
   await page.getByRole("link", { name: /Q7_1/ }).click();

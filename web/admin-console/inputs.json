@@ -1,0 +1,12 @@
+{
+  "run_as_uid": 101,
+  "env": [],
+  "writable_paths": [
+    { "path": "/tmp", "persistent": false, "owner_uid": 101 }
+  ],
+  "capabilities": [],
+  "sysctls": [],
+  "processes": [
+    { "argv": ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"] }
+  ]
+}

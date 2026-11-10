@@ -143,7 +143,8 @@ export function useActivateQuestionSet() {
   return useMutation({
     mutationFn: async (versionId: string) =>
       unwrap(await survey.POST("/v1/question-set-versions/{question_set_version_id}/activation", { params: { path: { question_set_version_id: versionId } } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["questionnaires"] }),
+    // 활성 여부(is_active)가 바뀌므로 문항 세트 목록도 다시 읽는다
+    onSuccess: () => Promise.all([queryClient.invalidateQueries({ queryKey: ["questionnaires"] }), queryClient.invalidateQueries({ queryKey: ["question-sets"] })]),
   });
 }
 

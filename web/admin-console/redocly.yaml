@@ -10,3 +10,10 @@ apis:
     root: ../../contracts/openapi/model-runtime.yaml
     x-openapi-ts:
       output: ./src/contract/model-runtime.d.ts
+  # 왜 components: 작업이 $ref 로 참조하지 않는 계약 스키마(StaffAlertEvent, AlertEventName, AlertStreamHeartbeatSeconds, UserRole)는
+  # 위 두 문서에서 openapi-typescript 가 만들지 않는다(변경 요청 admin-console-003). 공유 값 문서(paths 비어 있음)의 components.schemas 를
+  # 전부 내면 손으로 옮길 일이 없다. 계약은 고치지 않는다.
+  components:
+    root: ../../contracts/components.yaml
+    x-openapi-ts:
+      output: ./src/contract/components.d.ts

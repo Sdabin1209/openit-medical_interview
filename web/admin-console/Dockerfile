@@ -20,11 +20,16 @@ ARG VERSION
 ARG CONTRACTS_VERSION
 ARG SOURCE_URL
 ARG SERVICE
+# 왜 인자: io.openit.exposure(Exposure)·io.openit.inputs(ContainerInputs) 라벨의 원본은 exposure.json·inputs.json 이고 deploy build 가 한 줄 JSON 으로 넣는다(Dockerfile 에 복사하지 않는다). 이 화면은 잡이 없어 JOBS 가 없다
+ARG EXPOSURE
+ARG INPUTS
 LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
-      io.openit.contracts="${CONTRACTS_VERSION}"
+      io.openit.contracts="${CONTRACTS_VERSION}" \
+      io.openit.exposure="${EXPOSURE}" \
+      io.openit.inputs="${INPUTS}"
 # 왜 apk upgrade: 기반 이미지(digest 고정)의 알파인 패키지에 수정판이 나온 취약점(CRITICAL·HIGH)이 있다(Trivy 로 확인, ADR 0016).
 # 기반 이미지가 갱신되면 이 줄을 지운다. 감수: 이 줄은 빌드 시점의 패키지 저장소를 따라 같은 입력에서 같은 이미지가 나오지 않는다
 # hadolint DL3017(apk upgrade 금지)은 위 이유로 .hadolint.yaml 에서 사유와 함께 무시한다

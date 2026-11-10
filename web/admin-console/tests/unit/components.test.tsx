@@ -162,6 +162,7 @@ describe("QuestionSetView", () => {
     content_hash: "c".repeat(64),
     uploaded_by: "author-1",
     created_at: "2026-11-10T09:00:00Z",
+    is_active: false,
   };
   const props = { versions: [version], loading: false, listError: undefined, hasMore: false, uploading: false, uploadProblem: undefined, uploaded: undefined, activating: false, activated: undefined, activateError: undefined, onUpload: vi.fn(), onActivate: vi.fn(), onLoadMore: vi.fn() };
   it("파일을 읽어 올린다", async () => {
@@ -187,6 +188,13 @@ describe("QuestionSetView", () => {
     await userEvent.click(screen.getByRole("button", { name: "nh 버전 2 활성화" }));
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "활성화" }));
     expect(onActivate).toHaveBeenCalledWith("v1");
+  });
+  it("활성 여부를 보이고 이미 활성인 버전의 활성화 버튼은 막는다", () => {
+    render(<QuestionSetView {...props} versions={[{ ...version, is_active: true }, { ...version, question_set_version_id: "v0", version_number: 1 }]} />);
+    expect(screen.getByRole("row", { name: /^nh 2 .* 활성 nh 버전 2 활성화$/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "nh 버전 2 활성화" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "nh 버전 1 활성화" })).toBeEnabled();
+    expect(screen.getByRole("row", { name: /nh 1 건강검진.*비활성/ })).toBeVisible();
   });
   it("빈 목록", () => {
     render(<QuestionSetView {...props} versions={[]} />);
@@ -239,6 +247,14 @@ describe("ReleaseView", () => {
     statusError: undefined,
     canActivate: true,
     canRollback: true,
+    packages: [
+      { package_digest: `sha256:${"b".repeat(64)}`, published_at: "2026-11-10T09:00:00Z", is_active: false },
+      { package_digest: `sha256:${"a".repeat(64)}`, is_active: true },
+    ],
+    packagesLoading: false,
+    packagesError: undefined,
+    packagesHasMore: false,
+    onLoadMorePackages: vi.fn(),
     manifest,
     viewedDigest: `sha256:${"b".repeat(64)}`,
     manifestLoading: false,
@@ -292,12 +308,29 @@ describe("ReleaseView", () => {
     expect(screen.getByRole("status")).toHaveTextContent("적재 중");
     expect(screen.getByRole("alert")).toHaveTextContent("ROLLBACK_TARGET_INVALID");
   });
-  it("digest 를 비우고 보면 보내지 않는다", async () => {
+  it("목록에서 고른 패키지의 digest 로 평가 보고서를 요청하고 활성 여부를 보인다", async () => {
     const onViewPackage = vi.fn();
     render(<ReleaseView {...base} manifest={undefined} viewedDigest={undefined} onViewPackage={onViewPackage} />);
-    await userEvent.click(screen.getByRole("button", { name: "평가 보고서 보기" }));
-    expect(await screen.findByText("digest 를 입력한다")).toBeVisible();
-    expect(onViewPackage).not.toHaveBeenCalled();
+    expect(screen.getByRole("row", { name: /sha256:b+.*비활성/ })).toBeVisible();
+    expect(screen.getByRole("row", { name: /sha256:a+.*알 수 없음.*활성/ })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: `sha256:${"b".repeat(64)} 평가 보고서 보기` }));
+    expect(onViewPackage).toHaveBeenCalledWith(`sha256:${"b".repeat(64)}`);
+  });
+  it("이미 활성인 패키지를 보면 승인 버튼 대신 활성이라고 알린다", () => {
+    render(<ReleaseView {...base} viewedDigest={`sha256:${"a".repeat(64)}`} />);
+    expect(screen.queryByRole("button", { name: "이 패키지 활성화 승인" })).toBeNull();
+    expect(screen.getByText("이 패키지는 지금 활성이다")).toBeVisible();
+  });
+  it("목록이 쪽으로 나뉘면 더 보기를 부른다", async () => {
+    const onLoadMorePackages = vi.fn();
+    render(<ReleaseView {...base} packagesHasMore onLoadMorePackages={onLoadMorePackages} />);
+    await userEvent.click(screen.getByRole("button", { name: "더 보기" }));
+    expect(onLoadMorePackages).toHaveBeenCalled();
+  });
+  it("목록이 비면 안내하고 목록 오류는 알린다", () => {
+    render(<ReleaseView {...base} packages={[]} packagesError="목록을 읽지 못했다" manifest={undefined} viewedDigest={undefined} />);
+    expect(screen.getByText("게시된 패키지가 없다")).toBeVisible();
+    expect(screen.getByText("목록을 읽지 못했다")).toBeVisible();
   });
 });
 

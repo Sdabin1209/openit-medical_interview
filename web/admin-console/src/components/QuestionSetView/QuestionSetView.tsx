@@ -82,6 +82,7 @@ export function QuestionSetView(props: Props) {
             <th scope="col">문항 수</th>
             <th scope="col">올린 사람</th>
             <th scope="col">올린 때</th>
+            <th scope="col">활성 여부</th>
             <th scope="col">활성화</th>
           </tr>
         </thead>
@@ -94,8 +95,10 @@ export function QuestionSetView(props: Props) {
               <td>{v.content.bank.items.length}</td>
               <td>{v.uploaded_by}</td>
               <td>{new Date(v.created_at).toLocaleString("ko-KR")}</td>
+              <td>{v.is_active ? "활성" : "비활성"}</td>
               <td>
-                <button type="button" disabled={props.activating} onClick={() => { setTarget(v); }}>
+                {/* 이미 활성인 버전은 막는다(계약은 멱등이라 해는 없지만 같은 일을 다시 시키지 않는다) */}
+                <button type="button" disabled={props.activating || v.is_active} onClick={() => { setTarget(v); }}>
                   {`${v.questionnaire_id} 버전 ${String(v.version_number)} 활성화`}
                 </button>
               </td>

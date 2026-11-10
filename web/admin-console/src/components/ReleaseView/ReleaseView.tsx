@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 
 import type { components } from "../../contract/model-runtime";
 
+type ModelPackageSummary = components["schemas"]["ModelPackageSummary"];
 type ModelStatus = components["schemas"]["ModelStatus"];
 type ModelPackageManifest = components["schemas"]["ModelPackageManifest"];
 type ProblemDetails = components["schemas"]["ProblemDetails"];
@@ -18,6 +19,12 @@ interface Props {
   canActivate: boolean;
   /** 롤백은 운영자나 승인자 */
   canRollback: boolean;
+  /** 게시된 패키지 목록(최근 것이 먼저) */
+  packages: ModelPackageSummary[];
+  packagesLoading: boolean;
+  packagesError: string | undefined;
+  packagesHasMore: boolean;
+  onLoadMorePackages: () => void;
   manifest: ModelPackageManifest | undefined;
   /** 지금 보고 있는 패키지의 digest(manifest 가 있을 때) */
   viewedDigest: string | undefined;
@@ -30,9 +37,6 @@ interface Props {
   onRollback: (targetDigest: string, reason: string) => void;
 }
 
-interface DigestValues {
-  digest: string;
-}
 interface ReasonValues {
   reason: string;
 }
@@ -52,7 +56,8 @@ function ProblemText({ problem }: { problem: ProblemDetails }) {
 /** 모델 패키지: 적재 상태, 평가 보고서 확인, 활성화 승인, 롤백. 승인한 사람은 서버가 토큰에서 얻는다(화면은 신원을 보내지 않는다). */
 export function ReleaseView(p: Props) {
   const [pending, setPending] = useState<Pending | null>(null);
-  const digestForm = useForm<DigestValues>({ defaultValues: { digest: "" } });
+  // 활성 여부는 목록의 값이다(계약 ModelPackageSummary.is_active). 목록에 없으면 알 수 없어 막지 않고 서버가 멱등으로 답한다.
+  const viewedIsActive = p.packages.find((pkg) => pkg.package_digest === p.viewedDigest)?.is_active === true;
   const reasonForm = useForm<ReasonValues>({ defaultValues: { reason: "" } });
 
   const close = () => {
@@ -99,15 +104,41 @@ export function ReleaseView(p: Props) {
         </button>
       ) : null}
 
-      <h2>패키지 확인</h2>
-      <form onSubmit={(event) => void digestForm.handleSubmit((v) => { p.onViewPackage(v.digest.trim()); })(event)} noValidate>
-        <label htmlFor="package-digest">패키지 digest(sha256:…)</label>
-        <input id="package-digest" autoComplete="off" spellCheck={false} {...digestForm.register("digest", { required: "digest 를 입력한다" })} />
-        {digestForm.formState.errors.digest ? <p role="alert">{digestForm.formState.errors.digest.message}</p> : null}
-        <button type="submit" disabled={p.manifestLoading}>
-          평가 보고서 보기
+      <h2>게시된 패키지</h2>
+      {p.packagesError ? <p role="alert">{p.packagesError}</p> : null}
+      {p.packagesLoading ? <p>불러오는 중</p> : null}
+      {!p.packagesLoading && p.packages.length === 0 ? <p>게시된 패키지가 없다</p> : null}
+      {p.packages.length > 0 ? (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">digest</th>
+              <th scope="col">게시한 때</th>
+              <th scope="col">활성 여부</th>
+              <th scope="col">평가 보고서</th>
+            </tr>
+          </thead>
+          <tbody>
+            {p.packages.map((pkg) => (
+              <tr key={pkg.package_digest}>
+                <th scope="row">{pkg.package_digest}</th>
+                <td>{pkg.published_at ? new Date(pkg.published_at).toLocaleString("ko-KR") : "알 수 없음"}</td>
+                <td>{pkg.is_active ? "활성" : "비활성"}</td>
+                <td>
+                  <button type="button" disabled={p.manifestLoading} onClick={() => { p.onViewPackage(pkg.package_digest); }}>
+                    {`${pkg.package_digest} 평가 보고서 보기`}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {p.packagesHasMore ? (
+        <button type="button" onClick={p.onLoadMorePackages}>
+          더 보기
         </button>
-      </form>
+      ) : null}
       {p.manifestProblem ? <ProblemText problem={p.manifestProblem} /> : null}
       {p.manifestLoading ? <p>불러오는 중</p> : null}
       {p.manifest && p.viewedDigest ? (
@@ -159,7 +190,8 @@ export function ReleaseView(p: Props) {
               ))}
             </tbody>
           </table>
-          {p.canActivate ? (
+          {viewedIsActive ? <p role="status">이 패키지는 지금 활성이다</p> : null}
+          {p.canActivate && !viewedIsActive ? (
             <button
               type="button"
               disabled={p.actionPending}

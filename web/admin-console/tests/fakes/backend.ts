@@ -49,7 +49,7 @@ const ROLE_RULES: [RegExp, string, string[]][] = [
   [/^\/v1\/question-set-versions(\/.*)?$/, "*", ["author"]],
   [/^\/v1\/(cases|deidentified-traces)(\/.*)?$/, "*", ["reviewer"]],
   [/^\/v1\/model-status$/, "GET", ["operator", "release-approver"]],
-  [/^\/v1\/model-packages\/.*$/, "GET", ["operator", "release-approver"]],
+  [/^\/v1\/model-packages(\/.*)?$/, "GET", ["operator", "release-approver"]],
   [/^\/v1\/model-activations$/, "POST", ["release-approver"]],
   [/^\/v1\/model-rollbacks$/, "POST", ["operator", "release-approver"]],
 ];
@@ -109,6 +109,7 @@ export function createFakeBackend(options: FakeOptions = {}) {
       content_hash: "c".repeat(64),
       uploaded_by: "author-1",
       created_at: NOW,
+      is_active: true,
     },
   ];
 
@@ -221,13 +222,14 @@ export function createFakeBackend(options: FakeOptions = {}) {
     if (req.path === "/v1/question-set-versions" && req.method === "POST") {
       if (typeof body?.["questionnaire_id"] !== "string") return problem(400, "요청이 계약과 다르다", { errors: [{ pointer: "/questionnaire_id", detail: "필요하다" }] });
       const upload = body as unknown as S["QuestionSetUpload"];
-      const version: S["QuestionSetVersion"] = { question_set_version_id: UUID(12 + questionSets.length), questionnaire_id: upload.questionnaire_id, version_number: questionSets.length + 1, runtime_contract_version: upload.runtime_contract_version, content: upload.content, content_hash: "d".repeat(64), uploaded_by: "author-1", created_at: NOW };
+      const version: S["QuestionSetVersion"] = { question_set_version_id: UUID(12 + questionSets.length), questionnaire_id: upload.questionnaire_id, version_number: questionSets.length + 1, runtime_contract_version: upload.runtime_contract_version, content: upload.content, content_hash: "d".repeat(64), uploaded_by: "author-1", created_at: NOW, is_active: false };
       questionSets.unshift(version);
       return json(201, version);
     }
     const activation = match(/^\/v1\/question-set-versions\/([^/]+)\/activation$/);
     if (activation) {
       const v = questionSets.find((q) => q.question_set_version_id === activation[1]);
+      if (v) for (const q of questionSets) if (q.questionnaire_id === v.questionnaire_id) q.is_active = q === v;
       return v ? json(200, { questionnaire_id: v.questionnaire_id, question_set_version_id: v.question_set_version_id, runtime_contract_version: v.runtime_contract_version, activated_by: "author-1", activated_at: NOW } satisfies S["ActiveQuestionSet"]) : problem(404, "없다");
     }
 
@@ -258,6 +260,15 @@ export function createFakeBackend(options: FakeOptions = {}) {
     }
 
     if (req.path === "/v1/model-status") return json(200, model);
+    if (req.path === "/v1/model-packages") {
+      // 활성 여부는 지금 적재 상태의 패키지다(계약 ModelPackageSummary.is_active). 쪽 나누기는 limit 1 이면 첫 쪽만 주고 next_cursor 를 준다
+      const all: M["ModelPackageSummary"][] = [DIGEST_B, DIGEST_A].map((d) => ({ package_digest: d, published_at: NOW, is_active: d === model.package_digest }));
+      const cursor = req.query.get("cursor");
+      const size = Number(req.query.get("limit") ?? all.length);
+      const start = cursor === null ? 0 : Number(cursor);
+      const items = all.slice(start, start + size);
+      return json(200, { items, ...(start + size < all.length ? { next_cursor: String(start + size) } : {}) } satisfies M["ModelPackageList"]);
+    }
     const pkg = match(/^\/v1\/model-packages\/(.+)$/);
     if (pkg) return pkg[1] === DIGEST_B ? json(200, manifest) : problem(404, "패키지가 없다");
     if (req.path === "/v1/model-activations") {

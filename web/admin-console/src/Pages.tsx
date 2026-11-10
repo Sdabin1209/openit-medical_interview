@@ -30,7 +30,7 @@ import {
   type ReviewStatus,
   type SessionStatus,
 } from "./link/survey";
-import { useActivateModelPackage, useModelPackage, useModelStatus, useRollbackModelPackage } from "./link/model";
+import { useActivateModelPackage, useModelPackage, useModelPackages, useModelStatus, useRollbackModelPackage } from "./link/model";
 import type { UserRole } from "./link/session";
 
 export function StartCodePage() {
@@ -207,6 +207,7 @@ export function CaseDetailPage() {
 export function ReleasePage({ roles }: { roles: readonly UserRole[] }) {
   const status = useModelStatus();
   const [digest, setDigest] = useState<string>();
+  const packages = useModelPackages();
   const pkg = useModelPackage(digest);
   const activate = useActivateModelPackage();
   const rollback = useRollbackModelPackage();
@@ -216,6 +217,11 @@ export function ReleasePage({ roles }: { roles: readonly UserRole[] }) {
       statusError={errorText(status.error)}
       canActivate={roles.includes("release-approver")}
       canRollback={roles.includes("release-approver") || roles.includes("operator")}
+      packages={packages.data?.pages.flatMap((page) => page.items) ?? []}
+      packagesLoading={packages.isLoading}
+      packagesError={errorText(packages.error)}
+      packagesHasMore={packages.hasNextPage}
+      onLoadMorePackages={() => void packages.fetchNextPage()}
       manifest={pkg.data}
       viewedDigest={pkg.data === undefined ? undefined : digest}
       manifestLoading={pkg.isFetching}

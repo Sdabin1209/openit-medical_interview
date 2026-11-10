@@ -1,7 +1,7 @@
 # 0002. 같은 출처와 oauth2-proxy 로그인, 역할 읽기
 
 ## 상태
-승인(2026-11-10, 영역 작업자). 계약 쪽 확인은 [변경 요청 001](../../../../docs/change-requests/admin-console-001.md)·[005](../../../../docs/change-requests/admin-console-005.md).
+승인(2026-11-10, 영역 작업자). 확정(2026-11-11, 헤드 결정): 역할은 oauth2-proxy 의 `groups` 에서 읽고, platform 이 Keycloak 클라이언트 매퍼로 `groups` 클레임에 realm 역할(`UserRole`)을 낸다(계약 README 9.0.0 '화면이 아는 사용자 역할'). 같은 출처의 상대 경로만 쓰는 것도 확정이다([변경 요청 001](../../../../docs/change-requests/admin-console-001.md)·[005](../../../../docs/change-requests/admin-console-005.md)의 처리, 변경 요청 파일은 고치지 않는다).
 
 ## 맥락
 브리프: 로그인은 oauth2-proxy + Keycloak(OIDC), 역할에 따라 화면을 보인다. 서버(survey-service, model-runtime)는 RFC 9068 접근 토큰의 서명·`iss`·`aud`·역할을 검사한다. 화면 코드가 토큰을 다루면 저장 위치(localStorage 등)와 탈취 위험이 생긴다.
@@ -10,6 +10,7 @@
 - 화면은 토큰을 보지도 저장하지도 않는다. 브라우저는 oauth2-proxy 의 쿠키 세션만 갖고, 프록시가 서버 요청에 토큰을 싣는다(이 연결은 platform 의 구성).
 - 모든 호출은 같은 출처의 상대 경로(`/v1/...`)다. 로그인이 끝난 응답(401)이면 `/oauth2/start?rd=<지금 경로>` 로 보낸다(oauth2-proxy 의 표준 시작 주소).
 - 역할은 `GET /oauth2/userinfo`(oauth2-proxy 의 표준 엔드포인트)의 `groups` 에서 `UserRole` 값만 남겨 읽는다. 로그아웃은 `/oauth2/sign_out`.
+- 같은 출처의 `/v1/` 를 survey-service 와 model-runtime 으로 나누는 일은 각 서비스가 자기 `Exposure` 로 선언하고 입구가 합친다(계약 README 9.0.0 '브라우저의 한 출처'). 화면은 상대 경로만 안다. 알림 스트림은 입구가 이 경로의 시간 제한을 끈다.
 - 메뉴와 경로 보호는 편의다. 서버가 요청마다 역할을 다시 검사하며(403), 화면은 403 의 사유를 그대로 보인다. 화면과 서버가 같은 규칙을 두 번 구현하지 않도록 화면의 역할→화면 표는 계약 각 작업의 `security` 요구를 옮긴 것이다(`src/App.tsx` 의 `SCREENS`).
 
 ## 왜
@@ -22,7 +23,7 @@
 
 ## 결과
 - **얻는 것:** 화면에 토큰 처리 코드가 없다.
-- **감수하는 것:** 역할을 읽는 `userinfo` 의 `groups` 에 Keycloak 역할이 나온다는 platform 설정을 확인하지 못했다(001). 그 설정이 없으면 모든 계정이 "열 수 있는 화면이 없다"를 본다. 브라우저→서비스 경로 배분(005)도 이 작업에서 확인하지 못했다.
+- **감수하는 것:** `groups` 에 Keycloak 역할이 나오는 설정은 platform 의 일이고 이 작업에서 확인하지 못했다(가짜 `/oauth2/userinfo` 로만 시험). 그 설정이 없으면 모든 계정이 "열 수 있는 화면이 없다"를 본다. 브라우저→서비스 경로 배분과 알림 스트림의 시간 제한 해제도 입구가 하는 일이라 이 작업에서 확인하지 못했다. `UserRole` 의 실행 시점 목록은 생성 타입으로 키를 강제한 `Record` 로 두었다([ADR 0007](0007-계약-타입-생성에-공유-값-문서를-포함한다.md)).
 
 ## 되돌리는 조건
-계약에 "내 역할" 작업이 생기면(001 요청 1) `userinfo` 대신 그것을 읽는 새 ADR 로 대체한다.
+계약에 "내 역할" 작업이 생기거나 platform 이 `groups` 매퍼를 내지 않기로 하면(001 요청 1) `userinfo` 대신 그것을 읽는 새 ADR 로 대체한다.
