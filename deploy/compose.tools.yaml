@@ -1,0 +1,17 @@
+# 빌드 단계의 도구(ADR 0016, 0024). 설치 설정(기기 CA, 인증서, 영역 노출 선언)과 무관하다: 이미지를 빌드·검사하는 일은 설치처와 상관없이 같아야 한다
+# (12-Factor App V: build, release, run 분리). `./deploy build` 가 이 파일만 읽어 일회용으로 돌린다(`compose run`).
+name: openit-tools
+
+services:
+  # 이미지·Dockerfile 보안 검사(ADR 0016). `./deploy build` 가 일회용으로 돌린다(`compose run`). 취약점 DB 는 인터넷에서 받아 리포의 .trivy-cache/ 에 둔다.
+  trivy:
+    image: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+    # 왜 bridge: 도구 컨테이너는 취약점 DB 를 인터넷에서 받는다. 프로젝트 전용 네트워크를 만들지 않아 정리할 것이 남지 않는다
+    network_mode: bridge
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TRIVY_CACHE_DIR: /cache
+      TRIVY_NO_PROGRESS: "true"

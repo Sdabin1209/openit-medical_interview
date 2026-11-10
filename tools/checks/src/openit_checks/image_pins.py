@@ -60,7 +60,7 @@ def run(root: Path) -> list[Violation]:
             refs, found = dockerfile_images(path, rel)
             all_refs += refs
             violations += found
-        elif path.name in {"compose.yaml", "compose.yml"}:
+        elif re.fullmatch(r"compose(\.[a-z-]+)?\.ya?ml", path.name):
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if match := COMPOSE_IMAGE.match(line):
                     ref = match.group(1)
