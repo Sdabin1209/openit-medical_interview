@@ -1,0 +1,45 @@
+# 공통 점검(리포 전체 대상). 영역과 달리 서비스가 아니라 점검 도구 모음이다.
+[project]
+name = "openit-checks"
+version = "0.1.0"
+description = "openit 모노레포 공통 점검: 라이선스, docker 설정 격리, 이미지 고정, bake 대상, 영역 경계"
+requires-python = ">=3.12,<3.13"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+  "pip-licenses",       # Python 라이선스 읽기(MIT, ADR 0007)
+  "license-expression", # SPDX 표현식 파서(Apache-2.0, ADR 0007)
+]
+
+[project.scripts]
+openit-check = "openit_checks.cli:main"
+
+[dependency-groups]
+dev = ["pytest", "pyright", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openit_checks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 140
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607"]
+# 왜: 점검은 PATH 의 표준 도구(git, uv)를 부른다. 경로를 박으면 설치처마다 깨진다
+"src/**" = ["S603", "S607"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"

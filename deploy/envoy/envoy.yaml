@@ -1,0 +1,31 @@
+# 게이트웨이(Envoy) 기반 설정. 영역 라우트는 영역 계약이 정해진 뒤 더한다(deploy/README 의 '남은 것').
+# 지금은 살아 있음 확인(/healthz)만 직접 응답하고 나머지는 503 으로 막는다.
+# 관리 인터페이스(admin)는 컨테이너 안 루프백에만 연다. 왜: 외부에 열면 설정 변경·종료가 가능하다(Envoy 문서의 경고).
+admin:
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }
+static_resources:
+  listeners:
+    - name: ingress
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8080 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress
+                route_config:
+                  name: base
+                  virtual_hosts:
+                    - name: base
+                      domains: ["*"]
+                      routes:
+                        - match: { path: "/healthz" }
+                          direct_response: { status: 200, body: { inline_string: "ok" } }
+                        - match: { prefix: "/" }
+                          direct_response: { status: 503, body: { inline_string: "no route" } }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

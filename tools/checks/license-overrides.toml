@@ -1,0 +1,33 @@
+# 허용 목록에 없는 라이선스를 사람이 검토해 허용한 예외. 항목마다 근거(reason)가 있어야 한다.
+# 복사 의무(GPL·AGPL·LGPL 등) 라이선스는 여기에 적어도 점검이 거부한다.
+# 항목 형식:
+# [[override]]
+# ecosystem = "python"   # 또는 "npm"
+# name = "패키지"
+# license = "점검이 읽은 라이선스 문자열 그대로"
+# reason = "검토한 근거(라이선스 원문 위치, 날짜)"
+
+[[override]]
+ecosystem = "python"
+name = "certifi"
+license = "Mozilla Public License 2.0 (MPL 2.0)"
+reason = "MPL-2.0 는 파일 단위 약한 복사 의무다(수정한 MPL 파일을 공개). GPL 계열이 아니며 certifi 를 수정 없이 의존으로만 쓴다. httpx 가 요구한다. 2026-11-10 헤드가 확인할 항목으로 보고했다"
+
+[[override]]
+ecosystem = "npm"
+name = "reserved"
+license = "UNKNOWN"
+reason = "package-lock 에 license 칸이 없다. reserved@0.1.2 타르볼의 package.json 은 licenses 에 LICENSE-MIT 를 가리키고 README 가 MIT 라고 적는다(npm pack 으로 직접 확인, 2026-11-10)"
+
+# name 은 fnmatch 패턴을 쓸 수 있다(플랫폼별 패키지 묶음용).
+[[override]]
+ecosystem = "npm"
+name = "lightningcss*"
+license = "MPL-2.0"
+reason = "Vite 의 개발·빌드 도구(devDependency)이며 화면 이미지에 들어가지 않는다. MPL-2.0 는 파일 단위 약한 복사 의무로 수정 없이 도구로만 쓰고, GPL 계열이 아니다. 헤드 확인 항목으로 보고했다(2026-11-10)"
+
+[[override]]
+ecosystem = "npm"
+name = "caniuse-lite"
+license = "CC-BY-4.0"
+reason = "브라우저 지원 데이터(devDependency 안의 browserslist 가 읽는 데이터). 화면 이미지에 들어가지 않는다. CC-BY-4.0 은 출처 표시 의무뿐이고 복사 의무(GPL 계열)가 아니다. 헤드 확인 항목으로 보고했다(2026-11-10)"

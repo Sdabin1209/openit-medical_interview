@@ -2,3 +2,11 @@ node_modules/
 .venv/
 __pycache__/
 build/
+.docker-config/
+.pytest_cache/
+.ruff_cache/
+dist/
+deploy/.env
+deploy/secrets/
+deploy/backups/
+deploy/.build-meta/

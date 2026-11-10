@@ -15,3 +15,17 @@ openit-v7/
 
 - 영역끼리는 코드를 가져다 쓰지 않고 `contracts/`의 계약으로만 만난다(점검: import-linter).
 - 배포: `git clone` 뒤 `deploy/`의 명령 하나로 띄운다(ADR 0002).
+
+## 도구
+
+| 하는 일 | 명령 |
+|---|---|
+| 새 영역 만들기(템플릿에서) | `tools/new-area {service\|web} <이름>` |
+| 이미지 빌드 | `deploy/deploy build [대상]` |
+| 이미지 스모크 | `tools/smoke {service\|web} <영역>` |
+| 화면 브라우저 시험(컨테이너) | `tools/web-e2e <영역>` |
+| 공통 점검 | `cd tools/checks && uv run openit-check all` |
+| 점검 자체 시험 | `cd tools/checks && uv run pytest` |
+| 배포 환경 확인 | `deploy/deploy doctor` |
+
+템플릿은 `templates/service`, `templates/web`이고 `services/_example`, `web/_example`은 템플릿 시험용으로 남겨 둔다(실제 영역이 아니다).
