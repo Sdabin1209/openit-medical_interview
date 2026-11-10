@@ -1,6 +1,7 @@
 """package_publish(패키지 만들기): 계약 매니페스트, 같은 입력이면 같은 바이트, 어댑터 폴더 묶기."""
 
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -68,6 +69,20 @@ def test_packed_folder_is_reproducible_and_relative(tmp_path: Path) -> None:
     with tarfile.open(tmp_path / "1.tar") as tar:
         assert tar.getnames() == ["adapter_config.json", "adapter_model.safetensors", "sub/extra.json"]
         assert {(m.mtime, m.uid, m.gid) for m in tar.getmembers()} == {(0, 0, 0)}
+
+
+def test_packed_bytes_do_not_depend_on_file_times_or_creation_order(tmp_path: Path) -> None:
+    """가중치 layer 는 어댑터 폴더를 같은 입력이면 같은 바이트로 묶은 tar 한 파일이다(계약 weights 설명)."""
+    first = adapter_folder(tmp_path / "one", "adapter")
+    second = adapter_folder(tmp_path / "two", "adapter")
+    for path in second.iterdir():  # 만든 때가 다르고 소유자·모드가 다른 같은 내용의 폴더
+        os.utime(path, (1_000_000_000, 1_000_000_000))
+        path.chmod(0o600)
+    pack_adapter_folder(first, tmp_path / "1.tar")
+    pack_adapter_folder(second, tmp_path / "2.tar")
+    assert (tmp_path / "1.tar").read_bytes() == (tmp_path / "2.tar").read_bytes()
+    with tarfile.open(tmp_path / "1.tar") as tar:
+        assert {m.mode for m in tar.getmembers()} == {0o644} and all(m.isfile() for m in tar.getmembers())
 
 
 def test_folder_without_adapter_config_is_refused(tmp_path: Path) -> None:

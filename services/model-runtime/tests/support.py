@@ -62,8 +62,11 @@ class Identity:
         )
 
     def machine_token(
-        self, name: str = "survey-service", roles: tuple[str, ...] = ("inference-caller",), **override: Any
-    ) -> str:  # noqa: ANN401
+        self,
+        name: str = "survey-service",
+        roles: tuple[str, ...] = ("inference-caller",),
+        **override: Any,  # noqa: ANN401
+    ) -> str:
         """기계 호출자의 JWT 접근 토큰(client credentials 로 받은 것과 같은 모양: client_id 는 machine-<이름>)."""
         return self.token(
             list(roles), **{"sub": f"service-account-machine-{name}", "client_id": f"machine-{name}", **override}

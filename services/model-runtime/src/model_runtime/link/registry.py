@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import re
 from pathlib import Path
+from typing import cast
 from urllib.parse import urljoin, urlsplit
 
 import oras.provider
@@ -23,11 +24,14 @@ from model_runtime.types import PackageNotFoundError, RawManifest, RegistryUnava
 # 왜 이 Accept: OCI Image Spec 1.1 의 이미지 매니페스트 미디어 유형. 모델 패키지도 이 매니페스트 형식이다(계약
 # OciImageManifestMediaType)
 _MANIFEST_ACCEPT = "application/vnd.oci.image.manifest.v1+json"
-# 왜 sha256-<16진수>: 게시 도구가 패키지마다 다는 태그다(publish_registry.package_tag). 태그 목록(`tags/list`)이 패키지를 찾는
-# 유일한 표준 길이라 digest 를 태그 문자 집합(OCI Distribution Spec 의 태그 정규식)으로 옮긴 이름을 쓴다(cosign 의 같은 관례)
+# 왜 sha256-<16진수>: 게시 도구가 패키지마다 다는 태그다(publish_registry.package_tag). 태그 목록(`tags/list`)이
+# 패키지를 찾는
+# 유일한 표준 길이라 digest 를 태그 문자 집합(OCI Distribution Spec 의 태그 정규식)으로 옮긴 이름을 쓴다(cosign 의
+# 같은 관례)
 PACKAGE_TAG = re.compile(r"sha256-[a-f0-9]{64}")
-# 왜 100: 태그 목록 한 쪽을 달라고 하는 크기. Distribution 의 `n` 매개변수이고 측정하지 않았다(레지스트리가 더 적게 줄 수 있다)
-_TAGS_PAGE = 100
+# 왜 100: 태그 목록 한 쪽을 달라고 하는 크기. Distribution 의 `n` 매개변수이고 측정하지 않았다(레지스트리가 더 적게
+# 줄 수 있다)
+TAGS_PAGE = 100
 _LINK_NEXT = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
 
 
@@ -53,7 +57,9 @@ class OciPackageSource:
         root_certificate: Path | None,
         egress_proxy: str | None,
         client_certificate: tuple[Path, Path] | None = None,
+        tags_page: int = TAGS_PAGE,
     ) -> None:
+        self._tags_page = tags_page
         parts = urlsplit(base_url)
         self._hostname = parts.netloc
         self._repository = repository
@@ -70,7 +76,8 @@ class OciPackageSource:
             # 건드린다(워크스페이스 규칙)
             self._client.auth.set_basic_auth(*credentials)
         if client_certificate:
-            # 왜 경로만 준다: requests 는 연결을 새로 열 때마다 파일을 읽는다. 인증서 에이전트가 파일을 갱신하면 새 연결부터
+            # 왜 경로만 준다: requests 는 연결을 새로 열 때마다 파일을 읽는다. 인증서 에이전트가 파일을 갱신하면 새
+            # 연결부터
             # 새 인증서를 쓴다(이미 열린 연결은 그대로). 레지스트리가 mTLS 를 요구하지 않아도 계약대로 보인다
             self._client.session.cert = (str(client_certificate[0]), str(client_certificate[1]))
         if egress_proxy:
@@ -121,7 +128,7 @@ class OciPackageSource:
 
     def _list_manifests_sync(self) -> list[RawManifest]:
         base = f"{self._client.prefix}://{self._hostname}"
-        url: str | None = f"{base}/v2/{self._repository}/tags/list?n={_TAGS_PAGE}"
+        url: str | None = f"{base}/v2/{self._repository}/tags/list?n={self._tags_page}"
         tags: list[str] = []
         try:
             while url:
@@ -130,7 +137,8 @@ class OciPackageSource:
                     return []  # 왜 빈 목록: 아직 아무것도 올리지 않은 저장소는 태그 목록이 없다(NAME_UNKNOWN)
                 if response.status_code != requests.codes.ok:
                     raise RegistryUnavailableError(f"레지스트리가 태그 목록 요청에 {response.status_code} 로 답했다")
-                tags += [tag for tag in response.json().get("tags") or [] if PACKAGE_TAG.fullmatch(tag)]
+                listed = cast("list[str]", response.json().get("tags") or [])
+                tags += [tag for tag in listed if PACKAGE_TAG.fullmatch(tag)]
                 link = _LINK_NEXT.search(response.headers.get("Link", ""))
                 url = urljoin(base, link.group(1)) if link else None
             found: dict[str, RawManifest] = {}
@@ -147,5 +155,6 @@ class OciPackageSource:
         return list(found.values())
 
     async def list_manifests(self) -> list[RawManifest]:
-        """게시된 모델 패키지의 매니페스트들. 태그 목록(OCI Distribution Spec)에서 패키지 태그만 골라 매니페스트를 받는다."""
+        """게시된 모델 패키지의 매니페스트들. 태그 목록(OCI Distribution Spec)에서 패키지 태그만 골라 매니페스트를
+        받는다."""
         return await asyncio.to_thread(self._list_manifests_sync)

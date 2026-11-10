@@ -1,12 +1,14 @@
 """이미지가 영역 밖에서 주입받는 것과 영역 밖에 내보내는 것의 선언(계약 ContainerInputs, Exposure, D134).
 
-원본은 영역 폴더의 inputs.json 과 exposure.json 이다. Dockerfile 은 `ARG INPUTS`, `ARG EXPOSURE` 로 받아 라벨로 달고(deploy build 가
+원본은 영역 폴더의 inputs.json 과 exposure.json 이다. Dockerfile 은 `ARG INPUTS`, `ARG EXPOSURE` 로 받아 라벨로
+달고(deploy build 가
 파일을 한 줄 JSON 으로 넘긴다) 원본 내용을 글자 그대로 복사하지 않는다. 이 영역에는 잡이 없어 JOBS 가 없다.
 """
 
 import json
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -28,13 +30,14 @@ HEALTH = {"/healthz", "/readyz", "/metrics"}
 
 
 def operations() -> list[tuple[str, str, list[dict[str, list[str]]]]]:
-    spec = yaml.safe_load((CONTRACTS / "openapi" / "model-runtime.yaml").read_text(encoding="utf-8"))
-    return [
-        (path, method.upper(), item.get("security", []))
-        for path, methods in spec["paths"].items()
-        for method, item in methods.items()
-        if isinstance(item, dict) and path not in HEALTH
-    ]
+    spec: dict[str, Any] = yaml.safe_load((CONTRACTS / "openapi" / "model-runtime.yaml").read_text(encoding="utf-8"))
+    paths: dict[str, dict[str, Any]] = spec["paths"]
+    found: list[tuple[str, str, list[dict[str, list[str]]]]] = []
+    for path, methods in paths.items():
+        for method, item in methods.items():
+            if isinstance(item, dict) and path not in HEALTH:
+                found.append((path, method.upper(), cast("dict[str, Any]", item).get("security", [])))
+    return found
 
 
 def under(prefix: str, path: str) -> bool:
@@ -78,7 +81,8 @@ def test_healthcheck_is_the_listen_port_over_plain_http() -> None:
 
 
 def test_the_adapter_folder_is_under_the_declared_writable_path() -> None:
-    """엔진 컨테이너가 같은 경로로 읽기 전용 마운트하는 폴더가 이 영역이 쓰는 경로다(ADR 0006, 계약 ModelRuntimeEnv 설명)."""
+    """엔진 컨테이너가 같은 경로로 읽기 전용 마운트하는 폴더가 이 영역이 쓰는 경로다(ADR 0006, 계약 ModelRuntimeEnv
+    설명)."""
     paths = {item["path"]: item["persistent"] for item in DECLARED["writable_paths"]}
     assert paths == {"/var/lib/openit/model-runtime": True}
     assert "/var/lib/openit/model-runtime" in DOCKERFILE

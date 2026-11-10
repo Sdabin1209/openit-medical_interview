@@ -18,13 +18,14 @@ from model_io.core.evaluate import (
     evaluate_responses,
 )
 from model_io.core.guard import check_extraction_output, expected_next_item, find_violations
-from model_io.core.rules import DEFAULT_RULES
+from model_io.core.rules import DEFAULT_RULES, DISABLED_RULES
 from model_io.core.serialize import serialize_extraction_input, serialize_response_input
 from model_io.core.state import compose_extraction_input, reference_item, select_state
 from model_io.core.types import GuardContext, GuardOutcome, Rewrite, Violation
 
 __all__ = [
     "DEFAULT_RULES",
+    "DISABLED_RULES",
     "END",
     "ExtractionSample",
     "FieldIndex",

@@ -77,12 +77,12 @@ async def test_role_in_token_is_not_enough_when_the_table_does_not_allow_it(tmp_
     assert await status_of(auth.require(f"Bearer {stranger}", machine_roles=["inference-caller"])) == 403
 
 
-async def test_machine_jwt_ignores_roles_outside_the_contract(tmp_path: Path) -> None:
-    """Keycloak 은 realm_access.roles 에 기본 역할도 싣는다. 계약 밖 이름은 무시하고 나머지로 판단한다."""
+async def test_machine_jwt_with_a_role_outside_the_contract_is_401(tmp_path: Path) -> None:
+    """토큰에는 계약 MachineRole 만 실린다(platform 이 범위를 제한). 계약 밖 역할이 있으면 모델이 거절한다."""
     identity = Identity.new()
     auth = authenticator(tmp_path, identity)
-    token = identity.machine_token(roles=("inference-caller", "offline_access", "default-roles-openit"))
-    assert (await auth.require(f"Bearer {token}", machine_roles=["inference-caller"])).name == "survey-service"
+    token = identity.machine_token(roles=("inference-caller", "offline_access"))
+    assert await status_of(auth.require(f"Bearer {token}", machine_roles=["inference-caller"])) == 401
 
 
 async def test_machine_jwt_with_a_broken_claim_is_401(tmp_path: Path) -> None:
@@ -90,8 +90,8 @@ async def test_machine_jwt_with_a_broken_claim_is_401(tmp_path: Path) -> None:
     auth = authenticator(tmp_path, identity)
     bad_client = identity.machine_token(client_id="machine-Bad_Name")  # 계약 MachineOidcClientId 의 패턴을 어긴다
     assert await status_of(auth.require(f"Bearer {bad_client}", machine_roles=["inference-caller"])) == 401
-    no_roles = identity.machine_token(_drop=("realm_access",))  # 역할이 없는 호출자는 인증은 되나 권한이 없다
-    assert await status_of(auth.require(f"Bearer {no_roles}", machine_roles=["inference-caller"])) == 403
+    no_realm_access = identity.machine_token(_drop=("realm_access",))  # 계약 MachineIdentityClaims 의 필수 칸이 없다
+    assert await status_of(auth.require(f"Bearer {no_realm_access}", machine_roles=["inference-caller"])) == 401
 
 
 async def test_machine_jwt_is_not_accepted_where_only_people_may_call(tmp_path: Path) -> None:

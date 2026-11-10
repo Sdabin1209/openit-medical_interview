@@ -4,18 +4,25 @@
 모델 패키지(OCI 아티팩트)를 레지스트리에서 digest 로 받아 검증·적재하고, 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 문장을 낸다. 추출 출력이 계약의 합격 조건을 지키는지 한 번 검사하고(output_guard) 값 고쳐 쓰기(D115)를 적용한다. 활성화 승인과 롤백을 받고 그 기록(승인자, 시각, 사유)을 남긴다. 추론 엔진(vLLM 의 OpenAI 호환 서버)은 별도 컨테이너이고 이 서비스가 부른다. 모델 패키지를 만드는 `package-publish` 도구도 이 영역에 있다. 모델 입출력 글자 규칙은 [libs/model-io](../../libs/model-io/README.md) 가 가진다.
 
 ## 2. 받는 계약·내는 계약
-- HTTP 계약: [contracts/openapi/model-runtime.yaml](../../contracts/openapi/model-runtime.yaml)(작업 여섯 개와 `/healthz`, `/readyz`, `/metrics`). 타입은 `src/model_runtime/contract/models.py` 로 생성한다(`pyproject.toml` 의 `[tool.openit.contract]` 가 정본).
-- 환경 입력: 계약 `ModelRuntimeEnv`. `tests/unit/test_settings.py` 가 설정 이름이 계약과 같은지 본다.
+계약은 [9.0.0](../../contracts/README.md)(`contracts/README.md` 의 9.0.0 절)이다.
+
+- HTTP 계약: [contracts/openapi/model-runtime.yaml](../../contracts/openapi/model-runtime.yaml)(작업 일곱 개와 `/healthz`, `/readyz`, `/metrics`). 게시된 패키지 목록(`listModelPackages`)은 [ADR 0008](docs/adr/0008-게시된-모델-패키지-목록.md). 타입은 `src/model_runtime/contract/models.py` 로 생성한다(`pyproject.toml` 의 `[tool.openit.contract]` 가 정본).
+- 환경 입력: 계약 `ModelRuntimeEnv`(엔진 주소 `OPENIT_INFERENCE_ENGINE_URL`, 이름 표 `HostsTable`, 레지스트리 자격은 한 줄 `사용자:비밀번호`의 HTTP 기본 인증: [ADR 0006](docs/adr/0006-계약-9.0.0-입력-엔진-주소-이름-표-자격-어댑터-배치.md)). `tests/unit/test_settings.py` 가 설정 이름이 계약과 같은지 본다.
+- 인증: 사람과 기계 호출자 모두 IdP 가 낸 JWT 접근 토큰(RFC 9068). 기계 호출자는 `MachineIdentityClaims`(`client_id` 는 `machine-<이름>`, 역할 `inference-caller`)이고 호출자 표(`MachineTokenTable`, 비밀 없음)로 허용을 확인한다. 계약 밖 역할이 토큰에 실리면 401. TLS 는 영역 게이트웨이가 끝내고 서비스는 평문 HTTP 다([ADR 0005](docs/adr/0005-기계-호출자는-JWT-접근-토큰-서비스는-평문-HTTP.md)).
+- 프로파일 표(`OPENIT_MODEL_PROFILE`): 영역 안 `src/model_runtime/profiles.json`(기반 모델)이고 영역이 소유한다([ADR 0007](docs/adr/0007-프로파일-표와-기반-모델.md)).
+- 노출·나가는 호출 선언: [exposure.json](exposure.json)(계약 `Exposure`, 이미지 라벨 `io.openit.exposure`, [ADR 0009](docs/adr/0009-노출-선언과-나가는-호출-선언.md)). 이 영역에는 잡이 없어 `jobs.json` 이 없다.
 - 모델 패키지: 계약 `ModelPackageOciManifest`, `ModelPackageManifest`(README 의 '모델 패키지' 절).
-- 이미지가 주입받는 것: [inputs.json](inputs.json)(계약 `ContainerInputs`, 이미지 라벨 `io.openit.inputs`).
+- 이미지가 주입받는 것: [inputs.json](inputs.json)(계약 `ContainerInputs`, 이미지 라벨 `io.openit.inputs`). Dockerfile 은 `ARG INPUTS`·`ARG EXPOSURE` 로 받아 라벨로 단다.
+- 어댑터 배치 규칙: 어댑터 폴더는 쓰기 경로 `/var/lib/openit/model-runtime` 아래에 풀리고 추론 엔진 컨테이너가 그 경로를 같은 경로로 읽기 전용 마운트한다(ADR 0006).
 - 추출·응답 요청은 계약 8.0.0 의 구조화된 값(질문 문항, 직전 문항, 상담원 말, 발화, 저장된 칸, 순서표, 칸 규격 / 행동, A 출력의 값·대상, 다음 자리와 질문 문장)이다. 모델 입력의 글과 state 는 이 서비스가 libs/model-io 로 만든다([변경 요청 004](../../docs/change-requests/model-runtime-004.md) 처리됨).
 
 ## 3. 컴포넌트
 | 컴포넌트 | 파일 | 입력 → 출력 | 하는 일 |
 |---|---|---|---|
-| link_api | `link/api.py`, `link/auth.py`, `link/runtime.py` | 계약 요청 → 명령 | HTTP 서버, 인증(기계 토큰·사람 접근 토큰), 컴포넌트 호출 순서와 적재 작업 |
-| link_registry | `link/registry.py` | 패키지 digest → 파일 | OCI Distribution(ORAS)으로 받기 |
-| package_loader | `components/package_loader.py` | 패키지 digest → 적재된 모델 | 매니페스트·파일 digest·모델 입출력 버전·서빙 버전 검증, 어댑터 적재 |
+| link_api | `link/api.py`, `link/auth.py`, `link/runtime.py` | 계약 요청 → 명령 | 평문 HTTP 서버, 인증(JWT 접근 토큰: 사람·기계), 컴포넌트 호출 순서와 적재 작업 |
+| link_registry | `link/registry.py`, `link/hosts.py` | 패키지 digest → 파일, 저장소 → 게시된 매니페스트들 | OCI Distribution(ORAS)으로 받기와 태그 목록, 이름 표, 클라이언트 인증서 |
+| package_catalog | `components/package_catalog.py` | 게시된 매니페스트들·활성 digest·Limit·Cursor → 패키지 목록 한 쪽 | 최근 것이 먼저, 쪽 나누기, 활성 여부 |
+| package_loader | `components/package_loader.py` | 패키지 digest → 적재된 모델 | 매니페스트·파일 digest·모델 입출력 버전·서빙 버전·기반 모델(프로파일 표) 검증, 어댑터 적재 |
 | release | `components/release.py`, `store/release_log.py` | 활성화·롤백 요청 → 활성 패키지 | 활성 포인터와 기록(승인자, 시각, 사유) |
 | prompt | `components/prompt.py` | 구조화된 요청 → 모델 입력 | state 에 넣을 문항 고르기, 사람 말 조각 만들기, 학습 데이터와 글자가 같은 직렬화 |
 | inference | `components/inference.py`, `link/engine.py` | 모델 입력 → 모델 출력 글자 | 엔진 호출과 시간 상한(추출 20초, 응답 25초) |
@@ -23,7 +30,7 @@
 | responder | `components/responder.py` | 모델 출력 → 응답 문장 | 비었거나 길거나 JSON 으로 감싼 출력을 거른다 |
 | package_publish(도구) | `components/package_publish.py`, `publish.py`, `link/publish_registry.py` | 어댑터 폴더·평가 집합 → 패키지 digest | 평가 보고서를 만들고 OCI 아티팩트로 올린다 |
 
-진입점: 서버 `model-runtime`(`serve.py`: 영역 사이 mTLS 서버와 컨테이너 안 루프백 건강 확인), 도구 `package-publish`(`publish.py`).
+진입점: 서버 `model-runtime`(`serve.py`: `OPENIT_LISTEN_PORT` 의 평문 HTTP. 컨테이너 `HEALTHCHECK` 도 그 포트의 `/healthz`), 도구 `package-publish`(`publish.py`).
 
 ### 모델 패키지 게시(관리 노드에서)
 ```
@@ -34,7 +41,7 @@ package-publish publish --adapter-a <LoRA-A 폴더> --adapter-b <LoRA-B 폴더> 
   --root-certificate-file <사설 루트> --base-model Qwen/Qwen3-8B --dataset-version-id <UUID> --training-run-a <UUID> --training-run-b <UUID> \
   --runtime-contract-version 1 --workdir <작업 폴더> --report-out report.json
 ```
-성공하면 표준 출력 마지막 줄이 패키지 digest 다. 평가는 엔진이 어댑터 폴더 경로를 같은 경로로 읽을 수 있어야 하고 GPU 에서 돈다.
+성공하면 표준 출력 마지막 줄이 패키지 digest 다. 패키지마다 태그 `sha256-<16진수>` 도 달아 목록(`listModelPackages`)에 나오게 한다. 평가는 엔진이 어댑터 폴더 경로를 같은 경로로 읽을 수 있어야 하고 GPU 에서 돈다.
 
 ## 4. 실행·시험 명령
 ```
@@ -46,12 +53,15 @@ uv run ruff check        # 린트
 uv run --project tools/checks openit-gen-contract services/model-runtime   # 계약 타입 다시 만들기(리포 루트에서, ADR 0020)
 deploy/deploy build model-runtime   # 이미지 빌드(Trivy 포함)
 uv run --project tools/checks openit-notices generate services/model-runtime   # 의존을 바꾼 뒤 THIRD_PARTY_NOTICES 를 다시 만든다(리포 루트에서, ADR 0018)
-tools/smoke service model-runtime           # 이미지 스모크(mTLS, 자체 HEALTHCHECK, 비 root, 라벨)
+tools/smoke service model-runtime           # 이미지 스모크(평문 HTTP, 자체 HEALTHCHECK, 비 root, 라벨)
 ```
 `libs/model-io` 를 고친 뒤에는 `uv sync --reinstall-package openit-model-io` 로 이 영역의 설치본을 갱신한다(경로 의존은 소스 변경을 자동으로 보지 않는다).
 
 ## 5. 시험 상태
-2026-11-10 측정(검증 환경: 이 작업 트리의 WSL2 한 곳. 깨끗한 두 번째 환경은 확인하지 못했다).
+**2026-11-11, 계약 9.0.0 반영 뒤**(검증 환경: 이 작업 트리의 WSL2 한 곳. 깨끗한 두 번째 환경은 확인하지 못했다). `uv run pytest` 162개 통과(스모크 5개 제외), `ruff check`, `ruff format --check`, `pyright`, `lint-imports` 통과. `libs/model-io` 는 `pytest` 83개 통과와 같은 점검 통과. `openit-check` 의 `declarations`, `area-isolation`, `dockerfile-lint`, `notices`, `licenses` 통과.
+이번에 시험이 새로 지키는 것: JWT 기계 호출자 인증(호출자 표 허용, 계약 밖 역할 무시, 고정 문자열 토큰 거부), 평문 서버, 엔진 주소 입력, 이름 표(`HostsTable`)로 접속, 레지스트리 자격 형식(RFC 7617)과 클라이언트 인증서, 어댑터 tar 가 같은 입력이면 같은 바이트, 프로파일 표와 기반 모델 불일치 거부, 게시된 패키지 목록(정렬·쪽 나누기·활성 표시), `inputs.json`·`exposure.json` 이 계약과 작업 `security` 에 맞는 것.
+
+**이번 작업에서 하지 못한 것:** 이미지 스모크(`tools/smoke service model-runtime`, 이미지 빌드가 필요해 하지 않았다. 스모크 시험 파일은 평문 HTTP 와 새 라벨에 맞게 고쳤으나 돌려 보지 못했다). 학습 파일 정답으로 위반 0 을 재는 시험(`-m dataset`)은 학습 파일이 이 트리에 없어 다시 재지 못했다. 아래 표는 2026-11-10 이전 작업의 측정이다(이번에 재확인하지 않았다).
 
 **학습 서버 학습 파일 정답 출력(`final` 44563행 + `finaltest` 2092행 = LoRA-A 46655행, ssh 로 읽기만 함)**
 
@@ -72,13 +82,18 @@ tools/smoke service model-runtime           # 이미지 스모크(mTLS, 자체 H
 - 실제 vLLM·GPU: 어댑터 올리기(`/v1/load_lora_adapter`), 제약 디코딩(`response_format` 의 json_schema), 평가 호출 시간. 가짜 엔진은 OpenAI 호환 API 의 이 영역이 쓰는 부분만 흉내 낸다. GPU 에서 확인해야 한다.
 - 실제 OCI 레지스트리(Distribution + Caddy): 시험용 레지스트리는 OCI Distribution 의 push·pull 최소 부분이다.
 - 실제 Keycloak: 시험용 신원 공급자(JWKS)로 RFC 9068 프로파일을 확인했다.
-- 계약 개정 전 요청 모양, `io.openit.inputs` 라벨을 만드는 틀(요청 003).
-- 값의 근거를 측정하지 않은 것: 평가 동시성 8, 어댑터 보관 개수 2, JWKS 갱신 간격 30초, 지표 구간, 루프백 포트 18081(ADR 에 적었다).
+- `io.openit.inputs`·`io.openit.exposure` 라벨을 deploy build 가 `INPUTS`·`EXPOSURE` 인자로 넘겨 다는 것(헤드 몫, 이미지를 빌드하지 않았다). 레지스트리 egress 를 deploy 가 더하는 것(005 확정), platform 의 기계 클라이언트 범위 제한이 실제 Keycloak 토큰에서 적용되는지(006 확정), 인증서 파일 갱신 중 교체, 실제 vLLM 의 `/v1/models` 기반 모델 이름.
+- 값의 근거를 측정하지 않은 것: 평가 동시성 8, 어댑터 보관 개수 2, JWKS 갱신 간격 30초, 지표 구간, 태그 목록 쪽 크기 100(ADR 에 적었다).
 
 ## 6. ADR 목록
 - [0001 템플릿에서 시작](docs/adr/0001-템플릿에서-시작.md)
 - [0002 활성화·롤백 기록은 덧붙이는 파일 하나](docs/adr/0002-활성화-롤백-기록은-덧붙이는-파일-하나.md)
 - [0003 레지스트리와 모델 패키지 형식, HTTP 클라이언트, 영역 사이 TLS](docs/adr/0003-레지스트리-패키지-형식-HTTP-클라이언트-TLS.md)
 - [0004 추론 호출과 검증의 구조](docs/adr/0004-추론-호출과-검증의-구조.md)
+- [0005 기계 호출자는 JWT 접근 토큰, 서비스는 평문 HTTP](docs/adr/0005-기계-호출자는-JWT-접근-토큰-서비스는-평문-HTTP.md)(0003 의 7항·8항 일부를 대체)
+- [0006 계약 9.0.0 입력: 엔진 주소, 이름 표, 자격, 어댑터 배치](docs/adr/0006-계약-9.0.0-입력-엔진-주소-이름-표-자격-어댑터-배치.md)
+- [0007 프로파일 표와 기반 모델](docs/adr/0007-프로파일-표와-기반-모델.md)
+- [0008 게시된 모델 패키지 목록](docs/adr/0008-게시된-모델-패키지-목록.md)
+- [0009 노출 선언과 나가는 호출 선언](docs/adr/0009-노출-선언과-나가는-호출-선언.md)
 
-변경 요청: [001](../../docs/change-requests/model-runtime-001.md) 계약 문구와 정본의 차이, [002](../../docs/change-requests/model-runtime-002.md) D115 R1·R3, [003](../../docs/change-requests/model-runtime-003.md) 환경 입력·파일 형식, [004](../../docs/change-requests/model-runtime-004.md) 구조화된 요청.
+변경 요청: [001](../../docs/change-requests/model-runtime-001.md) 계약 문구와 정본의 차이, [002](../../docs/change-requests/model-runtime-002.md) D115 R1·R3(9.0.0 이 명시적 비활성으로 정함), [003](../../docs/change-requests/model-runtime-003.md) 환경 입력·파일 형식(9.0.0 이 정함), [004](../../docs/change-requests/model-runtime-004.md) 구조화된 요청, [005](../../docs/change-requests/model-runtime-005.md) 레지스트리 egress 선언(확정: deploy 가 설치 설정에서 더함), [006](../../docs/change-requests/model-runtime-006.md) 기계 토큰 역할 클레임(확정: platform 이 범위를 제한하고 서비스는 계약 모델로 그대로 검증). 모델 패키지 목록은 admin-console-002 를 구현했다.

@@ -70,8 +70,10 @@ class VllmEngine:
     async def healthy(self) -> bool:
         """엔진이 살아 있고 프로파일의 기반 모델을 서빙하는가. /readyz 의 engine 점검이 쓴다.
 
-        살아 있음은 vLLM 의 `/health`, 기반 모델은 OpenAI 호환 `GET /v1/models` 의 모델 목록으로 본다(엔진은 시작할 때 정한
-        기반 모델 하나를 서빙하고 런타임에 바꿀 수 없어서, 이 서비스가 엔진에 기반 모델을 알릴 길은 없고 확인만 할 수 있다).
+        살아 있음은 vLLM 의 `/health`, 기반 모델은 OpenAI 호환 `GET /v1/models` 의 모델 목록으로 본다(엔진은 시작할
+        때 정한
+        기반 모델 하나를 서빙하고 런타임에 바꿀 수 없어서, 이 서비스가 엔진에 기반 모델을 알릴 길은 없고 확인만 할
+        수 있다).
         """
         try:
             if (await self._http.get(f"{self._base_url}/health")).status_code != HTTPStatus.OK:

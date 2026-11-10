@@ -122,7 +122,8 @@ def api_router(runtime: Runtime, auth: Authenticator) -> APIRouter:
         cursor: Annotated[str | None, Query()] = None,
     ) -> Response:
         await auth.require(authorization, human_roles=["operator", "release-approver"])
-        # 왜 계약 모델로 확인하나: 한도와 커서 길이는 계약(PageLimit, PageCursor)이 정한다. 코드에 같은 숫자를 두지 않는다
+        # 왜 계약 모델로 확인하나: 한도와 커서 길이는 계약(PageLimit, PageCursor)이 정한다. 코드에 같은 숫자를 두지
+        # 않는다
         page_limit = None if limit is None else _validated(PageLimit, limit).root
         page_cursor = None if cursor is None else _validated(PageCursor, cursor).root
         return JSONResponse(await runtime.list_packages(page_limit, page_cursor))

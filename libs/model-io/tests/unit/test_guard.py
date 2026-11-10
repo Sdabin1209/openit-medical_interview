@@ -6,7 +6,7 @@ from collections.abc import Mapping
 import pytest
 
 from helpers import context, gap, value
-from model_io import GuardContext, Rewrite, check_extraction_output, find_violations
+from model_io import DISABLED_RULES, GuardContext, Rewrite, check_extraction_output, find_violations
 from model_io.contract.models import ViolationCode
 
 
@@ -263,3 +263,53 @@ def test_violations_are_counted_before_rewrite_even_when_output_is_unavailable()
     result = check_extraction_output(raw, context("Q1.D01"))
     assert not result.valid
     assert {v.code for v in result.violations} >= {ViolationCode.UNKNOWN_SLOT, ViolationCode.UNKNOWN_ITEM}
+
+
+# ---- 켜지 않은 규칙(R1, R3)과 R2 날수 ------------------------------------------------------
+
+
+def test_r1_and_r3_are_disabled_with_name_and_reason() -> None:
+    """정본에 규칙 데이터가 없어 켜지 않았다(DC-11). 켜는 일은 이 시험을 바꾸는 일이라 눈에 띈다."""
+    assert [rule.name for rule in DISABLED_RULES] == ["R1", "R3"]
+    for rule in DISABLED_RULES:
+        assert rule.what and "정본 없음" in rule.reason and "DC-11" in rule.reason
+
+
+def test_the_guard_has_exactly_the_three_rewrites_and_none_of_them_is_r1_or_r3() -> None:
+    assert {kind.value for kind in Rewrite} == {"NEXT_ITEM_FILLED", "OUT_OF_RANGE", "COUNT_EXCEEDS_DAYS"}
+
+
+def test_r1_is_not_applied_a_count_with_does_not_drink_true_is_left_as_the_model_wrote_it() -> None:
+    raw = out(
+        next_item="Q7_1",
+        values=[value("Q7.does_not_drink", True), value("Q7.frequency", 3), value("Q7.unit", "week")],
+    )
+    result = check_extraction_output(raw, context("Q7"))
+    assert Rewrite.COUNT_EXCEEDS_DAYS not in result.rewrites
+    assert result.output is None or {v["key"]: v["value"] for v in result.output["values"]}["Q7.does_not_drink"] is True  # type: ignore[index]
+
+
+def test_r3_is_not_applied_a_max_below_usual_is_not_turned_into_a_confirm() -> None:
+    """최대 음주량(1잔)이 평소 음주량(5잔)보다 적어도 검증기는 CONFIRM 으로 고치지 않는다(환산표가 정본에 없다)."""
+    raw = out(
+        next_item="Q7_2",
+        values=[value("Q7_1[soju].unit", "glass"), value("Q7_1[soju].amount", 5), value("Q7_2[soju].amount", 1)],
+    )
+    result = check_extraction_output(raw, context("Q7_1"))
+    assert all(kind is not Rewrite.COUNT_EXCEEDS_DAYS for kind in result.rewrites)
+    assert result.output is None or result.output.get("reason") != "CONFLICT_MAX_BELOW_USUAL"
+
+
+@pytest.mark.parametrize(("unit", "longest", "over"), [("week", 7, 8), ("month", 31, 32), ("year", 366, 367)])
+def test_r2_uses_the_longest_calendar_values(unit: str, longest: int, over: int) -> None:
+    """주 7일, 달 31일, 해 366일: 가장 긴 값까지는 가능한 답이라 되묻지 않고, 넘으면 되묻는다."""
+
+    def checked(count: int) -> tuple[Rewrite, ...]:
+        raw = out(
+            next_item="Q7_1",
+            values=[value("Q7.does_not_drink", False), value("Q7.frequency", count), value("Q7.unit", unit)],
+        )
+        return check_extraction_output(raw, context("Q7")).rewrites
+
+    assert Rewrite.COUNT_EXCEEDS_DAYS not in checked(longest)
+    assert Rewrite.COUNT_EXCEEDS_DAYS in checked(over)

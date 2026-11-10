@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from model_io.contract.models import ActionExtractionRules
 
 DEFAULT_RULES = ActionExtractionRules.model_validate(
@@ -34,3 +36,30 @@ DEFAULT_RULES = ActionExtractionRules.model_validate(
     }
 )
 """운영과 평가가 같이 쓰는 합격 조건(D97). 요청이 싣지 않으므로 이 라이브러리가 값을 가진다."""
+
+
+@dataclass(frozen=True)
+class DisabledRule:
+    """켜지 않은 값 고쳐 쓰기 규칙 하나: 이름, 무엇을 하는 규칙인지, 왜 켜지 않았는지."""
+
+    name: str
+    what: str
+    reason: str
+
+
+# 왜 비활성: 두 규칙은 데이터셋 정본(contracts/inputs)에 규칙 데이터가 없다. 없는 값은 지어내지 않는다.
+# 계약 9.0.0 이 ActionExtractionRules 에 '명시적 비활성'으로 적었고 요청은 dataset-change-requests DC-11 이다.
+# 정본이 데이터를 주면 켠다
+DISABLED_RULES: tuple[DisabledRule, ...] = (
+    DisabledRule(
+        "R1",
+        "횟수가 있으면 '마심'(Q7.does_not_drink 거짓)으로 고친다",
+        "정본에 규칙 데이터가 없고 정답 사례가 0건이라 모양을 확인하지 못했다(정본 없음, DC-11)",
+    ),
+    DisabledRule(
+        "R3",
+        "최대 음주량이 평소 음주량보다 적으면 CONFIRM/CONFLICT_MAX_BELOW_USUAL 로 고친다",
+        "술 종류별 mL 환산표가 정본에 없다(정본 없음, DC-11)",
+    ),
+)
+"""D115 값 고쳐 쓰기 중 이 라이브러리가 켜지 않은 규칙들. 검증기(guard)는 이 규칙을 적용하지 않는다."""

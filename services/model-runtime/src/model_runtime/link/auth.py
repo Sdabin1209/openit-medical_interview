@@ -22,7 +22,6 @@ from pydantic import ValidationError
 from model_runtime.contract.models import (
     AccessTokenType,
     MachineIdentityClaims,
-    MachineRole,
     MachineTokenTable,
     UserRole,
 )
@@ -177,8 +176,8 @@ class Caller:
     subject: str | None = None
 
 
-def _known_roles(claims: Mapping[str, Any], known: type[MachineRole] | type[UserRole]) -> frozenset[str]:
-    """토큰의 역할 중 계약이 아는 것만. Keycloak 은 계약 밖 기본 역할(offline_access 등)도 같은 클레임에 싣는다."""
+def _known_roles(claims: Mapping[str, Any], known: type[UserRole]) -> frozenset[str]:
+    """사람 토큰의 역할 중 계약이 아는 것만."""
     return OidcVerifier.roles_of(claims) & {role.value for role in known}
 
 
@@ -202,10 +201,10 @@ class Authenticator:
         return Caller("human", client_id, str(claims["sub"]))
 
     def _machine(self, claims: Mapping[str, Any], client_id: str, required: Sequence[str]) -> Caller:
-        # 왜 역할을 걸러 넣나: 계약 MachineRealmAccessClaim 은 MachineRole 만 허용하지만 실제 토큰은 기본 역할도 싣는다
-        shaped = {**claims, "realm_access": {"roles": sorted(_known_roles(claims, MachineRole))}}
+        # 왜 클레임을 그대로 검증하나: platform 이 기계 클라이언트의 범위를 제한해
+        # 토큰에 MachineRole 만 실린다(model-runtime-006). 계약 밖 역할이 실리면 모델이 거절한다(401)
         try:
-            identity = MachineIdentityClaims.model_validate(shaped)
+            identity = MachineIdentityClaims.model_validate(claims)
         except ValidationError as error:
             raise unauthorized("기계 토큰의 클레임이 계약과 다르다") from error
         granted = {role.value for role in identity.realm_access.roles} & self._callers.allowed_roles(client_id)

@@ -1,0 +1,6 @@
+{
+  "profiles": {
+    "gpu-12g": {"base_model": "Qwen/Qwen3-1.7B"},
+    "rtx4090-24g": {"base_model": "Qwen/Qwen3-8B"}
+  }
+}

@@ -1,6 +1,7 @@
 """서버 진입점: 영역 안 평문 HTTP 서버(ADR 0005).
 
-TLS 는 영역 게이트웨이가 끝낸다(계약 9.0.0, survey-service-006·model-runtime-003 7). 이 서비스는 영역 전용 내부 네트워크에서
+TLS 는 영역 게이트웨이가 끝낸다(계약 9.0.0, survey-service-006·model-runtime-003 7). 이 서비스는 영역 전용 내부
+네트워크에서
 `OPENIT_LISTEN_PORT` 를 평문으로 듣고 게이트웨이만 닿는다. 컨테이너 HEALTHCHECK 도 같은 포트의 /healthz 를 본다.
 """
 

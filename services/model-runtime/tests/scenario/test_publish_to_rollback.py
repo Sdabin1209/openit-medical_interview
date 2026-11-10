@@ -95,6 +95,31 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             # 활성화 승인은 release-approver 의 접근 토큰. 승인자는 토큰의 sub 에서 얻는다
             listed = await client.get(f"/v1/model-packages/{first}", headers=human(identity, "operator"))
             assert listed.status_code == 200 and listed.json()["base_model"] == "Qwen/Qwen3-8B"
+            # 게시된 패키지 목록(태그 목록과 매니페스트 조회): 승인자가 digest 를 직접 입력하지 않고 고른다
+            catalog = await client.get("/v1/model-packages", headers=human(identity, "operator"))
+            assert catalog.status_code == 200
+            assert {(i["package_digest"], i["is_active"]) for i in catalog.json()["items"]} == {
+                (first, False),
+                (second, False),
+            }
+            page = await client.get("/v1/model-packages?limit=1", headers=human(identity, "release-approver"))
+            assert len(page.json()["items"]) == 1 and "next_cursor" in page.json()
+            rest = await client.get(
+                f"/v1/model-packages?limit=1&cursor={page.json()['next_cursor']}", headers=human(identity, "operator")
+            )
+            assert {page.json()["items"][0]["package_digest"], rest.json()["items"][0]["package_digest"]} == {
+                first,
+                second,
+            }
+            assert "next_cursor" not in rest.json()
+            assert (
+                await client.get("/v1/model-packages?limit=0", headers=human(identity, "operator"))
+            ).status_code == 400
+            assert (
+                await client.get("/v1/model-packages?cursor=!!", headers=human(identity, "operator"))
+            ).status_code == 400
+            assert (await client.get("/v1/model-packages", headers=machine(identity))).status_code == 403
+            assert (await client.get("/v1/model-packages")).status_code == 401
             denied = await client.post(
                 "/v1/model-activations",
                 json={"package_digest": first, "reason": "시험"},
@@ -113,6 +138,10 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
                 status["state"] == "READY" and status["package_digest"] == first and status["activated_by"] == "user-7"
             )
             assert status["runtime_contract_version"] == 1 and status["model_io_version"] == "model-io-v2"
+            active = (await client.get("/v1/model-packages", headers=human(identity, "operator"))).json()["items"]
+            assert {i["package_digest"] for i in active if i["is_active"]} == {
+                first
+            }  # 활성 여부는 활성화 기록과 맞춘다
             again = await client.post(
                 "/v1/model-activations",
                 json={"package_digest": first, "reason": "다시"},

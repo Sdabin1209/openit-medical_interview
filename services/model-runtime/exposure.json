@@ -1,0 +1,56 @@
+{
+ "routes": [
+  {
+   "path_prefix": "/v1/extractions",
+   "methods": [
+    "POST"
+   ],
+   "audience": "MACHINE_TOKEN"
+  },
+  {
+   "path_prefix": "/v1/responses",
+   "methods": [
+    "POST"
+   ],
+   "audience": "MACHINE_TOKEN"
+  },
+  {
+   "path_prefix": "/v1/model-status",
+   "methods": [
+    "GET"
+   ],
+   "audience": "MACHINE_TOKEN"
+  },
+  {
+   "path_prefix": "/v1/model-status",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/model-packages",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/model-activations",
+   "methods": [
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/model-rollbacks",
+   "methods": [
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  }
+ ],
+ "egress": [
+  "platform"
+ ]
+}

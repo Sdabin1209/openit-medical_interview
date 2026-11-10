@@ -234,10 +234,10 @@ def _all_found(raw: str, ctx: GuardContext) -> tuple[Mapping[str, object] | None
 
 
 # 왜 이 값: 횟수가 기간의 날수를 넘으면 한 번도 거르지 않고 마셔도 불가능하다(COUNT_EXCEEDS_DAYS, D115 R2).
-# 달력이 정하는 가장 긴 길이(주 7일, 달 31일, 해 366일)를 써서 가능한 답을 되묻지 않게 한다. 정본은 데이터셋
-# 정규화기이고
-# 이 저장소에 없어 측정하지 못했다(final·finaltest 정답에서 받아들인 최대 횟수: 주 7, 월 30, 년 15 — 위반 0). 변경 요청
-# model-runtime-002
+# 정본(데이터셋 정규화기)에 기간별 날수 값이 없어(DC-11) 달력이 정하는 가장 긴 길이를 쓴다: 주 7일, 달 31일, 해 366일.
+# 가장 긴 값이라 가능한 답을 불가능하다고 되묻는 일이 없다(과소 검출은 있어도 과대 검출은 없다). 계약 9.0.0 의
+# ActionExtractionRules 가 같은 값을 정했다. 측정: final·finaltest 정답에서 받아들인 최대 횟수는 주 7, 월 30, 년 15 이고
+# 모두 위반 0 이다(변경 요청 model-runtime-002). R1·R3 은 켜지 않았다(rules.DISABLED_RULES)
 _DAYS_IN_PERIOD = {"week": 7, "month": 31, "year": 366}
 
 
@@ -253,7 +253,8 @@ def _slot_of(value: Mapping[str, object]) -> tuple[str, str, str] | None:
 def _rewrite(
     out: Mapping[str, object], found: list[_Found], ctx: GuardContext
 ) -> tuple[dict[str, object], list[Rewrite]]:
-    """D115 고쳐 쓰기. 최댓값 초과(OUT_OF_RANGE), 횟수 > 날수(R2), 다음 문항 채우기 순서로 적용한다."""
+    """D115 고쳐 쓰기. 최댓값 초과(OUT_OF_RANGE), 횟수 > 날수(R2), 다음 문항 채우기 순서로 적용한다. R1·R3 은 적용하지
+    않는다(rules.DISABLED_RULES, 정본 없음, DC-11)."""
     result: dict[str, object] = dict(out)
     kinds: list[Rewrite] = []
     values = [dict(m) for raw in (as_list(result.get("values")) or []) if (m := as_map(raw)) is not None]
