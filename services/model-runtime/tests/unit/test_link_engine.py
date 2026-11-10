@@ -42,6 +42,16 @@ async def test_load_complete_unload(tmp_path: Path) -> None:
     await engine.unload_adapter("lora_a-1")  # 없는 이름은 무시한다
 
 
+async def test_every_chat_call_renders_the_template_as_trained_without_thinking() -> None:
+    """학습이 `enable_thinking=False` 로 템플릿을 적용했으므로 제약 있는 호출도 없는 호출도 같은 조건으로 부른다."""
+    fake = FakeEngine(answer=lambda _a, _u: "{}")
+    engine = client(fake)
+    fake.loaded["m"] = "/x"
+    await engine.complete(ChatRequest("m", "s", "u", 10, 0.0))
+    await engine.complete(ChatRequest("m", "s", "u", 10, 0.0, json_schema={"type": "object"}))
+    assert [call.chat_template_kwargs for call in fake.calls] == [{"enable_thinking": False}] * 2
+
+
 async def test_constrained_decoding_sends_json_schema() -> None:
     fake = FakeEngine(answer=lambda _a, _u: "{}")
     engine = client(fake)

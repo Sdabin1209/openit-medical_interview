@@ -20,6 +20,11 @@ from model_runtime.types import ChatRequest, EngineError
 # 아니다)
 _NO_KEY = "none"
 _JSON_SCHEMA_NAME = "ActionExtraction"
+# 왜 enable_thinking=False: LoRA-A·B 는 학습할 때 채팅 템플릿을 `enable_thinking=False` 로 적용했다(학습 코드
+# train_lora_a.py 59행, train_lora_b.py 52행 `kw = dict(tokenize=False, enable_thinking=False)`). 그 템플릿은 생성
+# 프롬프트 끝에 빈 생각 블록 `<think>\n\n</think>\n\n` 을 붙이고 답이 바로 이어진다. 서빙이 같은 프롬프트를 만들어야
+# 학습한 대로 답한다. Qwen3 모델 카드의 비생각 모드 표준이고 vLLM 은 `chat_template_kwargs` 로 템플릿에 넘긴다(ADR 0010)
+_NON_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 class VllmEngine:
@@ -48,6 +53,7 @@ class VllmEngine:
                     messages=messages,
                     max_tokens=request.max_new_tokens,
                     temperature=request.temperature,
+                    extra_body=_NON_THINKING,
                 )
             else:
                 reply = await self._client.chat.completions.create(
@@ -55,6 +61,7 @@ class VllmEngine:
                     messages=messages,
                     max_tokens=request.max_new_tokens,
                     temperature=request.temperature,
+                    extra_body=_NON_THINKING,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {"name": _JSON_SCHEMA_NAME, "schema": dict(request.json_schema)},

@@ -20,7 +20,7 @@
 | 컴포넌트 | 파일 | 입력 → 출력 | 하는 일 |
 |---|---|---|---|
 | link_api | `link/api.py`, `link/auth.py`, `link/runtime.py` | 계약 요청 → 명령 | 평문 HTTP 서버, 인증(JWT 접근 토큰: 사람·기계), 컴포넌트 호출 순서와 적재 작업 |
-| link_registry | `link/registry.py`, `link/hosts.py` | 패키지 digest → 파일, 저장소 → 게시된 매니페스트들 | OCI Distribution(ORAS)으로 받기와 태그 목록, 이름 표, 클라이언트 인증서 |
+| link_registry | `link/registry.py`, `link/oci_reference.py`, `link/hosts.py` | 패키지 digest → 파일, 저장소 → 게시된 매니페스트들 | OCI Distribution(ORAS)으로 받기와 태그 목록, 이름 표, 클라이언트 인증서 |
 | package_catalog | `components/package_catalog.py` | 게시된 매니페스트들·활성 digest·Limit·Cursor → 패키지 목록 한 쪽 | 최근 것이 먼저, 쪽 나누기, 활성 여부 |
 | package_loader | `components/package_loader.py` | 패키지 digest → 적재된 모델 | 매니페스트·파일 digest·모델 입출력 버전·서빙 버전·기반 모델(프로파일 표) 검증, 어댑터 적재 |
 | release | `components/release.py`, `store/release_log.py` | 활성화·롤백 요청 → 활성 패키지 | 활성 포인터와 기록(승인자, 시각, 사유) |
@@ -95,5 +95,7 @@ tools/smoke service model-runtime           # 이미지 스모크(평문 HTTP, �
 - [0007 프로파일 표와 기반 모델](docs/adr/0007-프로파일-표와-기반-모델.md)
 - [0008 게시된 모델 패키지 목록](docs/adr/0008-게시된-모델-패키지-목록.md)
 - [0009 노출 선언과 나가는 호출 선언](docs/adr/0009-노출-선언과-나가는-호출-선언.md)
+- [0010 채팅 호출은 학습과 같은 템플릿 조건(비생각 모드)으로 한다](docs/adr/0010-채팅-호출은-학습과-같은-템플릿-조건-비생각-모드.md)
+- [0011 저장소 경로는 레지스트리 이름과 따로 ORAS Container 로 만든다](docs/adr/0011-저장소-경로는-레지스트리-이름과-따로-ORAS-Container-로-만든다.md)(0008 의 목록 결함을 고침)
 
 변경 요청: [001](../../docs/change-requests/model-runtime-001.md) 계약 문구와 정본의 차이, [002](../../docs/change-requests/model-runtime-002.md) D115 R1·R3(9.0.0 이 명시적 비활성으로 정함), [003](../../docs/change-requests/model-runtime-003.md) 환경 입력·파일 형식(9.0.0 이 정함), [004](../../docs/change-requests/model-runtime-004.md) 구조화된 요청, [005](../../docs/change-requests/model-runtime-005.md) 레지스트리 egress 선언(확정: deploy 가 설치 설정에서 더함), [006](../../docs/change-requests/model-runtime-006.md) 기계 토큰 역할 클레임(확정: platform 이 범위를 제한하고 서비스는 계약 모델로 그대로 검증). 모델 패키지 목록은 admin-console-002 를 구현했다.

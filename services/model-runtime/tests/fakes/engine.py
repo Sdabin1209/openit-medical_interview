@@ -23,6 +23,7 @@ class Call:
     max_tokens: int
     temperature: float
     response_format: dict[str, Any] | None
+    chat_template_kwargs: dict[str, Any] | None = None
 
 
 @dataclass
@@ -75,7 +76,15 @@ class FakeEngine:
                     {"error": {"message": "model not found", "type": "NotFoundError", "code": 404}}, status_code=404
                 )
             self.calls.append(
-                Call(body["model"], system, user, body["max_tokens"], body["temperature"], body.get("response_format"))
+                Call(
+                    body["model"],
+                    system,
+                    user,
+                    body["max_tokens"],
+                    body["temperature"],
+                    body.get("response_format"),
+                    body.get("chat_template_kwargs"),
+                )
             )
             text = self.answer(body["model"], user)
             return JSONResponse(
