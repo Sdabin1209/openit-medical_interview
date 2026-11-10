@@ -324,10 +324,10 @@ class Sandbox:
 
     # ------------------------------------------------------------ 진단과 정리
     def save_diagnostics(self) -> Path:
-        """정리하기 전에 상태와 로그를 남긴다(실패한 단계를 다시 볼 수 있게)."""
+        """정리하기 전에 상태와 전체 로그를 남긴다(통과·실패 모두, 단계를 다시 볼 수 있게)."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         (self.log_dir / "ps.txt").write_text(self.compose("ps", "--all", check=False).stdout, encoding="utf-8")
-        (self.log_dir / "compose.log").write_text(self.compose("logs", "--no-color", "--tail", "300", check=False).stdout, encoding="utf-8")
+        (self.log_dir / "compose.log").write_text(self.compose("logs", "--no-color", "--timestamps", check=False).stdout, encoding="utf-8")
         return self.log_dir
 
     def teardown(self) -> list[str]:

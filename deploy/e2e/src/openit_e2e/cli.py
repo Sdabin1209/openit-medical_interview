@@ -124,10 +124,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         if sandbox is not None:
             failed = bool(failure) or any(step.status != "통과" for step in steps)
-            if failed:
-                print(
-                    f"[진단] 실패했다. 로그와 상태를 먼저 남긴다: {sandbox.save_diagnostics() if sandbox.deploy_dir.is_dir() else '(사본이 없다)'}"
-                )
+            # 왜 항상: 통과한 실행에서도 턴이 실패 신호로 끝난 까닭을 가를 수 있어야 한다(진단 수단을 남긴 뒤 정리)
+            where = sandbox.save_diagnostics() if sandbox.deploy_dir.is_dir() else "(사본이 없다)"
+            print(f"[진단] {'실패했다. ' if failed else ''}로그와 상태를 남겼다: {where}")
             print("[6/6] 정리: 이 프로젝트만 down -v")
             leftovers = sandbox.teardown()
         shutil.rmtree(stage, ignore_errors=True)
