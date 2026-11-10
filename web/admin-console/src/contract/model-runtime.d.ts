@@ -118,7 +118,7 @@ export interface paths {
         put?: never;
         /**
          * 모델 패키지 활성화 승인
-         * @description 승인자가 평가 보고서를 본 모델 패키지를 digest 로 지정해 활성으로 만든다. 승인한 사람은 OIDC 접근 토큰의 sub 클레임에서 얻고 본문에 신원을 싣지 않는다. 적재는 이어서 일어나므로 202 로 답하고 끝났는지는 getModelStatus 로 본다. 적재가 실패하면 이전 패키지를 유지한다(N07, D46). 이미 활성인 digest 를 다시 보내도 결과는 같아 200 으로 지금 상태를 돌려준다.
+         * @description 승인자가 평가 보고서를 본 모델 패키지를 digest 로 지정해 활성으로 만든다. 승인한 사람은 OIDC 접근 토큰의 sub 클레임에서 얻고 본문에 신원을 싣지 않는다. 적재는 이어서 일어나므로 202 로 답하고 끝났는지는 getModelStatus 로 본다. 적재가 실패하면 이전 패키지를 유지한다적재는 `TimeBudgetTable.model_load`(ModelLoadLimitSeconds) 안에 끝나야 하고 넘기면 FAILED 로 끝난다(N07, D46, D125). 이미 활성인 digest 를 다시 보내도 결과는 같아 200 으로 지금 상태를 돌려준다.
          */
         post: operations["activateModelPackage"];
         delete?: never;
@@ -138,7 +138,7 @@ export interface paths {
         put?: never;
         /**
          * 이전 모델 패키지로 롤백
-         * @description 운영자나 승인자가 활성 패키지를 이전에 활성이었던 패키지로 되돌린다. 하는 사람은 OIDC 접근 토큰의 sub 클레임에서 얻는다. 되돌아갈 패키지가 이전에 활성이었던 것이 아니면 409 ROLLBACK_TARGET_INVALID 다. 적재는 이어서 일어나므로 202 로 답한다(N07).
+         * @description 운영자나 승인자가 활성 패키지를 이전에 활성이었던 패키지로 되돌린다. 하는 사람은 OIDC 접근 토큰의 sub 클레임에서 얻는다. 되돌아갈 패키지가 이전에 활성이었던 것이 아니면 409 ROLLBACK_TARGET_INVALID 다. 적재는 이어서 일어나므로 202 로 답하고, 적재 시간 상한은 활성화와 같다(`TimeBudgetTable.model_load`)(N07).
          */
         post: operations["rollbackModelPackage"];
         delete?: never;

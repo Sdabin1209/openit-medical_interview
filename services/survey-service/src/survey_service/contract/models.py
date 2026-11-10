@@ -742,6 +742,13 @@ class ModelIoVersion(StrEnum):
     model_io_v2 = 'model-io-v2'
 
 
+class ModelLoadLimitSeconds(RootModel[Literal[180]]):
+    root: Annotated[Literal[180], Field(ge=180, le=180)]
+    """
+    승인자가 활성화를 요청(activateModelPackage 나 rollbackModelPackage 의 202)한 때부터 적재 상태가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 추론 서버는 이 안에 적재를 마치지 못하면 그 적재를 FAILED 로 끝내고 이전 패키지를 유지한다(D46). 호출자는 이 시간 동안만 getModelStatus 로 기다린다
+    """
+
+
 class ModelLoadState(StrEnum):
     """
     추론 서버의 모델 적재 상태
@@ -1546,7 +1553,7 @@ class SysctlValue(RootModel[str]):
 
 class TimeBudgetTable(BaseModel):
     """
-    영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다
+    영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버, 사람 화면의 활성화 대기 > 모델 적재). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다
     """
 
     model_config = ConfigDict(
@@ -1587,6 +1594,10 @@ class TimeBudgetTable(BaseModel):
     model_extract: ModelExtractLimitSeconds
     """
     추론 서버가 추출 하나를 마치는 상한(초)
+    """
+    model_load: ModelLoadLimitSeconds | None = None
+    """
+    활성화 요청부터 모델 적재가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 9.1.0 에서 더한 선택 칸이다(필수로 올리면 기존 표가 깨져 MAJOR 이므로 다음 MAJOR 에서 필수로 올린다)
     """
     model_respond: ModelRespondLimitSeconds
     """

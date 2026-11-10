@@ -174,6 +174,15 @@ ADR 0019 의 영역 7개 구성으로 만든 판. 태그 `contracts-v7.0.0`.
 - **kiosk-frontend-003:** `submitTurn` 설명에 실패 신호를 준 `turn_id` 는 기록하지 않고 다시 보내면 다시 처리한다고 적었다. 영향: survey-service(`turn`).
 - 그 밖의 고침: `ContractsVersionLabel` 의 형식을 9.x.y 로 바꿨다. 작업 수와 스키마 수는 `flows.md`·`traceability.md` 에 있다.
 
+### 9.1.0 (2026-11-11, 하위 호환 추가)
+
+model-runtime 영역의 E2E 첫 실행(`deploy/docs/E2E_RESULTS.md`)이 찾은 빈 곳: 모델 적재 완료(활성화 요청 뒤 READY·FAILED)의 시간 상한이 계약에 없어 deploy 가 다른 상한(190초)을 빌려 썼다.
+
+- `ModelLoadLimitSeconds`(180초, const)를 더하고 `TimeBudgetTable.model_load` 로 넣었다. **선택 칸**이다: 필수 칸으로 더하면 9.0.0 의 표가 깨져 MAJOR 이므로 MINOR 로 더하고 다음 MAJOR 에서 필수로 올린다(SemVer 2.0.0 항목 7).
+- 값의 근거(`x-basis` 에 있다): 적재 시간을 정한 표준은 없다. 측정하지 않았다(사용자 결정 2026-11-10: 표준적 선택이 정답이다). D125 의 '안쪽이 바깥보다 짧다'에 따라 사람 화면이 기다리는 가장 긴 시간 190초보다 짧게 두고, 크기는 D125 가 release-gate 의 활성화 일에 준 게이트웨이 대기 180초와 같게 했다. 첫 E2E 의 적재는 수 초였다(같은 서버 안, 어댑터 2개).
+- `activateModelPackage`·`rollbackModelPackage` 설명에 적재가 이 안에 끝나야 하고 넘기면 FAILED 라고 적었다(이전 패키지 유지, D46).
+- 영향: model-runtime(적재 상한을 건다, ADR 0012), deploy 의 E2E(빌려 쓰던 190초를 이 값으로 바꾼다), 계약 타입 생성물. 판 표시는 `components.yaml` 과 `openapi/*.yaml` 6곳이 9.1.0 이고 `ContractsVersionLabel`(MAJOR 만)은 그대로다.
+
 ## 점검
 
 ```

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.0.0
+  version: 9.1.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -85,10 +85,11 @@ components:
     ModelRespondLimitSeconds: { type: integer, const: 25, minimum: 25, maximum: 25, description: "추론 서버가 응답 생성 하나를 마치는 상한(초)", x-owner: head, x-basis: "D125(model-runtime respond 25초)" }
     AlertStreamHeartbeatSeconds: { type: integer, const: 15, minimum: 15, maximum: 15, description: "알림 스트림이 아무 이벤트가 없을 때 heartbeat 를 보내는 간격(초)", x-owner: head, x-basis: "D66(4)(15초 ping), D87(heartbeat)" }
     SessionStatePollSeconds: { type: integer, const: 2, minimum: 2, maximum: 2, description: "키오스크가 세션 상태를 읽는 간격(초)", x-owner: head, x-basis: "D66(6)(2초 폴링)" }
+    ModelLoadLimitSeconds: { type: integer, const: 180, minimum: 180, maximum: 180, description: "승인자가 활성화를 요청(activateModelPackage 나 rollbackModelPackage 의 202)한 때부터 적재 상태가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 추론 서버는 이 안에 적재를 마치지 못하면 그 적재를 FAILED 로 끝내고 이전 패키지를 유지한다(D46). 호출자는 이 시간 동안만 getModelStatus 로 기다린다", x-owner: head, x-basis: "사용자 결정 2026-11-10(표준적 선택이 정답이다, 측정하지 않았다). 적재 시간을 정한 표준은 없다. D125 의 안쪽이 바깥보다 짧다는 원칙으로 정했다: 사람 화면이 기다리는 가장 긴 시간 190초(D125 의 release-gate 화면)보다 짧고, 크기는 D125 가 release-gate 의 활성화 일에 준 게이트웨이 대기 180초와 같게 했다. 패키지를 받는 시간(크기와 망)과 엔진이 어댑터를 올리는 시간을 재지 않았다. 첫 E2E(2026-11-10, 어댑터 2개 중립 패키지, 같은 서버 안)는 수 초 안에 READY 였다" }
     TimeBudgetTable:
       type: object
       additionalProperties: false
-      description: "영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다"
+      description: "영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버, 사람 화면의 활성화 대기 > 모델 적재). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다"
       x-owner: head
       x-basis: "D125(시간 상한: 목표와 실패 판정을 나눈다, 표준과 계산된 최악값 위의 여유, 측정 아님), D120"
       required: [kiosk_request, kiosk_retry_budget, kiosk_progress_notice, kiosk_idle_reset, gateway_connect, gateway_patient_route, survey_turn, extract_client, respond_client, model_extract, model_respond, alert_stream_heartbeat, session_state_poll]
@@ -106,6 +107,7 @@ components:
         model_respond: { $ref: "#/components/schemas/ModelRespondLimitSeconds", description: "추론 서버가 응답 생성 하나를 마치는 상한(초)" }
         alert_stream_heartbeat: { $ref: "#/components/schemas/AlertStreamHeartbeatSeconds", description: "알림 스트림이 아무 이벤트가 없을 때 heartbeat 를 보내는 간격(초)" }
         session_state_poll: { $ref: "#/components/schemas/SessionStatePollSeconds", description: "키오스크가 세션 상태를 읽는 간격(초)" }
+        model_load: { $ref: "#/components/schemas/ModelLoadLimitSeconds", description: "활성화 요청부터 모델 적재가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 9.1.0 에서 더한 선택 칸이다(필수로 올리면 기존 표가 깨져 MAJOR 이므로 다음 MAJOR 에서 필수로 올린다)" }
     ServiceName:
       type: string
       enum: [survey-service, model-runtime, platform, kiosk-frontend, admin-console]

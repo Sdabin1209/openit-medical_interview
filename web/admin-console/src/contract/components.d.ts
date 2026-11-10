@@ -158,7 +158,12 @@ export interface components {
          * @constant
          */
         SessionStatePollSeconds: 2;
-        /** @description 영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다 */
+        /**
+         * @description 승인자가 활성화를 요청(activateModelPackage 나 rollbackModelPackage 의 202)한 때부터 적재 상태가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 추론 서버는 이 안에 적재를 마치지 못하면 그 적재를 FAILED 로 끝내고 이전 패키지를 유지한다(D46). 호출자는 이 시간 동안만 getModelStatus 로 기다린다
+         * @constant
+         */
+        ModelLoadLimitSeconds: 180;
+        /** @description 영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버, 사람 화면의 활성화 대기 > 모델 적재). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다 */
         TimeBudgetTable: {
             /** @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초) */
             kiosk_request: components["schemas"]["KioskRequestLimitSeconds"];
@@ -186,6 +191,8 @@ export interface components {
             alert_stream_heartbeat: components["schemas"]["AlertStreamHeartbeatSeconds"];
             /** @description 키오스크가 세션 상태를 읽는 간격(초) */
             session_state_poll: components["schemas"]["SessionStatePollSeconds"];
+            /** @description 활성화 요청부터 모델 적재가 READY 나 FAILED 로 끝나기까지의 실패 판정 상한(초). 9.1.0 에서 더한 선택 칸이다(필수로 올리면 기존 표가 깨져 MAJOR 이므로 다음 MAJOR 에서 필수로 올린다) */
+            model_load?: components["schemas"]["ModelLoadLimitSeconds"];
         };
         /**
          * @description 계약에 나오는 상시 서비스(컨테이너 이미지가 하나인 단위)의 이름. 상시 서버가 없는 학습 파이프라인(model-lab)과 도구(deploy)는 서비스가 아니다
