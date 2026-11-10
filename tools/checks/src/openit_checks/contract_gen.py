@@ -107,6 +107,23 @@ def _strip_extensions(node: Any) -> Any:
     return node
 
 
+def _pattern_replaces_uri_format(node: Any) -> Any:
+    """`format: uri` 와 `pattern` 이 함께 있으면 format 을 뺀다.
+
+    왜: datamodel-code-generator 는 `format: uri` 를 AnyUrl 로 바꾸면서 같이 있는 pattern(예: PeerBaseUrl 의 `^https://`)을
+    버려 계약 조건이 생성 모델에서 빠졌다(변경 요청 survey-service-004, 시험으로 확인). pattern 이 있으면 모델이 문자열 + pattern 으로
+    같은 조건을 그대로 싣는다. 스킴 조건이 계약이 정한 검사이고 RFC 3986 형식 단언은 jsonschema 의 format checker 가 계약 파일로 한다.
+    """
+    if isinstance(node, dict):
+        fixed = {k: _pattern_replaces_uri_format(v) for k, v in cast("dict[str, Any]", node).items()}
+        if fixed.get("format") == "uri" and "pattern" in fixed:
+            del fixed["format"]
+        return fixed
+    if isinstance(node, list):
+        return [_pattern_replaces_uri_format(v) for v in cast("list[Any]", node)]
+    return node
+
+
 def collect_schema_names(contracts: Path, config: Config) -> list[str]:
     """openapi 의 작업이 닿는 스키마와 이름으로 준 스키마, 그리고 그것들이 참조하는 스키마 전부(정렬)."""
     components = _load(contracts / "components.yaml")["components"]
@@ -147,7 +164,7 @@ def build_document(contracts: Path, config: Config) -> dict[str, Any]:
         "openapi": "3.1.0",
         "info": {"title": "openit contract subset", "version": "0"},
         "paths": {},
-        "components": {"schemas": {n: _strip_extensions(components[n]) for n in names}},
+        "components": {"schemas": {n: _pattern_replaces_uri_format(_strip_extensions(components[n])) for n in names}},
     }
 
 

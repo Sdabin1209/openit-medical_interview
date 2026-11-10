@@ -157,3 +157,12 @@ def test_every_real_area_openapi_closes_and_generates(area: str) -> None:
     names = contract_gen.collect_schema_names(contracts, config)
     assert names, f"{area}: 닿는 스키마가 없다"
     assert "class " in contract_gen.generate_models(contracts, config)
+
+
+def test_pattern_with_uri_format_keeps_the_pattern_in_the_model(tmp_path: Path) -> None:
+    """변경 요청 survey-service-004: format uri 와 같이 있는 pattern(https 조건)이 생성 모델에서 빠지지 않는다."""
+    document = {"components": {"schemas": {"Peer": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 80}, "Plain": {"type": "string", "format": "uri"}}}}
+    fixed = contract_gen._pattern_replaces_uri_format(document)  # noqa: SLF001
+    assert "format" not in fixed["components"]["schemas"]["Peer"]
+    assert fixed["components"]["schemas"]["Peer"]["pattern"] == "^https://"
+    assert fixed["components"]["schemas"]["Plain"]["format"] == "uri"
