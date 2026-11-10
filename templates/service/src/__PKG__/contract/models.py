@@ -48,7 +48,7 @@ class ImageRevision(RootModel[str]):
 
 
 class JsonPointer(RootModel[str]):
-    root: Annotated[str, Field(examples=['/input/user_utterance'], max_length=8000)]
+    root: Annotated[str, Field(examples=['/user_utterance'], max_length=8000)]
     """
     요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
     """

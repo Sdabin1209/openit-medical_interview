@@ -129,10 +129,16 @@ survey-service-002 의 2안: 모델 입력의 글을 만드는 책임을 model-r
 
 - `ExtractionRequest`: `input`, `state_key_order` 를 지우고 `question_id`, `previous_question_id`(선택), `current_question`, `user_utterance`, `slots` 를 더했다. `runtime_contract_version`, `flow`, `fields` 는 그대로다.
 - `ResponseGenerationRequest`: `input`(`ResponseRequest`)을 지우고 `action`, `reason`, `question_id`, `previous_question_id`, `user_utterance`, `slots`, `values`, `targets`, `note`, `next` 를 본문 칸으로 올렸다(START 에는 `action` 과 `next` 만). `topic`, `known`, `ask`, `previous`, `current`, `hold` 가 없어졌다.
-- `ResponseNext`: `text` 를 지웠다(질문 문장은 model-runtime 이 `question_id` 로 찾는다).
+- `ResponseNext`: `text`(다음 문항의 질문 문장)는 남긴다. 처음에는 지웠으나 문장은 문항 세트(survey-service 가 올려 받은 문항 은행)의 것이고 데이터셋 표에 없어 model-runtime 이 찾을 수 없으므로 헤드가 되돌렸다(model-runtime-004 1절). `ExtractionRequest.current_question`(화면에 보인 직전 문장)과 함께 서비스가 보내는 문장은 이 둘과 환자의 발화뿐이고, 설명(`ResponseGenerationRequest`, `docs/design.md` 2절)이 이에 맞는다.
 - 더한 스키마: `StoredSlotStatus`, `StoredSlot`, `StoredSlots`(저장된 칸 값, 상한 136).
 - 지운 스키마: 위 '모델 입력의 글은 model-runtime 이 만든다' 절의 목록 13개.
 - `ModelInputSerialization`, `InsertionOrder` 의 설명을 요청 `slots` 배열의 순서로 고쳤다. `ContractsVersionLabel` 의 형식을 8.x.y 로 바꿨다. `JsonPointer` 의 예를 새 요청의 위치(`/user_utterance`)로 고쳤다.
+- 마무리 고침(변경 요청 model-runtime-001·004 반영):
+  - `NextItemRuleKind.SEQUENCE_AFTER_SAVED` 와 `ActionExtractionRules` 의 설명을 정본 `labels.py` 의 `a_target`·`next_after` 규칙으로 고쳤다(기준 문항은 `values` 의 첫 값의 문항, 없으면 `targets` 의 첫 문항, 없으면 묻던 문항. 이번 턴 저장 값으로 조건이 맞은 건너뛰기와 칸이 모두 저장된 문항은 건너뛰고 칸 일부만 저장된 문항은 건너뛰지 않는다). 이전 문구는 학습 서버 A 정답 46655건에서 168건이 달랐다. `TARGET_ITEM` 의 설명도 targets 의 첫 문항(없으면 묻던 문항)으로 정확히 했다.
+  - `ModelInputSerialization` 에 state 항목 안의 키 순서 `a_state_entry_key_order`(`StateEntryKeyOrder`: value, status; `labels.py a_state`)를 더했다(필수 칸이라 `ModelInputSerialization` 을 만드는 쪽은 이 칸을 더해야 한다). 설명에 state 가 model-runtime 이 요청의 저장된 칸 값(`slots`)에서 만든다는 것, 참조 원천 문항은 `taxonomy.py` 의 `REF_SOURCE`, 칸 묶음의 순서는 `prev_state.py` 를 따른다는 것을 적었다(표는 계약에 복사하지 않는다).
+  - `RepeatKey` 의 패턴을 `^[a-z]+$` 에서 `^[a-z]*$` 로 바꿔 빈 반복 키를 받는다. 빈 키는 술 종류를 모르는 값에만 쓰이고 저장하지 않는 값(save 거짓)에 한하며 저장하는 값에는 반복 키가 있어야 한다(SQL.md 6.1, `labels.py _key`). `QuestionFieldSpec.repeat_keys` 설명에도 적었다.
+  - `dataset-change-requests.md` 에 DC-09(finaltest 의 state 항목 키 순서), DC-10(정렬되지 않은 B 입력 10행)을 더했다.
+  - `ResponseNext.text` 는 위에서 되돌린 대로 두고, `current_question`·`next.text` 를 서비스가 보낸다는 설명이 `ExtractionRequest`, `ResponseGenerationRequest`, `ResponseNext`, `docs/design.md` 에서 같은지 확인했다(`docs/design.md` 2절의 "서비스가 보내는 글" 문장에 `next.text` 가 빠져 있어 고쳤다).
 - 영향: survey-service 의 `link_model_client`·`turn`, model-runtime 의 `link_api`·`prompt`, `libs/model-io`(`ActionExtractionInput` 을 생성해 쓰던 설정), 그 계약 타입 생성물, 배포의 계약 태그.
 
 ### 7.0.0

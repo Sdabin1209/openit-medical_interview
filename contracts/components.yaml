@@ -605,7 +605,7 @@ components:
     # ======================================================================
     SlotKey: { type: string, pattern: "^[a-z][a-z0-9_]*$", maxLength: 32, examples: [ "duration_minutes" ], description: "문항 안의 칸 하나의 이름(예를 들어 days, use_pattern, duration_minutes). 데이터셋의 field_name 이다", x-owner: survey-service, x-basis: "데이터셋 question_fields.field_name(SQL.md), 실측 최대 16자(duration_minutes), 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식), U32" }
     SlotRefString: { type: string, pattern: "^[A-Za-z0-9_.]+(\\[[a-z]+\\])?\\.[a-z][a-z0-9_]*$", maxLength: 44, examples: [ "Q7_1[soju].amount" ], description: "문항과 칸을 한 문자열로 가리키는 값. 문항ID.칸키(예 Q1.D01.diagnosed)이고 술처럼 반복 키가 있으면 문항ID[반복키].칸키(예 Q7_1[soju].amount)다", x-owner: survey-service, x-basis: "데이터셋 labels.py 의 _key 와 parse_key, D43(SlotRef 문자열은 마지막 점에서 나눈다), 실측 key 최대 22자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
-    RepeatKey: { type: string, pattern: "^[a-z]+$", maxLength: 18, examples: [ "makgeolli" ], description: "같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine)", x-owner: survey-service, x-basis: "데이터셋 question_fields.repeat_keys_json(SQL.md), 실측 최대 9자(makgeolli), 상한은 관측 최대의 2배인 18(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    RepeatKey: { type: string, pattern: "^[a-z]*$", maxLength: 18, examples: [ "makgeolli" ], description: "같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine). 빈 문자열은 술 종류를 모르는 값의 키이고 저장하지 않는 값(save 거짓)에만 쓴다. 저장하는 값(save 참)에는 반복 키가 있어야 한다", x-owner: survey-service, x-basis: "데이터셋 question_fields.repeat_keys_json(SQL.md 5.2), SQL.md 6.1·6장(반복 문항 Q7_1·Q7_2 의 키에 [술 종류]가 없는 값은 저장하지 않는다. 정규화기 저장 코드도 NO_REPEAT_KEY 로 건너뜀), labels.py _key(215~218행: repeat_key 가 비면 키에 [] 를 붙이지 않는다)와 a_state 의 repeat_key. 학습 파일 정답 46655행의 Q7_1·Q7_2 칸 값 중 키에 술 종류가 없는 것 6842개는 모두 save 가 거짓이고 저장하는 키 없는 값은 0개다(변경 요청 model-runtime-001 4절). 데이터셋 참조 DB(2026-10-28 판)는 Q7_1·Q7_2 의 반복 키에 빈 문자열을 더했다. 실측 최대 9자(makgeolli), 상한은 관측 최대의 2배인 18(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     RepeatKeys: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/RepeatKey" }, description: "한 칸이 가질 수 있는 반복 키들", x-owner: survey-service, x-basis: "실측 반복 키 5개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SlotDataType:
       type: string
@@ -644,7 +644,7 @@ components:
         minimum: { $ref: "#/components/schemas/SlotNumber", description: "수 칸이 받는 최솟값(포함)" }
         maximum: { $ref: "#/components/schemas/SlotNumber", description: "수 칸이 받는 최댓값(포함)" }
         exclusive_minimum: { $ref: "#/components/schemas/SlotNumber", description: "수 칸이 이 값보다 커야 한다(이 값은 제외)" }
-        repeat_keys: { $ref: "#/components/schemas/RepeatKeys", description: "반복 키가 있는 칸이면 그 키들(없으면 빈 키 하나만 쓴다)" }
+        repeat_keys: { $ref: "#/components/schemas/RepeatKeys", description: "반복 키가 있는 칸이면 그 키들(없으면 빈 키 하나만 쓴다). 빈 반복 키는 술 종류를 모르는 값을 가리키며 저장하지 않는 값(save 거짓)에만 쓰인다. 저장하는 값(save 참)에는 반복 키가 있어야 한다(SQL.md 6.1, labels.py _key)" }
         options: { $ref: "#/components/schemas/QuestionOptions", description: "선택지 칸의 선택지들" }
     QuestionFieldSpecs: { type: array, maxItems: 104, items: { $ref: "#/components/schemas/QuestionFieldSpec" }, description: "칸 규격들", x-owner: survey-service, x-basis: "실측 question_fields 52개, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionText: { type: string, minLength: 1, maxLength: 124, examples: [ "혹시 뇌졸중으로 진단받으셨거나 현재 약물 치료 중이신가요?" ], description: "문항 하나의 환자용 질문 문장", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는 표), contracts/inputs/SQL.md 문항 은행 질문 문장 최대 56자, 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 입력 next.text 최대 62자. 상한은 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)로 124" }
@@ -874,10 +874,10 @@ components:
     NextItemRuleKind:
       type: string
       enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
-      x-enum-descriptions: { TARGET_ITEM: "targets 칸의 문항", ASKED_ITEM: "입력의 question_id(지금 묻던 문항)", SEQUENCE_AFTER_SAVED: "저장한 칸 중 순서표에서 가장 뒤 문항의 다음 문항(건너뛰기 적용, 끝이면 END)" }
-      description: "행동마다 next_item 을 정하는 규칙의 종류"
+      x-enum-descriptions: { TARGET_ITEM: "targets 의 첫 문항(targets 가 없으면 입력의 question_id)", ASKED_ITEM: "입력의 question_id(지금 묻던 문항)", SEQUENCE_AFTER_SAVED: "기준 문항의 다음 문항. 기준 문항은 values 의 첫 값의 문항이고, values 가 없으면 targets 의 첫 문항, 그것도 없으면 입력의 question_id 다. 순서표에서 기준 문항 다음 문항으로 가되 (a) 이번 턴에 저장하는 값(save 참)으로 조건이 맞은 건너뛰기 분기가 뛰어넘는 문항과 (b) 이번 턴에 그 문항의 칸이 모두 저장된 문항은 건너뛴다. 칸 일부만 저장된 문항은 남은 칸을 물어야 하므로 건너뛰지 않는다. 끝이면 END" }
+      description: "행동마다 next_item 을 정하는 규칙의 종류. 행동과의 짝은 REASK·CONFIRM 이 TARGET_ITEM, REDIRECT 가 ASKED_ITEM, 그 밖(NEXT·CORRECT·HOLD·SKIP)이 SEQUENCE_AFTER_SAVED 다"
       x-owner: head
-      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 데이터셋 정본 labels.py a_target 의 next_item 규칙과 IO_SPEC.md 2.2(행동과의 짝은 NextItemRule 이 정본을 따른다), D74, U74"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 데이터셋 정본 labels.py a_target(315~346행: REASK·CONFIRM 은 target_items[0] 329~330행, REDIRECT 는 asked_item 331~332행, 그 밖은 base = (value_items or target_items or [asked_item])[0] 334행을 next_after 336행에 넣는다)와 next_after(42~67행: 이번 턴 저장 값 vals 46행과 건너뛰기 분기 47~56행, 칸이 모두 저장된 뒤 문항 건너뛰기 59~62행, 끝이면 END 67행), IO_SPEC.md 2.2(행동과의 짝은 NextItemRule 이 정본을 따른다), D74, U74. 학습 서버 final·finaltest A 정답 46655건 측정(변경 요청 model-runtime-001 1절): 이 규칙은 불일치 0건이고 저장한 칸 중 가장 뒤 문항을 기준으로 한 이전 문구는 168건이 달랐다"
     NextItemRule:
       type: object
       additionalProperties: false
@@ -912,7 +912,7 @@ components:
     ActionExtractionRules:
       type: object
       additionalProperties: false
-      description: "LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다"
+      description: "LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH. 기준 문항과 건너뛰기는 NextItemRuleKind 가 labels.py a_target·next_after 대로 정한다), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다"
       x-owner: head
       x-basis: "D104(2)(합격 조건은 데이터 명세), D108(2), D75(3), D115, D97, R7, ADR 0019, docs/design.md 2절(output_guard), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 46655행이 이 저장 규칙의 status 와 save 의 짝, value 가 null 인 status(MISSING·UNCLEAR·UNKNOWN·REJECTED 합 11992 = null 11992)와 맞는다"
       required: [saved_statuses, null_value_statuses, actions_with_targets, next_item_rules, current_item_rule]
@@ -920,22 +920,24 @@ components:
         saved_statuses: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ValueStatus" }, description: "save 가 참인 상태들(ANSWERED, CORRECTION)이고 나머지 상태는 save 가 거짓이다(SAVE_RULE)", x-basis: "ValueStatus 값의 수 7, contracts/inputs/SQL.md 6.1(ANSWERED·CORRECTION 만 확정값으로 저장), 실측 status 와 save 의 짝" }
         null_value_statuses: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ValueStatus" }, description: "value 가 null 인 상태들(MISSING, UNCLEAR, UNKNOWN, REJECTED)이고 나머지 상태는 value 가 있다(SAVE_RULE)", x-basis: "ValueStatus 값의 수 7, contracts/inputs/SQL.md 6.1(이 네 상태는 값 없음), 실측 null 11992건 = 네 상태 건수의 합(1817+873+1923+7379)" }
         actions_with_targets: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/ExtractionAction" }, description: "targets 가 values 의 키의 부분집합이어야 하는 행동들(REASK, CONFIRM, HOLD, SKIP)(TARGET_NOT_IN_VALUES)", x-basis: "ExtractionAction 값의 수 7" }
-        next_item_rules: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/NextItemRule" }, description: "행동마다 next_item 을 정하는 규칙(NEXT_ITEM_MISMATCH)", x-basis: "ExtractionAction 값의 수 7" }
+        next_item_rules: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/NextItemRule" }, description: "행동마다 next_item 을 정하는 규칙(NEXT_ITEM_MISMATCH). 종류별 뜻은 NextItemRuleKind 의 설명이고 기준 문항은 labels.py a_target 을 따른다", x-basis: "ExtractionAction 값의 수 7, labels.py a_target·next_after(NextItemRuleKind 의 근거)" }
         current_item_rule: { $ref: "#/components/schemas/CurrentItemRule", description: "저장하는 값의 칸이 있어도 되는 자리와 정정 예외(OUT_OF_CURRENT_ITEM)" }
     AlphabeticalOrder: { type: string, const: alphabetical, description: "키를 문자 순(유니코드 코드 포인트 순)으로 정렬해 쓴다는 뜻", x-owner: head, x-basis: "D77(A 는 최상위 키 알파벳 순, B 는 모든 수준 정렬)" }
     EnsureAscii: { type: boolean, const: false, description: "모델 입력 글자에서 비 ASCII 글자를 이스케이프하지 않는다는 뜻(항상 거짓)", x-owner: head, x-basis: "D77(json.dumps 의 ensure_ascii=False)" }
     InsertionOrder: { type: string, const: insertion, description: "키를 요청의 slots 배열이 정한 순서대로 쓴다는 뜻", x-owner: head, x-basis: "D77(state 안은 삽입 순서 보존)" }
+    StateEntryKeyOrder: { type: array, minItems: 2, maxItems: 2, items: { type: string, enum: [value, status] }, const: [value, status], description: "LoRA-A 입력 state 의 항목 하나({value, status}) 안의 키 순서(value 다음 status)", x-owner: head, x-basis: "데이터셋 labels.py a_state(304·306행: {\"value\": ..., \"status\": ...} 순서로 만든다), D77, 학습 서버 final(학습·검증·시험) A 입력 44563행의 state 항목 90,416개가 모두 value, status 순서(변경 요청 model-runtime-001 2절). 평가 파일 finaltest 는 status, value 순서라 데이터셋 담당에게 맞추도록 요청한다(dataset-change-requests.md DC-09)" }
     ModelInputSerialization:
       type: object
       additionalProperties: false
-      description: "모델 입력 글자의 직렬화 규칙(데이터). model-runtime 이 데이터셋 정본(labels.py)으로 만든 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청 slots 배열의 순서가 정한다"
+      description: "모델 입력 글자의 직렬화 규칙(데이터). model-runtime 이 데이터셋 정본(labels.py)으로 만든 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 정해야 한다. 최상위 키는 문자 순, state 의 칸 순서는 요청 slots 배열의 순서, state 항목 안의 키는 value 다음 status(labels.py a_state), B 는 모든 수준을 문자 순으로 쓴다. state 는 model-runtime 이 요청의 저장된 칸 값(slots, StoredSlots)에서 만든다. 어느 문항의 칸을 넣을지는 참조 원천 문항을 taxonomy.py 의 REF_SOURCE 로 고르고 칸 묶음의 순서는 prev_state.py 를 따른다(표와 규칙은 계약에 복사하지 않고 contracts/inputs 의 정본 파일을 가리킨다)"
       x-owner: head
-      x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4(객체의 순서는 의미가 없다)와 5(배열은 순서가 있다), 실측 학습 파일 A 와 B 의 user 메시지. 모델 입력 객체 자체는 model-runtime 안의 값이지만(구조 규칙 5) 이 글자 규칙은 model-lab 의 학습 데이터와 model-runtime 의 서빙이 같아야 하는 두 영역 사이 값이라 계약에 둔다(구조 규칙 6)"
-      required: [ensure_ascii, a_top_level_key_order, a_nested_key_order, b_key_order]
+      x-basis: "D77(학습 데이터의 user 메시지 글자와 같게), RFC 8259 4(객체의 순서는 의미가 없다)와 5(배열은 순서가 있다), 데이터셋 labels.py a_state(294~307행, 항목 키 순서와 칸 삽입 순서)·a_input(310행), taxonomy.py REF_SOURCE(121행, 참조 원천 문항 표), prev_state.py(학습 데이터가 state 에 넣는 문항의 선택과 묶음 순서), SQL.md 7.1(지금 문항·직전에 물은 문항·참조 원천 문항의 저장 값만 넣는다). 학습 데이터의 묶음 순서는 시나리오 정보를 알아야 완전히 재현되어 서비스 규칙과 97.64% 일치한다(OPEN_GAPS G13), 실측 학습 파일 A 와 B 의 user 메시지. 모델 입력 객체 자체는 model-runtime 안의 값이지만(구조 규칙 5) 이 글자 규칙은 model-lab 의 학습 데이터와 model-runtime 의 서빙이 같아야 하는 두 영역 사이 값이라 계약에 둔다(구조 규칙 6)"
+      required: [ensure_ascii, a_top_level_key_order, a_nested_key_order, a_state_entry_key_order, b_key_order]
       properties:
         ensure_ascii: { $ref: "#/components/schemas/EnsureAscii", description: "비 ASCII 글자를 이스케이프할지(항상 거짓)" }
         a_top_level_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-A 입력의 최상위 키 순서" }
-        a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 키 순서(요청 slots 배열의 순서)" }
+        a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 칸 키 순서(요청 slots 배열의 순서)" }
+        a_state_entry_key_order: { $ref: "#/components/schemas/StateEntryKeyOrder", description: "LoRA-A 입력의 state 항목 하나 안의 키 순서(value, status)" }
         b_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-B 입력의 모든 수준의 키 순서" }
     ExtractionAction:
       type: string
@@ -1080,20 +1082,21 @@ components:
     ResponseNext:
       type: object
       additionalProperties: false
-      description: "응답 뒤에 가는 자리(종류와 문항). 그 문항의 질문 문장은 model-runtime 이 만든다"
+      description: "응답 뒤에 가는 자리(종류, 문항, 그 문항의 질문 문장). 질문 문장은 survey-service 가 가진 문항 세트의 문장이다(데이터셋 표가 아니다)"
       x-owner: head
-      x-basis: "데이터셋 labels.py b_input 의 next(type, question_id), IO_SPEC.md 4.1, 헤드 결정 2026-11-10(next.text 는 model-runtime 이 question_id 로 찾는다), 실측 학습 데이터 next 의 키(type, question_id, text)"
+      x-basis: "데이터셋 labels.py b_input 의 next(type, question_id), IO_SPEC.md 4.1, IO_SPEC.md 101행(next.text 는 next_item 의 질문 문장, 문항 은행), 헤드 결정 2026-11-10(문항 은행은 survey-service 가 올려 받은 문항 세트이므로 서비스가 보낸다), 실측 학습 데이터 next 의 키(type, question_id, text)"
       required: [type]
       properties:
         type: { $ref: "#/components/schemas/ResponseNextType", description: "자리의 종류" }
         question_id: { $ref: "#/components/schemas/QuestionItemId", description: "가는 문항(END 에는 없다)" }
+        text: { $ref: "#/components/schemas/QuestionText", description: "가는 문항의 질문 문장(문항 세트의 문장, END 에는 없다)" }
       if: { properties: { type: { const: END } }, required: [type], x-basis: "labels.py b_input: next_item 이 END 면 next 는 type END 만 가진다(IO_SPEC.md 5.9)" }
-      then: { not: { required: [question_id] }, x-basis: "labels.py b_input: END 의 next 에는 question_id 와 text 가 없다" }
-      else: { required: [question_id], x-basis: "labels.py b_input: NEXT 와 SAME 의 next 는 question_id 를 가진다(text 는 model-runtime 이 만든다)" }
+      then: { not: { anyOf: [ { required: [question_id] }, { required: [text] } ] }, x-basis: "labels.py b_input: END 의 next 에는 question_id 와 text 가 없다" }
+      else: { required: [question_id, text], x-basis: "labels.py b_input: NEXT 와 SAME 의 next 는 question_id 와 text 를 가진다(IO_SPEC.md 101·131행)" }
     ResponseGenerationRequest:
       type: object
       additionalProperties: false
-      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold, next.text)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다"
+      description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다. 다음 문항의 질문 문장(next.text)은 문항 세트의 문장이라 서비스가 보낸다"
       x-owner: head
       x-basis: "N03, D46, D77, ADR 0019, docs/design.md 2절(prompt)과 3절(N03), 헤드 결정 2026-11-10(survey-service-002: 모델 입력 글은 model-runtime 이 만든다), 데이터셋 labels.py b_input 과 start_b_input(원재료: a_out, asked_item, utterance, state), IO_SPEC.md 3장과 4.1, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
       required: [runtime_contract_version, action, next]

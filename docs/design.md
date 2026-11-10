@@ -118,7 +118,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | N13 | deploy → 모든 영역 | 환경 설정, 비밀 파일, 잡 실행, 백업·복구 |
 | N14 | 외부 위험 감지기 → survey-service | 위험 신호(위험 감지가 켜졌을 때만) |
 
-- 모델 입력의 글은 요청에 없다. 서비스는 구조화된 값(문항 식별자, 화면에 보인 직전 문장, 발화, 저장된 칸 값, 추출 출력, 다음 자리)만 보내고, 표에서 찾는 글과 state 에 넣을 문항의 선택(참조 원천 문항 포함)은 model-runtime 이 데이터셋 정본의 표와 규칙으로 한다(ADR 0019의 책임선, 헤드 결정 2026-11-10). 서비스가 보내는 글은 화면에 보인 직전 문장(`current_question`)과 환자의 발화뿐이다. 저장된 칸 값은 세션 전체를 보내고(상한은 `StoredSlots` 의 근거) 모델 입력에 넣을 것을 model-runtime 이 고른다. 직전에 물은 문항은 세션 진행을 아는 서비스만 알아 서비스가 보낸다.
+- 모델 입력의 글은 요청에 없다. 서비스는 구조화된 값(문항 식별자, 화면에 보인 직전 문장, 발화, 저장된 칸 값, 추출 출력, 다음 자리)만 보내고, 표에서 찾는 글과 state 에 넣을 문항의 선택(참조 원천 문항 포함)은 model-runtime 이 데이터셋 정본의 표와 규칙으로 한다(ADR 0019의 책임선, 헤드 결정 2026-11-10). 서비스가 보내는 글은 화면에 보인 직전 문장(`current_question`), 환자의 발화, 가는 문항의 질문 문장(`next.text`, survey-service 가 올려 받은 문항 세트의 문장이라 서비스가 가진다)뿐이다. 저장된 칸 값은 세션 전체를 보내고(상한은 `StoredSlots` 의 근거) 모델 입력에 넣을 것을 model-runtime 이 고른다. 직전에 물은 문항은 세션 진행을 아는 서비스만 알아 서비스가 보낸다.
 - model-runtime 은 추출 요청마다 받은 문항 은행 버전을 적재한 패키지의 문항 은행 버전과 맞춰 보고, 다르면 거부한다. 따라서 문항 세트와 모델의 호환 확인에 따로 흐름이 필요 없다.
 - 사람의 신원은 platform 이 준 OIDC 토큰의 클레임으로 정한다. 본문이나 별도 헤더의 신원은 쓰지 않는다.
 
@@ -139,7 +139,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | ExposureAudience | HUMAN_OIDC, DEVICE_MTLS, MACHINE_TOKEN, EXTERNAL_MACHINE_TOKEN, DENIED | 입구가 받는 신원 종류(N12)와 노출하지 않음 |
 | JobName | IMPORT_DATASET, PREPARE, TRAIN, EVALUATE, PUBLISH(model-lab 단계), DETECT_FAILURES, PURGE_EXPIRED(survey-service), BACKUP, RESTORE, OFFSITE_SYNC, RESTORE_TEST(deploy) | 2절 컴포넌트 중 잡으로 도는 것과 배포 도구의 백업·복구 잡 |
 | DatasetOrigin | IMPORTED(데이터셋 담당이 확정한 데이터), SYNTHETIC(학습 파이프라인이 만든 데이터) | model-lab 은 데이터셋 담당의 작업(합성 포함)을 따라 한다(ADR 0019) |
-| NextItemRuleKind | TARGET_ITEM(targets 칸의 문항), ASKED_ITEM(입력 question_id), SEQUENCE_AFTER_SAVED(저장한 칸 중 순서표에서 가장 뒤 문항의 다음, 건너뛰기 적용) | 행동별 next_item 규칙의 종류. 행동과의 짝은 데이터셋 정본(labels.py, IO_SPEC.md)을 따른다 |
+| NextItemRuleKind | TARGET_ITEM(targets 의 첫 문항, 없으면 입력 question_id), ASKED_ITEM(입력 question_id), SEQUENCE_AFTER_SAVED(기준 문항 다음. 기준은 values 의 첫 값의 문항, 없으면 targets 의 첫 문항, 없으면 입력 question_id. 이번 턴 저장 값으로 조건이 맞은 건너뛰기와 칸이 모두 저장된 문항은 건너뜀) | 행동별 next_item 규칙의 종류. 정본은 labels.py a_target·next_after 이고 행동과의 짝은 IO_SPEC.md 를 따른다 |
 | ModelIoFeature | CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN | 모델 입출력 v3 에 의존하는 세 기능(v7-flow-resolutions 51행) |
 | 현재 문항의 계열 | 문항 식별자에서 첫 `_` 또는 `.` 앞 부분이 같은 문항들(Q7_1·Q7_2 → Q7, Q1.D01 → Q1) | 한 질문이 하위 문항으로 나뉜 데이터셋 문항 식별자 구조(labels.py, SQL.md) |
 | RiskCategory | SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS | D88 U2 의 임상 검토 전 임시 기본 목록. 위험 감지는 기본 꺼짐(L11)이고 켤 때 임상 검토로 확정한다(UD-18) |

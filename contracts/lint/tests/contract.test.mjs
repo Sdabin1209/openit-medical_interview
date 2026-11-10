@@ -46,9 +46,10 @@ test('JOSE 헤더: typ 이 at+jwt 또는 application/at+jwt 가 아니거나 alg
   ok('AccessTokenHeader', { typ: 'at+jwt', alg: 'RS256', kid: 'k1' }); ok('AccessTokenHeader', { typ: 'application/at+jwt', alg: 'ES256' }); no('AccessTokenHeader', { typ: 'application/jwt', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'JWT', alg: 'RS256' }); no('AccessTokenHeader', { typ: 'at+jwt', alg: 'none' });
 });
 const RV = { runtime_contract_version: 1 };
+const Q_TEXT = '질문 문장입니다.';
 const SLOTS = [{ key: 'Q1.D01.diagnosed', value: true, status: 'ANSWERED' }, { key: 'Q9_2.duration_minutes', value: null, status: 'MISSING' }];
-const NEXT_B = { ...RV, action: 'NEXT', question_id: 'Q1.D01', user_utterance: '중풍 진단 받았고, 약도 먹고 있어예.', slots: [], values: [val('Q1.D01.diagnosed', true), val('Q1.D01.on_medication', true)], next: { type: 'NEXT', question_id: 'Q1.D02' } };
-const SAME = (qid) => ({ type: 'SAME', question_id: qid });
+const NEXT_B = { ...RV, action: 'NEXT', question_id: 'Q1.D01', user_utterance: '중풍 진단 받았고, 약도 먹고 있어예.', slots: [], values: [val('Q1.D01.diagnosed', true), val('Q1.D01.on_medication', true)], next: { type: 'NEXT', question_id: 'Q1.D02', text: Q_TEXT } };
+const SAME = (qid) => ({ type: 'SAME', question_id: qid, text: Q_TEXT });
 test('StoredSlot: 다시 물은 칸(MISSING·UNCLEAR)은 값이 null 이어야 하고 모르는 칸은 거부한다', () => {
   for (const s of SLOTS) ok('StoredSlot', s);
   ok('StoredSlot', { key: 'Q7_1[soju].amount', value: 2, status: 'ANSWERED' }); ok('StoredSlot', { key: 'Q4.answer', value: false, status: 'ANSWERED' });
@@ -71,7 +72,7 @@ test('ExtractionRequest: 구조화된 값만 받고, 글 조각·옛 칸(input, 
   no('ExtractionRequest', { ...req, slots: [{ key: 'Q1.D01.diagnosed', value: true, status: 'ANSWERED', precision: 'exact' }] }, '저장된 칸의 모르는 칸');
 });
 test('ResponseGenerationRequest: 구조화된 값만 받고 행동별 필수·금지 칸과 next 조합을 어기면 거부한다', () => {
-  const START = { ...RV, action: 'START', next: { type: 'NEXT', question_id: 'Q1.D01' } };
+  const START = { ...RV, action: 'START', next: { type: 'NEXT', question_id: 'Q1.D01', text: Q_TEXT } };
   ok('ResponseGenerationRequest', NEXT_B); ok('ResponseGenerationRequest', START);
   ok('ResponseGenerationRequest', { ...NEXT_B, previous_question_id: 'Q1.D01', slots: SLOTS });
   ok('ResponseGenerationRequest', { ...NEXT_B, action: 'CORRECT', next: { type: 'END' } });
@@ -81,19 +82,19 @@ test('ResponseGenerationRequest: 구조화된 값만 받고 행동별 필수·�
   ok('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', note: '손발이 저림', question_id: 'Q1.D01', user_utterance: 'x', slots: [], values: [], next: SAME('Q1.D01') });
   ok('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'ASK_PURPOSE', question_id: 'Q8_2', user_utterance: 'x', slots: [], values: [], next: SAME('Q8_2') });
   no('ResponseGenerationRequest', { ...START, user_utterance: 'x' }, 'START 에 발화'); no('ResponseGenerationRequest', { ...START, slots: [] }, 'START 에 저장 값'); no('ResponseGenerationRequest', { ...START, question_id: 'Q1.D01' }, 'START 에 지금 문항');
-  no('ResponseGenerationRequest', { ...START, next: { type: 'SAME', question_id: 'Q1.D01' } }, 'START 에 SAME');
+  no('ResponseGenerationRequest', { ...START, next: { type: 'SAME', question_id: 'Q1.D01', text: Q_TEXT } }, 'START 에 SAME');
   for (const k of ['question_id', 'user_utterance', 'slots', 'values']) { const c = { ...NEXT_B }; delete c[k]; no('ResponseGenerationRequest', c, `NEXT 에 ${k} 없음`); }
   const { runtime_contract_version, ...noRv } = NEXT_B; no('ResponseGenerationRequest', noRv, '문항 은행 버전 없음');
   no('ResponseGenerationRequest', { ...NEXT_B, reason: 'MISSING' }, 'NEXT 에 reason'); no('ResponseGenerationRequest', { ...NEXT_B, targets: ['Q1.D01.diagnosed'] }, 'NEXT 에 targets');
   no('ResponseGenerationRequest', { ...NEXT_B, next: SAME('Q1.D02') }, 'NEXT 에 SAME');
   no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'NEXT' } }, 'NEXT 에 question_id 없음'); no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'END', question_id: 'Q1.D02' } }, 'END 에 question_id');
-  no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'NEXT', question_id: 'Q1.D02', text: '질문 문장' } }, 'next.text 는 model-runtime 이 만든다');
+  no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'NEXT', question_id: 'Q1.D02' } }, 'NEXT 에 text 없음'); no('ResponseGenerationRequest', { ...NEXT_B, next: { type: 'END', text: Q_TEXT } }, 'END 에 text');
   for (const k of ['topic', 'known', 'ask', 'previous', 'current', 'hold']) no('ResponseGenerationRequest', { ...NEXT_B, [k]: '글' }, `글 조각 ${k}`);
   no('ResponseGenerationRequest', { ...NEXT_B, input: {} }, '옛 칸 input');
   const reask = { ...RV, action: 'REASK', reason: 'MISSING', question_id: 'Q8_1', user_utterance: 'x', slots: [], values: [], targets: ['Q8_1.days'], next: SAME('Q8_1') };
   ok('ResponseGenerationRequest', reask);
   const { reason: _r, ...noReason } = reask; no('ResponseGenerationRequest', noReason, 'REASK 에 reason 없음'); const { targets: _t, ...noTargets } = reask; no('ResponseGenerationRequest', noTargets, 'REASK 에 targets 없음');
-  no('ResponseGenerationRequest', { ...reask, next: { type: 'NEXT', question_id: 'Q8_2' } }, 'REASK 에 NEXT');
+  no('ResponseGenerationRequest', { ...reask, next: { type: 'NEXT', question_id: 'Q8_2', text: Q_TEXT } }, 'REASK 에 NEXT');
   no('ResponseGenerationRequest', { ...reask, action: 'REDIRECT', reason: 'OFF_TOPIC' }, 'REDIRECT 에 targets');
   no('ResponseGenerationRequest', { ...reask, note: '손발이 저림' }, 'OUT_OF_SCHEMA 가 아닌데 note');
   no('ResponseGenerationRequest', { ...RV, action: 'REDIRECT', reason: 'OUT_OF_SCHEMA', question_id: 'Q1.D01', user_utterance: 'x', slots: [], values: [], next: SAME('Q1.D01') }, 'OUT_OF_SCHEMA 에 note 없음');
@@ -311,4 +312,11 @@ test('Env 는 입력마다 필요한 컴포넌트를 적고 백업 입력은 dep
 test('x-basis 에 옛 흐름 번호(F+숫자)와 없어진 영역 이름이 남지 않는다', () => {
   const txt = readFileSync(path.join(root, 'components.yaml'), 'utf8');
   assert.equal((txt.match(/\bF[0-9]{2}\b/g) ?? []).length, 0); assert.ok(!txt.includes('정본에 없'));
+});
+test('RepeatKey 는 빈 키(술 종류를 모르는 값, 저장하지 않는 값에만)를 받고 대문자·숫자는 거부한다', () => { ok('RepeatKey', ''); ok('RepeatKey', 'soju'); no('RepeatKey', 'Soju'); no('RepeatKey', 'a1'); });
+test('ModelInputSerialization 은 state 항목 안의 키 순서(value, status)를 필수로 정한다', () => {
+  const base = { ensure_ascii: false, a_top_level_key_order: 'alphabetical', a_nested_key_order: 'insertion', a_state_entry_key_order: ['value', 'status'], b_key_order: 'alphabetical' };
+  ok('ModelInputSerialization', base);
+  no('ModelInputSerialization', { ...base, a_state_entry_key_order: ['status', 'value'] }, 'status, value 순서');
+  const { a_state_entry_key_order: _x, ...without } = base; no('ModelInputSerialization', without, '항목 키 순서 빠짐');
 });
