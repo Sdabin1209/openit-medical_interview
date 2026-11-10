@@ -57,7 +57,7 @@ components:
       properties:
         pointer: { $ref: "#/components/schemas/JsonPointer", description: "잘못된 값이 있는 요청 본문 안의 위치" }
         detail: { $ref: "#/components/schemas/ProblemDetail", description: "그 칸이 어긋난 까닭" }
-    ProblemFieldErrors: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ProblemFieldError" }, description: "한 요청에서 어긋난 칸들의 목록", x-owner: head, x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+    ProblemFieldErrors: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ProblemFieldError" }, description: "한 요청에서 어긋난 칸들의 목록", x-owner: head, x-basis: "사용자 결정 2026-11-10(UD-10)" }
     ProblemDetails:
       type: object
       additionalProperties: false
@@ -80,6 +80,7 @@ components:
     # ---- 시간 상한(영역 사이 약속, D125) ----
     KioskRequestLimitSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)", x-owner: head, x-basis: "D125(키오스크 60초 > 게이트웨이 > survey 턴)" }
     KioskRetryBudgetSeconds: { type: integer, const: 120, minimum: 120, maximum: 120, description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)", x-owner: head, x-basis: "D125(재시도 예산 120초)" }
+    KioskIdleResetSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 환자의 입력 없이 기다리다 세션을 초기화하는 시간(초). 멈춘 세션은 만료하지 않는다", x-owner: head, x-basis: "D88 U10(유휴 초기화), 사용자 결정 2026-11-10(UD-17)" }
     KioskProgressNoticeSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)", x-owner: head, x-basis: "D125(Nielsen 1초 진행 표시)" }
     GatewayConnectLimitSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
     GatewayPatientRouteLimitSeconds: { type: integer, const: 55, minimum: 55, maximum: 55, description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
@@ -105,10 +106,11 @@ components:
       description: "영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다"
       x-owner: head
       x-basis: "D125(시간 상한: 목표와 실패 판정을 나눈다, 표준과 계산된 최악값 위의 여유, 측정 아님), D120"
-      required: [kiosk_request, kiosk_retry_budget, kiosk_progress_notice, gateway_connect, gateway_patient_route, survey_turn, extract_client, respond_client, model_extract, model_respond, gate_gateway, gate_server, gate_screen, authoring_gateway, authoring_server, authoring_screen, ops_gateway, ops_server, ops_screen, alert_stream_heartbeat, session_state_poll]
+      required: [kiosk_request, kiosk_retry_budget, kiosk_progress_notice, kiosk_idle_reset, gateway_connect, gateway_patient_route, survey_turn, extract_client, respond_client, model_extract, model_respond, gate_gateway, gate_server, gate_screen, authoring_gateway, authoring_server, authoring_screen, ops_gateway, ops_server, ops_screen, alert_stream_heartbeat, session_state_poll]
       properties:
         kiosk_request: { $ref: "#/components/schemas/KioskRequestLimitSeconds", description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)" }
         kiosk_retry_budget: { $ref: "#/components/schemas/KioskRetryBudgetSeconds", description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)" }
+        kiosk_idle_reset: { $ref: "#/components/schemas/KioskIdleResetSeconds", description: "키오스크가 입력 없이 기다리다 세션을 초기화하는 시간(초)" }
         kiosk_progress_notice: { $ref: "#/components/schemas/KioskProgressNoticeSeconds", description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)" }
         gateway_connect: { $ref: "#/components/schemas/GatewayConnectLimitSeconds", description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)" }
         gateway_patient_route: { $ref: "#/components/schemas/GatewayPatientRouteLimitSeconds", description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)" }
@@ -152,7 +154,7 @@ components:
       description: "건강 점검 하나 또는 전체의 결과"
       x-owner: head
       x-basis: "draft-inadarei-api-health-check 를 참고한 값(pass, warn, fail). 표준이 아니라 만료된 초안이라 자체 모양으로 쓴다, D111"
-    HealthCheckName: { type: string, maxLength: 63, description: "점검 항목의 이름(예를 들어 database)", x-owner: head, x-basis: "식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값, D111(/readyz 가 의존 준비를 점검)" }
+    HealthCheckName: { type: string, maxLength: 63, description: "점검 항목의 이름(예를 들어 database)", x-owner: head, x-basis: "사용자 결정 2026-11-10(UD-14), D111(/readyz 가 의존 준비를 점검)" }
     HealthCheck:
       type: object
       additionalProperties: false
@@ -164,7 +166,7 @@ components:
         name: { $ref: "#/components/schemas/HealthCheckName", description: "점검한 의존 또는 기능의 이름" }
         status: { $ref: "#/components/schemas/HealthStatus", description: "이 항목의 점검 결과" }
         observed_at: { $ref: "#/components/schemas/Timestamp", description: "이 항목을 마지막으로 점검한 때" }
-    HealthChecks: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/HealthCheck" }, description: "건강 점검 항목들", x-owner: head, x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+    HealthChecks: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/HealthCheck" }, description: "건강 점검 항목들", x-owner: head, x-basis: "사용자 결정 2026-11-10(UD-10)" }
     ImageRevision: { type: string, pattern: "^[0-9a-f]{40,64}$", maxLength: 64, description: "이미지를 만든 소스의 커밋 해시(소문자 16진수)", x-owner: deploy, x-basis: "OCI Image Spec 어노테이션 org.opencontainers.image.revision, ADR 0004" }
     HealthReport:
       type: object
@@ -231,7 +233,7 @@ components:
         rollback-requester: "ops-feedback. 롤백 요청을 낸다"
         dataset-reader: "model-lab. 지정 버전의 데이터셋을 읽는다"
         dataset-publisher: "데이터셋 담당. 확정한 최종 데이터를 게시한다"
-        model-publisher: "학습 서버. 학습 결과를 모델 레지스트리에 게시한다"
+        model-publisher: "학습 서버. 대기 중인 학습 요청과 파일을 당겨 가고 학습 결과를 모델 레지스트리에 게시한다"
       description: "기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다"
       x-owner: platform
       x-basis: "D122(기계 토큰 경로는 읽을 것만 연다), D58(2)(401 과 403 구분), C16(학습 서버 게시), C10(병원 시스템 당겨 가기), C17(판정 읽기)"
@@ -285,7 +287,7 @@ components:
     # ======================================================================
     # 문진 서비스: 문진표, 시작 코드, 세션, 턴
     # ======================================================================
-    QuestionnaireId: { type: string, pattern: "^[A-Za-z0-9_-]+$", maxLength: 63, description: "문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다", x-owner: question-authoring, x-basis: "U85(문진표가 여럿), 식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값" }
+    QuestionnaireId: { type: string, pattern: "^[A-Za-z0-9_-]+$", maxLength: 63, description: "문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다", x-owner: question-authoring, x-basis: "U85(문진표가 여럿), 사용자 결정 2026-11-10(UD-14)" }
     QuestionnaireTitle: { type: string, minLength: 1, maxLength: 200, description: "문진표의 제목. 결과와 선택 화면에 보인다", x-owner: question-authoring, x-basis: "U87(결과에 문진표 제목), 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     QuestionnaireSummary:
       type: object
@@ -305,7 +307,7 @@ components:
       x-basis: "U86, U85, F30"
       required: [questionnaires]
       properties:
-        questionnaires: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionnaireSummary" }, description: "문진표 요약들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        questionnaires: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionnaireSummary" }, description: "문진표 요약들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
     SubjectRef: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9.-]{1,64}$", description: "문진 대상자를 가리키는 불투명 참조값. 환자 식별 정보(이름·생년월일 등)가 아니다. 설치처의 의료 정보 시스템이 같은 값으로 결과를 당겨 간다", x-owner: survey-service, x-basis: "G-SUBJ-1(불투명 참조값), D85(1), 사용자 결정 2026-11-10 C20, HL7 FHIR R4 id 형식(영숫자·하이픈·마침표 1~64자: 결과를 FHIR 로 내보낼 때 같은 값을 쓴다)" }
     StartCodeValue: { type: string, pattern: "^[0-9]{6}$", maxLength: 6, description: "직원이 발급한 일회용 시작 코드(6자리 숫자, QR 에도 같은 값을 담는다)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10 C20(직원 발급 일회용 시작 코드), RFC 4226 5.3 (일회용 값은 최소 6자리), NIST SP 800-63B 5.1.3 (일회용 비밀)" }
     StartCodeIssueRequest:
@@ -333,7 +335,7 @@ components:
     SessionId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, description: "문진 세션 하나의 식별자. 서버가 발급한다", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D110(서버 발급 session_id)" }
     TurnId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
     UtteranceText: { type: string, minLength: 1, maxLength: 300, description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배), D88 U3(음성은 기기 안 처리)" }
-    ResponseSentence: { type: string, minLength: 1, maxLength: 344, description: "환자에게 보여 주고 읽어 줄 응답 문장", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), 이 문장이 다음 턴의 current_question 이 되므로 CurrentQuestionText 와 같은 상한이다. 실측 응답 문장 최대 134자와 current_question 최대 172자 중 큰 값의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
+    ResponseSentence: { type: string, minLength: 1, maxLength: 344, description: "환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), 이 문장이 다음 턴의 current_question 이 되므로 CurrentQuestionText 와 같은 상한이다. 실측 응답 문장 최대 134자와 current_question 최대 172자 중 큰 값의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SessionStatus:
       type: string
@@ -832,7 +834,7 @@ components:
         status: { $ref: "#/components/schemas/DraftStatus", description: "초안 상태" }
         preview_text: { $ref: "#/components/schemas/PreviewText", description: "사람이 읽는 미리보기(읽지 못했으면 없다)" }
         content: { $ref: "#/components/schemas/QuestionSetContent", description: "초안의 구조화된 내용(읽지 못했으면 없다)" }
-        warnings: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/PreviewWarning" }, description: "저자가 살펴볼 경고들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        warnings: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/PreviewWarning" }, description: "저자가 살펴볼 경고들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
         preview_hash: { $ref: "#/components/schemas/Sha256Digest", description: "미리보기 내용의 해시. 저자는 이 해시를 돌려보내 본 내용 그대로 확인한다" }
     DraftSummary:
       type: object
@@ -894,7 +896,7 @@ components:
         turn_count: { $ref: "#/components/schemas/TurnCount", description: "이 문항에서 관찰한 턴 수" }
         failure_count: { $ref: "#/components/schemas/FailureCount", description: "그중 실패한 턴 수" }
         failure_rate: { $ref: "#/components/schemas/FailureRate", description: "실패한 턴의 비율" }
-        confusions: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ConfusionCase" }, description: "혼동 사례들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        confusions: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ConfusionCase" }, description: "혼동 사례들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
     FailureSignalPage:
       type: object
       additionalProperties: false
@@ -1418,7 +1420,7 @@ components:
       description: "위험 신호의 분류(임상 검토 전의 보수적 임시 목록)"
       x-owner: survey-service
       x-basis: "D88 U2(널리 쓰는 레드플래그 임시 기본 목록, 임상 검토 전)"
-    RiskSourceName: { type: string, maxLength: 63, description: "위험 신호를 낸 감지기의 이름", x-owner: survey-service, x-basis: "D85(2)(입력원은 외부), 식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값" }
+    RiskSourceName: { type: string, maxLength: 63, description: "위험 신호를 낸 감지기의 이름", x-owner: survey-service, x-basis: "D85(2)(입력원은 외부), 사용자 결정 2026-11-10(UD-14)" }
     RiskSignal:
       type: object
       additionalProperties: false
@@ -1488,8 +1490,8 @@ components:
       x-owner: survey-service
       x-basis: "F36, D16(세션 ID 와 턴 ID 로 멱등), D62"
       properties:
-        traces: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/TurnTrace" }, description: "턴 기록들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
-        business_logs: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/BusinessLogEntry" }, description: "업무 로그들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        traces: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/TurnTrace" }, description: "턴 기록들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
+        business_logs: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/BusinessLogEntry" }, description: "업무 로그들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
     DeliveryCount: { type: integer, minimum: 0, maximum: 200, description: "한 전달에서 센 항목 수", x-owner: ops-feedback, x-basis: "TraceDelivery 한 전달의 항목 수 최대(traces 100 과 business_logs 100 의 합 200)" }
     TraceDeliveryReceipt:
       type: object
@@ -1658,8 +1660,8 @@ components:
         weights: { $ref: "#/components/schemas/ArtifactRef", description: "어댑터 가중치 파일" }
         system_prompt: { $ref: "#/components/schemas/ArtifactRef", description: "이 어댑터와 짝이 되는 시스템 프롬프트 파일" }
         serving_config: { $ref: "#/components/schemas/ServingConfig", description: "서빙 설정" }
-    MetricName: { type: string, maxLength: 63, description: "평가 지표의 이름(예를 들어 value_precision, next_item_accuracy, semantic_violation_rate)", x-owner: model-lab, x-basis: "D96(지표 이름은 자유 문자열), D97, 식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값" }
-    MetricGroupName: { type: string, maxLength: 63, description: "평가 지표의 묶음 이름(예를 들어 ACCURACY)", x-owner: model-lab, x-basis: "D97(그룹 ACCURACY), 식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값" }
+    MetricName: { type: string, maxLength: 63, description: "평가 지표의 이름(예를 들어 value_precision, next_item_accuracy, semantic_violation_rate)", x-owner: model-lab, x-basis: "D96(지표 이름은 자유 문자열), D97, 사용자 결정 2026-11-10(UD-14)" }
+    MetricGroupName: { type: string, maxLength: 63, description: "평가 지표의 묶음 이름(예를 들어 ACCURACY)", x-owner: model-lab, x-basis: "D97(그룹 ACCURACY), 사용자 결정 2026-11-10(UD-14)" }
     MetricSlice: { type: string, maxLength: 200, description: "지표를 쪼갠 조각의 이름(문항 유형·단위·범위·위반 코드 등)", x-owner: model-lab, x-basis: "D13(문항 유형·단위·범위별 평가), D97(위반 코드별 slice), 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     MetricUnit:
       type: string
@@ -1751,16 +1753,27 @@ components:
     TrainingRunRequest:
       type: object
       additionalProperties: false
-      description: "model-lab 이 학습 서버에 시키는 학습 실행. 설정 파일의 내용은 학습 서버 코드가 정본이다"
+      description: "model-lab 이 대기시켜 두고 학습 서버가 HTTPS 로 당겨 가는 학습 요청. 설정 파일의 내용은 학습 서버 코드가 정본이다"
       x-owner: model-lab
-      x-basis: "F66, D78(학습 정본은 학습 서버 코드), D77, G06"
-      required: [training_run_id, dataset_version_id, adapter_role, base_model, config]
+      x-basis: "F66, 사용자 결정 2026-11-10(UD-16: 학습 서버가 대기 중인 요청과 파일을 당겨 간다), D78(학습 정본은 학습 서버 코드), D77, G06"
+      required: [training_run_id, dataset_version_id, adapter_role, base_model, config, dataset_files]
       properties:
         training_run_id: { $ref: "#/components/schemas/TrainingRunId", description: "이 실행의 식별자" }
         dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "학습할 데이터셋 버전" }
         adapter_role: { $ref: "#/components/schemas/AdapterRole", description: "학습할 어댑터의 역할" }
         base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
         config: { $ref: "#/components/schemas/ArtifactRef", description: "학습 서버 코드가 읽는 설정 파일" }
+        dataset_files: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/ArtifactRef" }, description: "학습 서버가 model-lab 에서 내려받는 데이터셋 파일들(변환한 데이터)", x-basis: "DatasetFiles 의 최대 8" }
+    TrainingRunRequestPage:
+      type: object
+      additionalProperties: false
+      description: "학습 서버가 당겨 가는 대기 중인 학습 요청 목록 한 쪽"
+      x-owner: model-lab
+      x-basis: "F66, 사용자 결정 2026-11-10(UD-16), PageLimit 의 쪽 나누기 규칙"
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/TrainingRunRequest" }, description: "대기 중인 학습 요청들(오래된 것이 먼저)", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
+        next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
     TrainingOutcome:
       type: string
       enum: [SUCCEEDED, FAILED]
@@ -1970,7 +1983,7 @@ components:
       x-basis: "F06, U85, U81"
       required: [question_set_version_ids, model_package_id]
       properties:
-        question_set_version_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/QuestionSetVersionId" }, description: "함께 운영할 문진표 버전들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        question_set_version_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/QuestionSetVersionId" }, description: "함께 운영할 문진표 버전들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
         model_package_id: { $ref: "#/components/schemas/ModelPackageId", description: "함께 낼 모델 패키지" }
     GateCheckName:
       type: string
@@ -2184,7 +2197,7 @@ components:
       properties:
         target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
         reason: { $ref: "#/components/schemas/DecisionReason", description: "롤백을 요청하는 까닭" }
-        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거가 되는 CONFIRMED 사례들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거가 되는 CONFIRMED 사례들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
     RollbackRequestStatus:
       type: string
       enum: [OPEN, EXECUTED]
@@ -2204,7 +2217,7 @@ components:
         status: { $ref: "#/components/schemas/RollbackRequestStatus", description: "요청 상태" }
         target_release_id: { $ref: "#/components/schemas/ReleaseId", description: "되돌아갈 릴리스" }
         reason: { $ref: "#/components/schemas/DecisionReason", description: "요청한 까닭" }
-        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거 사례들" , x-basis: "목록 크기 값은 user-decisions-needed UD-10 의 권고값" }
+        evidence_case_ids: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/CaseId" }, description: "근거 사례들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
         requested_by: { $ref: "#/components/schemas/UserId", description: "요청한 사람(사람이 낸 요청일 때)" }
         requested_by_client: { $ref: "#/components/schemas/MachineClientName", description: "요청한 기계 호출자(자동 제출이 켜진 설치에서 ops-feedback 이 낸 요청일 때)" }
         requested_at: { $ref: "#/components/schemas/Timestamp", description: "요청이 들어온 때" }
@@ -2322,13 +2335,13 @@ components:
     BackupRepositoryUrl: { type: string, pattern: "^rest:https://", maxLength: 8000, description: "백업을 보낼 저장소 주소(restic REST 저장소)", x-owner: platform, x-basis: "D130(restic rest-server), restic REST 백엔드 사양" }
     OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: platform, x-basis: "C09(서버 밖 대상이 필수, 주소는 설정), U6" }
     VapidSubject: { type: string, format: uri, maxLength: 8000, description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), RFC 9110 4.1(URI 8000옥텟 지원 권고)" }
-    StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 기본 300초는 user-decisions-needed UD-04 의 권고값" }
+    StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
     ReaskLimit: { type: integer, minimum: 2, maximum: 2, description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "사용자 결정 U36 2026-11-10(처음 질문 1회와 되묻기 2회 뒤 건너뛰고 빈칸 사유를 남긴다)이 D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
     ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     TwoPersonApprovalRequired: { type: boolean, default: false, description: "임상 근거 승인에 저자와 다른 검수자를 요구할지(참이면 요구한다). 기본은 꺼짐이다", x-owner: question-authoring, x-basis: "L13(사용자 결정 2026-11-03: 기본 꺼짐, 설정으로 켠다), C02, D92" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: ops-feedback, x-basis: "L12(사용자 결정: 180일 유지), C03" }
-    ModelProfileName: { type: string, maxLength: 63, description: "추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 식별 이름 최대 길이 63 은 user-decisions-needed UD-14 의 권고값" }
+    ModelProfileName: { type: string, maxLength: 63, description: "추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 사용자 결정 2026-11-10(UD-14)" }
     HostName: { type: string, format: hostname, maxLength: 253, description: "호스트 이름", x-owner: deploy, x-basis: "RFC 1123 2.1, 최대 길이 253 은 RFC 1035 2.3.4" }
     Ipv4Address: { type: string, format: ipv4, maxLength: 15, description: "IPv4 주소(점으로 구분한 십진 표기)", x-owner: deploy, x-basis: "RFC 2673 3.2 dotted-quad, 최대 길이 15 는 xxx.xxx.xxx.xxx" }
     Ipv6Address: { type: string, format: ipv6, maxLength: 45, description: "IPv6 주소(콜론 표기, IPv4 가 섞인 표기 포함)", x-owner: deploy, x-basis: "RFC 4291 2.2, 최대 길이 45 는 RFC 4291 2.2 의 IPv4 혼합 표기" }
@@ -2348,7 +2361,7 @@ components:
       x-basis: "U86(사용자 결정: 기기에 배치된 문진표가 기본), F26, F64"
       required: [placements]
       properties:
-        placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "목록 크기 값은 user-decisions-needed UD-08 의 권고값" }
+        placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "사용자 결정 2026-11-10(UD-08)" }
     FhirCanonicalBaseUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, description: "문진표의 정본 URL 을 만드는 기준 주소. 문진표의 canonical URL 은 이 주소 뒤에 슬래시와 문진표 식별자를 붙인 값이다. 설치처마다 다르다", x-owner: survey-service, x-basis: "HL7 FHIR R4 QuestionnaireResponse.questionnaire(canonical URL), RFC 9110 4.1" }
     SurveyServiceEnv:
       type: object
@@ -2511,7 +2524,6 @@ components:
         OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
         OPENIT_BACKUP_HTTP_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 서버(restic rest-server)의 영역별 HTTP 인증 자격 파일. 자격은 주소에 넣지 않는다" }
         OPENIT_BACKUP_ENCRYPTION_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 내용을 암호화하는 키 파일" }
-        OPENIT_TRAINING_SERVER: { $ref: "#/components/schemas/HostAddress", description: "학습을 시킬 학습 서버" }
     SyntheticDataEnv:
       type: object
       additionalProperties: false
@@ -2681,7 +2693,7 @@ components:
         routes: { type: array, maxItems: 21, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들" , x-basis: "이 계약에서 서비스 하나의 업무 작업 수 최대 21(release-gate)" }
         egress: { type: array, maxItems: 10, items: { $ref: "#/components/schemas/ServiceName" }, description: "나가는 호출이 닿을 수 있는 서비스들" , x-basis: "ServiceName 값의 수 10" }
     ContainerPath: { type: string, pattern: "^/", maxLength: 4096, description: "컨테이너 안의 절대 경로", x-owner: deploy, x-basis: "D134, POSIX PATH_MAX 4096" }
-    EnvVarName: { type: string, pattern: "^[A-Z][A-Z0-9_]*$", maxLength: 63, description: "환경 변수의 이름", x-owner: deploy, x-basis: "POSIX 환경 변수 이름 규칙(대문자·숫자·밑줄), D134, 길이 63 은 user-decisions-needed UD-14 의 권고값" }
+    EnvVarName: { type: string, pattern: "^[A-Z][A-Z0-9_]*$", maxLength: 63, description: "환경 변수의 이름", x-owner: deploy, x-basis: "POSIX 환경 변수 이름 규칙(대문자·숫자·밑줄), D134, 사용자 결정 2026-11-10(UD-14)" }
     EnvKind:
       type: string
       enum: [VALUE, SECRET_FILE, FILE_PATH]
@@ -2741,7 +2753,7 @@ components:
         inputs: { $ref: "#/components/schemas/ContainerInputs", description: "주입받는 것 전체" }
         jobs: { $ref: "#/components/schemas/JobsDeclaration", description: "잡이 있다면 그 선언" }
         database: { $ref: "#/components/schemas/DatabaseDeclaration", description: "영역 데이터베이스 이미지라면 그 선언" }
-    ImageLabelValue: { type: string, maxLength: 8000, description: "이미지 라벨 하나의 값. 선언 객체는 JSON 글자로 쓴다", x-owner: deploy, x-basis: "OCI Image Spec(라벨은 문자열 쌍), 최대 길이는 user-decisions-needed UD-13 의 권고값" }
+    ImageLabelValue: { type: string, maxLength: 8000, description: "이미지 라벨 하나의 값. 선언 객체는 JSON 글자로 쓴다", x-owner: deploy, x-basis: "OCI Image Spec(라벨은 문자열 쌍), 사용자 결정 2026-11-10(UD-13)" }
     ImageLabelSet:
       type: object
       additionalProperties: false
@@ -2787,7 +2799,7 @@ components:
       x-basis: "F64, U97, U86"
       required: [servers, device_placements]
       properties:
-        servers: { type: array, minItems: 1, maxItems: 10, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" , x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 10 이하. 서비스를 어느 서버로 나눌지는 사용자 결정 대기(U97, user-decisions-needed UD-15)" }
+        servers: { type: array, minItems: 1, maxItems: 10, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" , x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 10 이하. 서비스와 서버의 대응은 배치 설정으로 정한다(사용자 결정 2026-11-10(UD-15), U97)" }
         device_placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
 
   securitySchemes:

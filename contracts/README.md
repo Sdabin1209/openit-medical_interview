@@ -4,7 +4,7 @@
 
 - **HTTP 교환:** `openapi/<서비스>.yaml`(OpenAPI 3.1)
 - **공유 값 정의:** `components.yaml` 한 곳(OpenAPI 3.1 components, 곧 JSON Schema 2020-12). HTTP 밖의 교환(환경 입력, 잡 입력·결과, 턴 기록)도 여기 정의를 쓴다.
-- **값마다 갖추는 것:** 뜻(`description`), 범위(`maxLength`·`minimum`·`maximum`·`maxItems`·`enum`+`x-enum-descriptions`), 주인(`x-owner`, `areas.yaml`의 이름), 근거(`x-basis`: 결정 번호·표준·측정, 또는 `결정 대기: …`).
+- **값마다 갖추는 것:** 뜻(`description`), 범위(`maxLength`·`minimum`·`maximum`·`maxItems`·`enum`+`x-enum-descriptions`), 주인(`x-owner`, `areas.yaml`의 이름), 근거(`x-basis`: 결정 번호·표준·측정).
 - **참조만:** 객체의 칸과 요청·응답 본문은 컴포넌트를 `$ref`로 참조만 한다.
 - **흐름과의 대응:** `traceability.md`가 흐름 F01~F74 각각이 어느 작업·스키마로 구현되는지(또는 왜 구현하지 않는지) 적는다. 흐름의 정본은 `flows.md`, 충돌 정리는 `../docs/v7-flow-resolutions.md`(우선)다.
 
@@ -61,7 +61,7 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 3. **구조에서 나오는 값**: 열거 값의 수, 칸 수 같은 계약 안의 개수.
 4. **결정 기록**의 결정 번호.
 
-위 어느 것에서도 값이 나오지 않은 것은 `user-decisions-needed.md` 에 올렸다. 린트가 상한을 요구하므로 그 값은 권고값으로 넣었고 `x-basis` 가 해당 UD 번호를 가리킨다.
+위 어느 것에서도 값이 나오지 않은 것은 `user-decisions-needed.md` 에 올려 사용자가 정했고, `x-basis` 는 "사용자 결정 2026-11-10(UD-n)"을 가리킨다.
 
 ## 점검
 

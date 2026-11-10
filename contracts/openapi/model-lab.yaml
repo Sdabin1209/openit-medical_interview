@@ -3,7 +3,7 @@ info:
   title: openit v7 모델 개발·레지스트리(model-lab) API
   version: 7.0.0
   description: >-
-    후보 모델 패키지와 파일 읽기, 학습 서버의 학습 결과 게시를 낸다. 학습 서버로 가는 학습 실행 요청은 HTTP 가 아니라 TrainingRunRequest 로 정의한다.
+    후보 모델 패키지와 파일 읽기, 학습 서버의 학습 결과 게시를 낸다. 학습 서버는 대기 중인 학습 요청과 파일을 당겨 가고 결과를 게시한다.
   contact: { name: head }
 servers:
   - url: "https://model-lab"
@@ -57,6 +57,40 @@ paths:
       description: 목록표가 가리키는 어댑터 가중치나 시스템 프롬프트를 내려준다. 받는 쪽은 목록표의 해시로 내용을 확인한다(F07, D49).
       x-owner: model-lab
       security: [ { area_mtls: [], machine_token: [candidate-reader] } ]
+      responses:
+        "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../components.yaml#/components/responses/NotFound" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/training-requests:
+    get:
+      operationId: listTrainingRequests
+      tags: [training]
+      summary: 대기 중인 학습 요청 목록
+      description: 학습 서버가 model-lab 에서 대기 중인 학습 요청을 HTTPS 로 당겨 간다. 결과가 게시된 요청은 목록에서 빠진다. 설정 파일의 내용은 학습 서버 코드가 정본이다(F66, D78, G06).
+      x-owner: model-lab
+      security: [ { machine_token: [model-publisher] } ]
+      parameters:
+        - { $ref: "../components.yaml#/components/parameters/Limit" }
+        - { $ref: "../components.yaml#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 대기 중인 요청 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/TrainingRunRequestPage" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/training-requests/{training_run_id}/files/{artifact_id}:
+    parameters:
+      - { name: training_run_id, in: path, required: true, description: 파일이 속한 학습 요청, schema: { $ref: "../components.yaml#/components/schemas/TrainingRunId" } }
+      - { name: artifact_id, in: path, required: true, description: 내려받을 파일(요청의 설정 파일 또는 데이터셋 파일), schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    get:
+      operationId: downloadTrainingInputFile
+      tags: [training]
+      summary: 학습 요청의 입력 파일 내려받기
+      description: 학습 요청이 가리키는 설정 파일과 변환한 데이터셋 파일을 학습 서버에 내려준다. 받는 쪽은 요청의 해시로 내용을 확인한다(F66, D49).
+      x-owner: model-lab
+      security: [ { machine_token: [model-publisher] } ]
       responses:
         "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }

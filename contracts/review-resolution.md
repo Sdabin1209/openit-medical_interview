@@ -1,6 +1,6 @@
 # 독립 검토 57건의 처리
 
-검토 파일은 `NoneCommit/review-contract-opus.md` 이다. 번호는 검토 파일의 번호와 같다. 처리 수는 고침 52, 일부 고침 3, 고치지 않음(결정 대기) 2 이다.
+검토 파일은 `NoneCommit/review-contract-opus.md` 이다. 번호는 검토 파일의 번호와 같다. 처리 수는 고침 54, 일부 고침 3, 고치지 않음 0 이다.
 
 | 번호 | 처리 | 내용 |
 |---|---|---|
@@ -25,7 +25,7 @@
 | 19 | 고침 | 모든 서비스 Env 에 `OPENIT_ROOT_CERTIFICATE_FILE`, `OPENIT_TLS_CERTIFICATE_FILE`, `OPENIT_TLS_PRIVATE_KEY_FILE` 을 필수로 넣었고 platform 에 `CaMode`, `IngressCertificateMode`, `OPENIT_ACME_DIRECTORY_URL`, `OPENIT_TRUST_LIST_FILE`, `OPENIT_TLS_ROOT_CERTIFICATE_FILE` 을 넣었다 |
 | 20 | 고침 | 영역별 `OPENIT_BACKUP_HTTP_CREDENTIALS_FILE` 과 `OPENIT_BACKUP_ENCRYPTION_KEY_FILE`, platform 의 서버 밖 대상 자격과 암호화 키 파일, 사람 인증 DB 입력, 잡 `OFFSITE_SYNC` 와 `RESTORE_TEST` 를 넣었다. 서버 밖 대상이 없으면 시작하지 않고 경보를 낸다는 규칙은 `OPENIT_OFFSITE_BACKUP_URL` 설명에 적었다 |
 | 21 | 고침 | `PlatformEnv` 에 수신 포트, 초기 admin 비밀번호 파일, 경보 수신처, 노출 선언 폴더, CA 비밀, 인증서 방식, 사람 인증 DB 를 넣었다. traceability F59 를 "구현(HTTP 밖)"으로 고쳤다 |
-| 22 | 고침 | `TimeBudgetTable` 과 값마다의 상수 스키마(D125 의 사슬, heartbeat 15초, 폴링 2초)를 정의했다. 유휴 초기화 시간(D88 U10)은 값이 확인되지 않아 UD-17 로 올렸다 |
+| 22 | 고침 | `TimeBudgetTable` 과 값마다의 상수 스키마(D125 의 사슬, heartbeat 15초, 폴링 2초)를 정의했다. 유휴 초기화 60초(D88 U10, 사용자 결정 UD-17)도 넣었다 |
 | 23 | 고침 | `x-required-roles` 를 지우고 역할을 `security` 요구에 역할 이름으로 적었다. 경고를 내는 `oas3-operation-security-defined` 는 `openapi/*.yaml` 에만 끄고 사유(OpenAPI 3.1.0 4.8.30)를 규칙 파일 주석에 적었다. 경고는 0건이다 |
 | 24 | 고침 | 미디어 유형을 `application/json` 으로 바꾸고 근거에 "만료된 초안을 참고한 자체 모양"이라고 적었다 |
 | 25 | 일부 고침 | README 에 모든 검증기가 format 단언을 켠다는 규칙을 적고 모든 uuid 에 `pattern` 과 `maxLength` 를 함께 뒀다. 린트 규칙(`openit-string-range`)은 규칙 파일의 openit 규칙을 고치지 않는다는 제약이라 바꾸지 않았다 |
@@ -33,13 +33,13 @@
 | 27 | 일부 고침 | `SubjectRef` 에 pattern 을 넣었다. 조회의 query 값은 불투명 참조값(식별 정보가 아님)이라 로그에 남아도 식별되지 않아 GET 을 그대로 뒀다 |
 | 28 | 고침 | `FhirMapping`(세션 상태, 빈칸 사유, linkId·subject·questionnaire 규칙)과 `FhirCanonicalBaseUrl` 환경 입력을 정의했고 FHIR 조회의 오류는 `FhirOperationOutcome`(OperationOutcome)으로 정했다 |
 | 29 | 고침 | 추출·응답 요청에 `release_id` 를 싣고 응답에 처리한 `release_id` 를 담게 했다(`ExtractionRequest`, `ExtractionResult`, `ResponseGenerationRequest`, `ResponseResult`). 다르면 409 `RELEASE_MISMATCH` 다 |
-| 30 | 고치지 않음(결정 대기) | 학습 서버에 요청을 전하는 방식은 결정이 없다. traceability F66 을 "결정 대기"로 고치고 UD-16 으로 올렸다 |
+| 30 | 고침 | 사용자 결정(2026-11-10, UD-16)에 따라 학습 서버가 대기 중인 요청과 파일을 당겨 가는 `listTrainingRequests`, `downloadTrainingInputFile` 을 만들고 `TrainingRunRequest` 에 데이터셋 파일을 더했다. F66 을 닫았다 |
 | 31 | 고침 | 쪽이 아닌 목록은 UD-10, 식별 이름 길이는 UD-14 로 올려 빌린 표준을 지웠다. `RetryAfterSeconds` 는 D125 의 재시도 예산 120초로, `MetricValue` 는 단위(`MetricUnit`)를 더하고 int32 한계로 바꿨다 |
-| 32 | 고침 | `DeploymentLayout.servers` 상한을 서비스 수 10(구조 값)으로 바꾸고 근거의 ADR 인용을 지웠으며 U97 의 방식은 UD-15 로 올렸다 |
+| 32 | 고침 | `DeploymentLayout.servers` 상한을 서비스 수 10(구조 값)으로 바꾸고 근거를 사용자 결정(UD-15: 서버 수는 서비스 수 이하, 대응은 배치 설정)으로 적었다 |
 | 33 | 고침 | `SlotNumber` 를 안전한 수 범위(RFC 7493)로 넓혀 칸별 범위를 칸 규격이 정하게 했다 |
 | 34 | 고침 | `DatasetFileSet`(final, finaltest)을 더하고 `DatasetFiles` 를 8개로 했으며 근거 문구를 고쳤다. 묶음 이름 확인은 DC-08 이다 |
 | 35 | 고침 | `BlankReason.NOT_ASKED` 를 더하고 모델 사유에서 빈칸 원인으로 옮기는 규칙을 설명에 적었다 |
-| 36 | 고치지 않음(결정 대기) | 음성 출력의 외부 전송은 외부 공개 범주라 사용자 결정이 필요하다. traceability F24 를 "결정 대기"로 고치고 UD-12 로 올렸다 |
+| 36 | 고침 | 사용자 결정(2026-11-10, UD-12)에 따라 응답 문장의 음성 출력도 기기 안에서만 처리하고 외부로 보내지 않는다고 `ResponseSentence` 에 적고 F24 를 닫았다 |
 | 37 | 고침 | `ImageLabelSet` 에 라벨 키와 값의 대응을 정의했다. 값의 최대 길이는 UD-13 이다 |
 | 38 | 고침 | `securitySchemes`, `parameters`, `headers`, `responses` 를 `components.yaml` 한 곳에 두고 서비스 문서는 `$ref` 로 참조한다. 역할을 요구하는 모든 작업에 403 을 뒀다(스크립트로 확인) |
 | 39 | 고침 | flows.md 와 v7-flow-resolutions 의 영역 수를 12개로 고쳤다 |
@@ -60,4 +60,4 @@
 | 54 | 고침 | `TraceDelivery` 에 `minProperties: 1` 을 뒀다 |
 | 55 | 고침 | `BusinessLogEntry` 에 `actor_client` 를, `BusinessEventKind` 에 `RESULT_VIEWED` 와 `RESULT_PULLED` 를 더했다 |
 | 56 | 고침 | `CaseReview` 에 `base_case_version` 을 필수로 두고 최신이 아니면 409 `CASE_VERSION_MISMATCH` 로 했다 |
-| 57 | 고침 | DC-05~DC-08 을 더했고 F37 의 감지기 입력 경로는 UD-18 로 올렸다 |
+| 57 | 고침 | DC-05~DC-08 을 더했고 F37 은 위험 감지가 꺼져 있는 동안 감지기 입력 경로를 만들지 않는다는 사용자 결정(UD-18)으로 정리했다 |

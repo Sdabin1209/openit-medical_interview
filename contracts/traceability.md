@@ -27,7 +27,7 @@
 | F21 | 구현 | listFailureSignals (ops-feedback) | FailureSignal, FailureSignalPage, ConfusionCase | signal-reader 권한(question-authoring) |
 | F22 | 구현 | listImprovementSignals (question-authoring) | ImprovementSignal, ImprovementSignalPage | 저자 경로는 별도 인증 뒤(D88 U9) |
 | F23 | 영역 안 | 없음(키오스크 화면 안, 발화는 F29 의 submitTurn 으로 간다) | UtteranceText | 음성은 기기 안에서 글자로 바꾸고 외부 STT 로 보내지 않으며 Web Speech API 는 쓰지 않는다(C12). 변환 구현 선택은 kiosk-frontend 몫 |
-| F24 | 결정 대기 | 없음(화면 출력, 문장은 F30 의 응답으로 온다) | ResponseSentence | 응답 문장의 음성 출력을 기기 안에서만 할지 정해지지 않았다(user-decisions-needed UD-12) |
+| F24 | 영역 안 | 없음(화면 출력, 문장은 F30 의 응답으로 온다) | ResponseSentence | 응답 문장의 음성 출력은 기기 안에서만 처리하고 외부로 보내지 않는다(사용자 결정 2026-11-10, UD-12, C12) |
 | F25 | 구현 | issueStartCode, startSession (survey-service) | StartCodeIssueRequest, StartCode, SessionStartRequest, SubjectRef | 직원이 발급한 일회용 시작 코드(C20). 설치처 연동은 만들지 않는다 |
 | F26 | 구현(HTTP 밖) | 없음(배포 때 파일 입력) | DevicePlacementTable, SurveyServiceEnv(SURVEY_DEVICE_PLACEMENTS_FILE), DevicePlacement | 기기별 기본 문진표 배치표를 survey-service 가 받아 mTLS 로 확인된 기기 ID 로 고른다(U86). 기기 토큰은 없앴다(D136) |
 | F27 | 계약 밖 | 없음(조직 PKI 가 기기에 인증서를 준다) | DeviceAllowlist, DeviceAllowEntry | 발급·폐기는 조직 몫(D113). 허용 목록 입력은 F54 의 PlatformEnv 로 deploy 가 준다(C13) |
@@ -40,7 +40,7 @@
 | F34 | 구현 | extractAction, generateResponse (model-runtime) | ExtractionResult, ActionExtraction, ActionExtractionRules, ResponseResult, ProblemReason(OUTPUT_INVALID, RELEASE_MISMATCH) | 받는 쪽은 다시 검증하지 않는다(D104(3)). 합격 조건은 ActionExtractionRules |
 | F35 | 구현 | getModelStatus (model-runtime) | ModelStatus, ModelLoadState | 적재는 추론 서버가 일으킨다(C05) |
 | F36 | 구현 | receiveTraceDelivery (ops-feedback) | TraceDelivery, TurnTrace, BusinessLogEntry, TraceDeliveryReceipt | 최소 1회 전달, 중복 제거는 ops-feedback(D16) |
-| F37 | 구현 | receiveRiskSignal (survey-service) | RiskSignal, RiskCategory | 위험 감지는 기본 꺼짐(C04, L11). 분류 목록은 임상 검토 전 임시(D88 U2). 외부 감지기가 발화를 얻는 길은 정해지지 않았다(UD-18) |
+| F37 | 구현 | receiveRiskSignal (survey-service) | RiskSignal, RiskCategory | 위험 감지는 기본 꺼짐(C04, L11). 꺼져 있는 동안은 외부 감지기가 발화를 얻는 입력 경로를 만들지 않고 켤 때 정한다(사용자 결정 2026-11-10, UD-18). 분류 목록은 임상 검토 전 임시(D88 U2) |
 | F38 | 구현 | listStaffAlerts, streamStaffAlerts, registerPushSubscription (survey-service) | StaffAlert, StaffAlertPage, StaffAlertEvent, WebPushPayload | 받는 쪽은 C01 에 따라 admin-console 이다(flows.md 는 kiosk-frontend 의 두 번째 앱으로 적었으나 C01 이 우선). 알림 종류는 위험, 직원 호출, 결과 도착 |
 | F39 | 구현 | registerPushSubscription, getPushConfig, decideIntervention (survey-service) | PushSubscription, PushConfig, InterventionDecision | 표준 Web Push(RFC 8030, 8291, 8292, C11). 푸시 서비스는 계약 밖 표준 |
 | F40 | 구현 | decideIntervention (survey-service) | InterventionDecision, InterventionAction | 직원 화면은 admin-console(C01) |
@@ -69,7 +69,7 @@
 | F63 | 계약 밖(표준) | 없음(OCI Distribution 레지스트리, images.lock 의 digest) | ImageRevision | digest 로 고정해 받는다(ADR 0002, ADR 0004) |
 | F64 | 구현(HTTP 밖) | 없음(운영자가 파일로 준다) | DeploymentLayout, ServerEntry, DevicePlacement | 열림 U97 은 설계 방향만 확정(flows.md 비고) |
 | F65 | 계약 밖(표준) | 없음(모델 허브에서 가중치 내려받기) | ModelRuntimeEnv(OPENIT_MODEL_CACHE_DIR), BaseModelName | 모델 허브 프로토콜이 정본. 캐시 폴더는 유지된다(D73) |
-| F66 | 결정 대기 | 없음 | TrainingRunRequest, ArtifactRef | 값은 정의했으나 학습 서버에 전하는 방식이 정해지지 않았다(UD-16). 설정 파일의 내용은 학습 서버 코드가 정본(D78, G06) |
+| F66 | 구현 | listTrainingRequests, downloadTrainingInputFile (model-lab) | TrainingRunRequest, TrainingRunRequestPage, ArtifactRef | 학습 서버가 대기 중인 요청과 파일을 HTTPS 로 당겨 간다(사용자 결정 2026-11-10, UD-16). 설정 파일의 내용은 학습 서버 코드가 정본(D78, G06) |
 | F67 | 구현 | publishTrainingRunResult, uploadTrainingArtifact (model-lab) | TrainingRunResult, TrainingRunReceipt, ArtifactContent | 학습 서버가 HTTPS 게시 API 로 올린다(C16) |
 | F68 | 계약 밖(구조) | 없음(contracts 폴더 자체와 생성 타입) | 없음 | 모노레포의 contracts/ 가 정본이고 소비자는 생성 타입만 쓴다(ADR 0002) |
 | F69 | 구현(정의) | 없음(components.yaml 의 정의) | QuestionBank, QuestionFlowTable, QuestionFieldSpec, SessionResult | 문진 스키마(문항·칸·순서표·결과)의 주인은 survey-service, 모델 입출력의 주인은 head 다(D19, D21, D75(2), D104(2)) |
