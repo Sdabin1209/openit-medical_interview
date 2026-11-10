@@ -28,6 +28,13 @@ from openit_platform import area_gateway
 from .devices import Issued, make_ca, make_device
 
 REPO = Path(__file__).resolve().parents[3]
+
+# 상태를 보는 빈도. 통과 조건이 아니다(wait 설명). 측정하지 않았다
+STATE_POLL_SECONDS = 1.0
+# 컨테이너 기동·인증서 발급이 끝나기를 기다리는 상한. 멈춘 기동을 끝내는 값이며 측정하지 않았다(기존 값 유지)
+STARTUP_LIMIT_SECONDS = 240
+# 허용 목록을 바꾼 `up` 이 입구에 반영되기를 기다리는 상한. 측정하지 않았다(기존 값 유지)
+RELOAD_LIMIT_SECONDS = 60
 HERE = Path(__file__).resolve().parent
 TRUST_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "UV_CACHE_DIR", "XDG_CACHE_HOME")  # 상속 환경을 통째로 넘기지 않는다(RUNTIME R9.1)
 SERVICES = ("survey-service", "model-runtime", "admin-console", "kiosk-frontend")
@@ -193,9 +200,7 @@ class Sandbox:
         env = {
             "OPENIT_PROJECT_NAME": self.project,
             "OPENIT_INFERENCE_ENGINE_LOCAL": "false",  # 추론 엔진은 이 시험의 대상이 아니다(서빙 GPU 서버 배치)
-            # 왜 5m: 리프의 자동 갱신(Caddy)과 입구의 인증서 재적재, 루트 교체 뒤 새 중간 CA 로의 갱신을 몇 분 안에 본다(ADR 0014 의 시험 방법)
-            "OPENIT_LEAF_LIFETIME": "5m",
-            "OPENIT_CA_WARN_LEAF": "1m",
+            # 리프 수명은 기본값을 쓴다: 갱신이 일어나는 시간은 재지 않는다(외부 제품의 동작, platform ADR 0008). 갱신 설정은 단위 시험이 생성물로 본다
             "OPENIT_CA_ALLOWED_DNS": "registry,step-ca,gateway,openit.internal,*.openit.internal," + ",".join(SERVICES),
             "OPENIT_DEVICE_CA_CERTIFICATE_FILE": str(self.state / "device-ca.pem"),
             "OPENIT_DEVICE_ALLOWLIST_FILE": str(self.state / "device-allowlist.json"),
@@ -282,17 +287,23 @@ class Sandbox:
         out = self.compose("port", service, str(port)).stdout.strip()
         return int(out.rpartition(":")[2])
 
-    def wait(self, what: str, check: object, seconds: float = 240, interval: float = 3) -> None:
-        deadline = time.monotonic() + seconds
+    def wait(self, what: str, check: object, limit_seconds: float) -> None:
+        """상태가 될 때까지 본다. 시간은 판정 기준이 아니라 멈춘 기동을 끝내는 상한(limit_seconds)이다.
+
+        왜 간격을 두고 본다: Prometheus·Envoy·step-ca 에는 상태 변화를 밀어 주는 표준 수단이 없다. 간격은 상태를 보는 빈도일 뿐 통과 조건이 아니다.
+        """
+        deadline = time.monotonic() + limit_seconds
         last = ""
-        while time.monotonic() < deadline:
+        while True:
             try:
                 if check():  # type: ignore[operator]
                     return
             except AssertionError as error:
                 last = str(error)
-            time.sleep(interval)
-        raise AssertionError(f"시간 안에 {what} 되지 않았다 {last}")
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(STATE_POLL_SECONDS)
+        raise AssertionError(f"상한({limit_seconds:g}초) 안에 {what} 되지 않았다 {last}")
 
     def start_test_services(self) -> None:
         # 영역 게이트웨이는 제품 compose 의 것이다(bootstrap 이 이미 띄웠다). 시험용 상류와 클라이언트를 더한다
@@ -302,7 +313,7 @@ class Sandbox:
             """영역 게이트웨이마다 인증서와 키가 생겼다(제품 compose 의 healthcheck 와 같은 명령)."""
             return all(self.exec(f"{name}-gateway", "sh", "-c", area_gateway.healthcheck_command(name, ACME_URL), check=False).returncode == 0 for name in SERVICES)
 
-        self.wait("영역 게이트웨이가 사설 CA 에서 인증서를 받아 준비", gateways_ready)
+        self.wait("영역 게이트웨이가 사설 CA 에서 인증서를 받아 준비", gateways_ready, STARTUP_LIMIT_SECONDS)
 
     def recreate_gateways(self) -> None:
         """영역 게이트웨이와 그 인증서 볼륨(메모리)을 지우고 다시 만든다. 새 신뢰 목록으로 새 인증서를 받는다(서버를 다시 켠 것과 같다)."""

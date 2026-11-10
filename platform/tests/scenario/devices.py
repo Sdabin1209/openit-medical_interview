@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptography import x509
@@ -28,21 +28,25 @@ class Issued:
         return cert_path, key_path
 
 
+# 왜 고정한 넓은 기간: 입구(Envoy)는 실제 시각으로 유효 기간을 본다. 시험이 지금 시각에 기대지 않게 한다
+NOT_BEFORE = datetime(2020, 1, 1, tzinfo=UTC)
+NOT_AFTER = datetime(2100, 1, 1, tzinfo=UTC)
+
+
 def _name(common_name: str) -> x509.Name:
     return x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
 
 
 def make_ca(common_name: str) -> Issued:
     key = ec.generate_private_key(ec.SECP256R1())
-    now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(_name(common_name))
         .issuer_name(_name(common_name))
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(minutes=5))
-        .not_valid_after(now + timedelta(days=3650))
+        .not_valid_before(NOT_BEFORE)
+        .not_valid_after(NOT_AFTER)
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .add_extension(
             x509.KeyUsage(
@@ -67,15 +71,14 @@ def make_ca(common_name: str) -> Issued:
 def make_device(ca: Issued, device_id: str, *, serial: int | None = None) -> Issued:
     """기기 인증서: 주체 CN 이 기기 ID 이고 클라이언트 인증 용도다(계약 DeviceId: 인증서 주체의 CN)."""
     key = ec.generate_private_key(ec.SECP256R1())
-    now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(_name(device_id))
         .issuer_name(ca.cert.subject)
         .public_key(key.public_key())
         .serial_number(serial if serial is not None else x509.random_serial_number() >> 64)  # 일련번호는 20옥텟 이하(RFC 5280). 시험은 짧게 둔다
-        .not_valid_before(now - timedelta(minutes=5))
-        .not_valid_after(now + timedelta(days=7))
+        .not_valid_before(NOT_BEFORE)
+        .not_valid_after(NOT_AFTER)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
         .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.key.public_key()), critical=False)

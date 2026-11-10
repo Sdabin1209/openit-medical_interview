@@ -53,9 +53,9 @@ uv run pytest -m sandbox tests/scenario   # 샌드박스 종단 시험(docker, 1
 
 시험 개수·결과를 이 문서에 복사하지 않는다(문서마다 시점이 어긋난다). 이 영역의 마지막 검증 결과는 아래 한 곳에 둔다.
 
-2026-11-11, 이 작업 트리(브랜치 candidate-v7-integration)에서 확인했다. 단위 시험·ruff check·ruff format --check·pyright 와 샌드박스 종단 시험(`uv run pytest -m sandbox tests/scenario`, 종료 코드 0)이 통과했다. 샌드박스는 실제 영역 게이트웨이(앞에 가짜 평문 상류)로 입구→게이트웨이→상류, XFCC 위조 거절, 클라이언트 인증서 없는 호출 거절, 평문 감시 포트, 발급자로 나가는 터널(디스커버리·토큰 엔드포인트·JWKS), 기계 토큰의 `MachineIdentityClaims`, `/oauth2/userinfo` 의 groups 를 본다.
+2026-11-11, 이 작업 트리(브랜치 candidate-v7-integration)에서 확인했다. 단위 시험·ruff check·ruff format --check·pyright 와 샌드박스 종단 시험(`uv run pytest -m sandbox tests/scenario`, 종료 코드 0)이 통과했다. (이 날짜 뒤에 시험 시간 정리로 샌드박스 시험 코드를 바꿨다. 바꾼 뒤의 샌드박스 실행 결과는 이 문서에 적지 않았다.) 샌드박스는 실제 영역 게이트웨이(앞에 가짜 평문 상류)로 입구→게이트웨이→상류, XFCC 위조 거절, 클라이언트 인증서 없는 호출 거절, 평문 감시 포트, 발급자로 나가는 터널(디스커버리·토큰 엔드포인트·JWKS), 기계 토큰의 `MachineIdentityClaims`, `/oauth2/userinfo` 의 groups 를 본다.
 
-확인하지 못한 것: 실제 영역 서비스 이미지와의 종단(E2E 의 몫), `acme-public` 과 `organization` 입구 인증서의 종단 간 시험, 경보 수신처로의 실제 전송, 루트 교체 2단계가 이전 루트 서명 인증서를 보고 거절하는 경우의 자동 시험(수명 5분 설치에서는 경주가 된다), `/area-certs` 를 서비스가 같은 uid 로 읽는 구성(deploy 의 compose 가 만든 뒤에 확인된다).
+확인하지 못한 것: 실제 영역 서비스 이미지와의 종단(E2E 의 몫), `acme-public` 과 `organization` 입구 인증서의 종단 간 시험, 경보 수신처로의 실제 전송, 인증서 갱신이 실제로 일어나는 것과 루트 교체 2단계의 종단 완료(실제 시간이 필요해 시험하지 않는다, [ADR 0008](docs/adr/0008-시험은-외부-제품의-갱신-시간을-재지-않는다.md)), `/area-certs` 를 서비스가 같은 uid 로 읽는 구성(deploy 의 compose 가 만든 뒤에 확인된다).
 
 ## 6. ADR
 
@@ -66,5 +66,6 @@ uv run pytest -m sandbox tests/scenario   # 샌드박스 종단 시험(docker, 1
 - [0005 감시: 경보 수신과 영역 지표](docs/adr/0005-감시-경보-수신과-영역-지표.md)
 - [0006 루트 CA 교체 명령](docs/adr/0006-루트-ca-교체-명령.md)
 - [0007 영역 게이트웨이](docs/adr/0007-영역-게이트웨이.md)
+- [0008 시험은 외부 제품의 갱신 시간을 재지 않는다](docs/adr/0008-시험은-외부-제품의-갱신-시간을-재지-않는다.md)
 
 리포 전체의 관련 ADR: [0008 기반 compose 서비스](../docs/adr/0008-기반-compose-서비스-구성.md), [0013 관리 노드와 부트스트랩](../docs/adr/0013-관리-노드와-부트스트랩-순서.md), [0014 인증서 수명과 자동 갱신](../docs/adr/0014-인증서-수명과-자동-갱신.md), [0015 신뢰 구성](../docs/adr/0015-신뢰-구성.md).

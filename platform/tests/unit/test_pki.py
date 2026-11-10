@@ -14,6 +14,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from openit_platform import pki as pki_module
 
+NOW = datetime(2026, 11, 10, 9, 0, 0, tzinfo=UTC)  # 시험의 고정 시각. 인증서를 만들 때와 검증할 때 같은 값을 쓴다
+
 
 def write(root: Path, name: str, text: str) -> Path:
     path = root / name
@@ -96,7 +98,7 @@ def _make(subject: str, issuer: tuple[x509.Name, ec.EllipticCurvePrivateKey] | N
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
     issuer_name, issuer_key = issuer or (name, key)
-    now = datetime.now(UTC)
+    now = NOW
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -127,14 +129,14 @@ def _make(subject: str, issuer: tuple[x509.Name, ec.EllipticCurvePrivateKey] | N
 def test_check_intermediate(pki: ModuleType) -> None:
     root, root_key = _make("Root", None, ca=True, days=3650)
     good, _ = _make("Inter", (root.subject, root_key), ca=True, days=1000)
-    assert pki.check_intermediate(good, root) == []
+    assert pki.check_intermediate(good, root, now=NOW) == []
     longer, _ = _make("Long", (root.subject, root_key), ca=True, days=4000)
-    assert any("루트보다 오래" in p for p in pki.check_intermediate(longer, root))
+    assert any("루트보다 오래" in p for p in pki.check_intermediate(longer, root, now=NOW))
     leaf, _ = _make("Leaf", (root.subject, root_key), ca=False, days=10)
-    assert any("CA 가 참이 아니다" in p for p in pki.check_intermediate(leaf, root))
+    assert any("CA 가 참이 아니다" in p for p in pki.check_intermediate(leaf, root, now=NOW))
     other_root, _ = _make("Other", None, ca=True, days=3650)
-    assert any("서명한 인증서가 아니다" in p for p in pki.check_intermediate(good, other_root))
-    assert any("유효 기간 밖" in p for p in pki.check_intermediate(good, root, now=datetime.now(UTC) + timedelta(days=2000)))
+    assert any("서명한 인증서가 아니다" in p for p in pki.check_intermediate(good, other_root, now=NOW))
+    assert any("유효 기간 밖" in p for p in pki.check_intermediate(good, root, now=NOW + timedelta(days=2000)))
 
 
 def test_bundle_allows_several_roots_without_duplicates(pki: ModuleType, tmp_path: Path) -> None:
@@ -176,7 +178,7 @@ def test_manual_certificate_alert_threshold_is_thirty_days(repo: Path) -> None:
 def test_verify_server_chain(pki: ModuleType) -> None:
     root_key = ec.generate_private_key(ec.SECP256R1())
     root_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Root")])
-    now = datetime.now(UTC)
+    now = NOW
     root = (
         x509.CertificateBuilder()
         .subject_name(root_name)
@@ -217,7 +219,7 @@ def test_verify_server_chain(pki: ModuleType) -> None:
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
         .sign(root_key, hashes.SHA256())
     )
-    assert pki.verify_server_chain([leaf], [root], ["gateway.example"]) == []
-    assert pki.verify_server_chain([leaf], [root], ["other.example"])  # 이름이 다르다
+    assert pki.verify_server_chain([leaf], [root], ["gateway.example"], now=NOW) == []
+    assert pki.verify_server_chain([leaf], [root], ["other.example"], now=NOW)  # 이름이 다르다
     stranger, _ = _make("Stranger", None, ca=True, days=3650)
-    assert pki.verify_server_chain([leaf], [stranger], ["gateway.example"])  # 신뢰하지 않는 루트
+    assert pki.verify_server_chain([leaf], [stranger], ["gateway.example"], now=NOW)  # 신뢰하지 않는 루트

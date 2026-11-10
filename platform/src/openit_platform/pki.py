@@ -61,6 +61,7 @@ def _split(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+MIN_LEAF_MINUTES = 5  # step-ca 의 minTLSCertDuration 기본 하한(5분). 측정값이 아니라 제품의 제약이다
 DURATION_RE = re.compile(r"^(\d+)([mh])$")
 
 
@@ -121,6 +122,9 @@ def ca_settings(env: dict[str, str]) -> CaSettings:
         raise ConfigError("OPENIT_CA_NAME 과 OPENIT_CA_DNS_NAMES 는 비울 수 없다")
     if not settings.allowed_dns and not settings.allowed_ips:
         raise ConfigError("OPENIT_CA_ALLOWED_DNS 와 OPENIT_CA_ALLOWED_IPS 가 모두 비면 CA 가 아무것도 발급하지 못한다")
+    # 왜: step-ca 는 provisioner 의 minTLSCertDuration(기본 하한 5분)보다 짧은 수명을 거부한다. 기동 뒤가 아니라 설정 단계에서 막는다
+    if settings.leaf_minutes < MIN_LEAF_MINUTES:
+        raise ConfigError(f"OPENIT_LEAF_LIFETIME 은 {fmt_minutes(MIN_LEAF_MINUTES)} 이상이어야 한다(step-ca 의 하한)")
     # 왜: 하위 인증서는 상위보다 오래 살 수 없다(RFC 5280 6.1.3 경로 검증). 어기면 중간 CA 가 만료되는 날 리프도 함께 죽는다
     if not settings.leaf_minutes < settings.intermediate_minutes < settings.root_minutes:
         raise ConfigError("수명은 리프 < 중간 CA < 루트 여야 한다")
@@ -172,8 +176,8 @@ def render_ca_json(settings: CaSettings) -> dict[str, Any]:
                     "type": "ACME",
                     "name": "acme",
                     "claims": {
-                        # 왜 min 5m: step-ca 의 기본 하한이다. 이보다 짧은 수명은 step-ca 가 거부한다
-                        "minTLSCertDuration": "5m",
+                        # 왜 min: step-ca 의 기본 하한(MIN_LEAF_MINUTES)이다. 이보다 짧은 수명은 step-ca 가 거부한다(설정 단계에서도 막는다)
+                        "minTLSCertDuration": fmt_minutes(MIN_LEAF_MINUTES),
                         # 왜 max = default: 리프 수명의 상한을 설정 값 하나로 둔다. ACME 요청에는 수명 칸이 없어 기본값이 곧 발급 수명이다
                         "maxTLSCertDuration": leaf,
                         "defaultTLSCertDuration": leaf,

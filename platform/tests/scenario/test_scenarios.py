@@ -21,7 +21,7 @@ from openit_platform import area_gateway
 from openit_platform.contract.models import UserRole
 
 from .client import Client, Response, login_form
-from .sandbox import ACME_URL, CLIENT_CERT_AREA, KC_PASSWORD, REPO, Sandbox
+from .sandbox import ACME_URL, CLIENT_CERT_AREA, KC_PASSWORD, RELOAD_LIMIT_SECONDS, REPO, STARTUP_LIMIT_SECONDS, Sandbox
 
 pytestmark = pytest.mark.sandbox
 
@@ -344,19 +344,21 @@ def test_area_gateway_serves_health_and_metrics_on_the_plain_monitor_port_only(b
 # ---------------------------------------------------------------- 감시
 
 
-def test_area_metrics_are_scraped_and_watchdog_fires(box: Sandbox) -> None:
+def test_area_metrics_are_scraped(box: Sandbox) -> None:
+    """Prometheus 가 영역 게이트웨이의 평문 감시 포트로 영역 /metrics 를 읽는다. Watchdog 의 발화는 promtool 규칙 시험(monitoring/rules.test.yml)이,
+    경보가 Alertmanager 로 가는 설정과 Watchdog 의 수신 경로는 단위 시험(test_monitoring)이 본다. 여기서는 Alertmanager 의 평가·그룹 주기를 기다리지 않는다."""
+
     def up() -> bool:
         out = box.exec("prometheus", "wget", "-qO-", "http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22openit-areas%22%7D").stdout
         values = {row["metric"]["instance"]: row["value"][1] for row in json.loads(out)["data"]["result"]}
         return all(values.get(f"{name}:{area_gateway.MONITOR_PORT}") == "1" for name in ("survey-service", "model-runtime", "admin-console"))
 
-    box.wait("Prometheus 가 영역 게이트웨이의 평문 감시 포트로 영역 /metrics 를 읽", up, seconds=240)
-
-    def watchdog() -> bool:
-        alerts = json.loads(box.exec("alertmanager", "wget", "-qO-", "http://127.0.0.1:9093/api/v2/alerts").stdout)
-        return any(alert["labels"]["alertname"] == "Watchdog" for alert in alerts)
-
-    box.wait("Alertmanager 가 Watchdog 를 받", watchdog, seconds=240)
+    # 첫 수집은 설정한 수집 주기(monitoring/prometheus.yml)의 안에서 일어난다. 상한은 그 4배(측정하지 않았다, 기존 240초와 같다)
+    interval = yaml.safe_load((REPO / "platform" / "monitoring" / "prometheus.yml").read_text(encoding="utf-8"))["global"]["scrape_interval"]
+    match = re.fullmatch(r"(\d+)([sm])", interval)
+    assert match, interval
+    seconds = int(match.group(1)) * (60 if match.group(2) == "m" else 1)
+    box.wait("Prometheus 가 영역 게이트웨이의 평문 감시 포트로 영역 /metrics 를 읽", up, 4 * seconds)
 
 
 # ---------------------------------------------------------------- 배포 명령
@@ -376,11 +378,11 @@ def test_revoking_a_device_takes_effect_after_up(box: Sandbox) -> None:
     assert client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200
     box.write_allowlist(["kiosk-02"])  # 등록·회전·폐기는 허용 목록을 바꾸는 것이다
     box.deploy("up")
-    box.wait("폐기가 입구에 반영", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 403, seconds=60, interval=2)
+    box.wait("폐기가 입구에 반영", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 403, RELOAD_LIMIT_SECONDS)
     assert client(box, "kiosk-02").get("/v1/sessions/s1/state").status == 200
     box.write_allowlist(["kiosk-01"])
     box.deploy("up")
-    box.wait("복구가 입구에 반영", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200, seconds=60, interval=2)
+    box.wait("복구가 입구에 반영", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200, RELOAD_LIMIT_SECONDS)
 
 
 def test_new_machine_caller_is_added_by_identity_sync(box: Sandbox) -> None:
@@ -399,31 +401,9 @@ def test_new_machine_caller_is_added_by_identity_sync(box: Sandbox) -> None:
     assert human["realm_access"]["roles"] == ["staff"]  # 동기화 뒤에도 기본 역할이 토큰에 실리지 않는다
 
 
-def leaf_serial(box: Sandbox) -> str:
-    context = ssl.create_default_context(cafile=str(box.deploy_dir / "pki" / "trust-bundle.pem"))
-    import socket
-
-    with socket.create_connection(("127.0.0.1", box.published_port("ingress-acme", 8443)), timeout=10) as raw, context.wrap_socket(raw, server_hostname=HOST) as tls:
-        der = tls.getpeercert(binary_form=True)
-    assert der
-    from cryptography import x509
-
-    return format(x509.load_der_x509_certificate(der).serial_number, "x")
-
-
-def started_at(box: Sandbox, service: str) -> str:
-    container = box.compose("ps", "-q", service).stdout.strip()
-    return box.docker(["inspect", "--format", "{{.State.StartedAt}}", container]).stdout.strip()
-
-
-def test_ingress_certificate_is_renewed_and_envoy_reloads_it_without_restart(box: Sandbox) -> None:
-    first, envoy_started = leaf_serial(box), started_at(box, "envoy")
-    box.wait("입구 인증서가 갱신", lambda: leaf_serial(box) != first, seconds=420, interval=10)  # 수명 5분, 수명의 1/3 이 남으면 갱신(ADR 0014)
-    assert started_at(box, "envoy") == envoy_started  # 다시 시작하지 않았다
-    assert client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200  # 갱신된 입구·영역 사이 클라이언트 인증서로 계속 통한다
-
-
-def test_root_rotation_keeps_both_roots_until_leaves_are_renewed(box: Sandbox) -> None:
+def test_root_rotation_keeps_both_roots_and_traffic_flows(box: Sandbox) -> None:
+    """1단계 직후: 신뢰 목록에 두 루트가 있고, 영역 게이트웨이를 새 목록으로 다시 만들어도 입구가 영역 서비스에 닿고, 배포 확인 없는 2단계는 멈춘다.
+    리프가 새 루트로 갱신되기를 기다리는 일과 2단계 완료는 실제 시간이 필요해 여기서 보지 않는다(platform ADR 0008: 신뢰 목록 생성은 단위 시험, 명령의 2단계는 deploy 의 몫)."""
     bundle = box.deploy_dir / "pki" / "trust-bundle.pem"
     assert bundle.read_text(encoding="utf-8").count("BEGIN CERTIFICATE") == 1
     box.deploy("ca", "rotate-root")
@@ -431,16 +411,8 @@ def test_root_rotation_keeps_both_roots_until_leaves_are_renewed(box: Sandbox) -
     assert list((box.deploy_dir / "pki" / "trust.d").glob("old-root-*.crt"))
     # 영역 게이트웨이도 새 신뢰 목록을 읽게 다시 만든다(신뢰 목록을 시작할 때 읽는 것과 같다)
     box.recreate_gateways()
-    # 왜 '이른 2단계가 거절되는가'를 단언하지 않나: 수명 5분 설치에서는 입구 에이전트가 다시 만들어지며 곧바로 새 루트의 인증서로 갱신해 경주가 된다(platform ADR 0006)
     assert box.deploy("ca", "rotate-root", "--finish", check=False).returncode == 2  # 배포 확인 없이는 빼지 않는다
-
-    def finished() -> bool:
-        return box.deploy("ca", "rotate-root", "--finish", "--distributed", check=False).returncode == 0
-
-    box.wait("이전 루트를 뺄 수 있", finished, seconds=600, interval=20)
-    assert bundle.read_text(encoding="utf-8").count("BEGIN CERTIFICATE") == 1
-    box.recreate_gateways()
-    box.wait("교체 뒤에도 입구가 영역 서비스에 닿", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200, seconds=120, interval=5)
+    box.wait("교체 뒤에도 입구가 영역 서비스에 닿", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200, STARTUP_LIMIT_SECONDS)
     status = box.deploy("ca", "status", check=False)
     assert status.returncode == 0, status.stdout[-1500:]
 

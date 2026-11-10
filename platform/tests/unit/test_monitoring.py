@@ -100,3 +100,13 @@ def test_generate_is_deterministic_and_writes_expected_files(repo: Path, tmp_pat
         "platform.env",
         "compose.platform.yaml",
     }
+
+
+def test_prometheus_sends_alerts_to_alertmanager_and_watchdog_has_its_own_route(repo: Path) -> None:
+    """Watchdog 가 Prometheus 에서 Alertmanager 로, 거기서 heartbeat 수신처로 가는 설정의 이음매. 발화 자체는 promtool 규칙 시험(monitoring/rules.test.yml)이 본다."""
+    prometheus = yaml.safe_load((repo / "platform" / "monitoring" / "prometheus.yml").read_text(encoding="utf-8"))
+    assert prometheus["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"] == ["alertmanager:9093"]
+    rules = yaml.safe_load((repo / "platform" / "monitoring" / "rules.yml").read_text(encoding="utf-8"))
+    assert any(rule.get("alert") == "Watchdog" for group in rules["groups"] for rule in group["rules"])
+    route = yaml.safe_load(monitoring.alertmanager_config(platform_settings(repo)))["route"]["routes"][0]
+    assert route["matchers"] == ['alertname="Watchdog"'] and route["receiver"] == monitoring.HEARTBEAT_RECEIVER
