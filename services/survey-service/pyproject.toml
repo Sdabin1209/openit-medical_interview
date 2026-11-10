@@ -2,7 +2,7 @@
 [project]
 name = "openit-survey_service"  # 왜: PyPA 이름 규칙상 밑줄로 시작할 수 없어 접두어를 붙인다
 version = "0.1.0"
-description = "survey-service 서비스 영역"
+description = "survey-service: 문진 세션과 턴, 시작 코드, 직원 알림, 결과(FHIR), 문항 세트, 실패 사례"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"  # 왜: 기반 이미지(python:3.12)와 같은 minor 로 고정해 개발·이미지 차이를 없앤다(ADR 0006)
 classifiers = ["Private :: Do Not Upload"]  # 왜: 내부 영역 패키지가 PyPI 에 올라가는 사고를 막는 PyPA 표준 분류

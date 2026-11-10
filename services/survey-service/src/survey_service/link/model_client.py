@@ -23,7 +23,7 @@ from survey_service.types import Limits, ModelCallError, ModelCallFailure
 
 # 왜 이 지표: 계약 RequiredPrometheusMetric(model_call_duration_seconds, 라벨 op). 호출 시간 히스토그램(초)
 MODEL_CALL_SECONDS = Histogram("model_call_duration_seconds", "model-runtime 호출 시간(초)", ["op"])
-# 왜 30초: 모델 적재 상태는 활성화 때만 바뀌므로 턴마다 읽지 않는다. 값은 측정하지 않은 선택이다(ADR 0003)
+# 왜 30초: 모델 적재 상태는 활성화 때만 바뀌므로 턴마다 읽지 않는다. 값은 측정하지 않은 선택이다(ADR 0012)
 STATUS_CACHE = timedelta(seconds=30)
 
 
