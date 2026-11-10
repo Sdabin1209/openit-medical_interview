@@ -1,0 +1,226 @@
+openapi: 3.1.0
+info:
+  title: openit v7 데이터셋(synthetic-data) API
+  version: 7.0.0
+  description: >-
+    게시된 데이터셋 버전과 파일 읽기, 데이터셋 담당의 최종 데이터 가져오기와 게시를 낸다.
+  contact: { name: head }
+servers:
+  - url: "https://synthetic-data"
+    description: "영역 사이 호출 주소. 영역 이름이 호스트 이름이다(TLS, 영역 게이트웨이 443)"
+tags:
+  - { name: datasets, description: "게시된 데이터셋 읽기" }
+  - { name: imports, description: "데이터셋 담당의 최종 데이터 가져오기" }
+  - { name: health, description: "건강 상태와 지표" }
+paths:
+  /v1/dataset-versions:
+    get:
+      operationId: listDatasetVersions
+      tags: [datasets]
+      summary: 데이터셋 버전 목록
+      description: 게시된 데이터셋 버전을 최근 것이 먼저 나오게 쪽으로 나누어 준다(F18, D100).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-reader] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 데이터셋 버전 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetVersionPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-versions/{dataset_version_id}:
+    parameters:
+      - { name: dataset_version_id, in: path, required: true, description: 읽을 데이터셋 버전, schema: { $ref: "../components.yaml#/components/schemas/DatasetVersionId" } }
+    get:
+      operationId: getDatasetVersion
+      tags: [datasets]
+      summary: 데이터셋 목록표 읽기
+      description: 지정한 데이터셋 버전의 목록표(학습·검증·평가셋 파일과 해시)를 준다. model-lab 이 학습과 평가를 하려고 읽어 간다(F18, D100, D49).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-reader] } ]
+      responses:
+        "200": { description: 데이터셋 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetManifest" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-versions/{dataset_version_id}/files/{artifact_id}:
+    parameters:
+      - { name: dataset_version_id, in: path, required: true, description: 데이터셋 버전, schema: { $ref: "../components.yaml#/components/schemas/DatasetVersionId" } }
+      - { name: artifact_id, in: path, required: true, description: 내려받을 데이터셋 파일, schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    get:
+      operationId: downloadDatasetFile
+      tags: [datasets]
+      summary: 데이터셋 파일 내려받기
+      description: 목록표가 가리키는 데이터셋 파일(한 줄이 DatasetRowA 또는 DatasetRowB 인 JSON Lines)을 내려준다. 받는 쪽은 목록표의 해시로 확인한다(F18, D77, D49).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-reader] } ]
+      responses:
+        "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-imports:
+    post:
+      operationId: createDatasetImport
+      tags: [imports]
+      summary: 데이터셋 가져오기 시작
+      description: 데이터셋 담당이 확정한 최종 학습·평가 데이터를 가져와 게시하겠다고 선언한다. 재생성하지 않는다. 응답이 올려야 할 파일을 알려 준다(F17, G02, D107, C25).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-publisher] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetImportRequest" } } }
+      responses:
+        "201": { description: 시작한 가져오기, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetImport" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-imports/{import_id}:
+    parameters:
+      - { name: import_id, in: path, required: true, description: 읽을 가져오기, schema: { $ref: "../components.yaml#/components/schemas/DatasetImportId" } }
+    get:
+      operationId: getDatasetImport
+      tags: [imports]
+      summary: 데이터셋 가져오기 상태 읽기
+      description: 가져오기의 상태와 아직 올라오지 않은 파일을 준다(F17).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-publisher] } ]
+      responses:
+        "200": { description: 가져오기 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetImport" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-imports/{import_id}/files/{artifact_id}:
+    parameters:
+      - { name: import_id, in: path, required: true, description: 파일이 속한 가져오기, schema: { $ref: "../components.yaml#/components/schemas/DatasetImportId" } }
+      - { name: artifact_id, in: path, required: true, description: 올리는 데이터셋 파일(선언한 식별자), schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    put:
+      operationId: uploadDatasetFile
+      tags: [imports]
+      summary: 데이터셋 파일 올리기
+      description: 선언한 데이터셋 파일을 올린다. 서버는 해시와 크기가 선언과 같은지 확인하고 다르면 400 으로 거절한다. 같은 파일을 다시 올려도 결과는 같다(F17, RFC 9110 9.3.4).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-publisher] } ]
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } }
+      responses:
+        "204": { description: 파일을 받았다 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/dataset-imports/{import_id}/completion:
+    parameters:
+      - { name: import_id, in: path, required: true, description: 마칠 가져오기, schema: { $ref: "../components.yaml#/components/schemas/DatasetImportId" } }
+    post:
+      operationId: completeDatasetImport
+      tags: [imports]
+      summary: 데이터셋 가져오기 마치기
+      description: 모든 파일이 올라온 뒤 서버가 각 행을 DatasetRowA 와 DatasetRowB 로 검증하고 통과하면 새 데이터셋 버전으로 게시한다. 검증에 실패하면 REJECTED 로 끝낸다. 이미 마친 가져오기는 같은 결과를 준다(F17, G02).
+      x-owner: synthetic-data
+      security: [ { machine_token: [dataset-publisher] } ]
+      responses:
+        "200": { description: 마친 가져오기, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/DatasetImport" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /healthz:
+    get:
+      operationId: syntheticDataHealthz
+      tags: [health]
+      summary: 살아 있음 확인
+      description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: synthetic-data
+      security: []
+      responses:
+        "200":
+          description: 살아 있다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /readyz:
+    get:
+      operationId: syntheticDataReadyz
+      tags: [health]
+      summary: 요청을 받을 준비 확인
+      description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: synthetic-data
+      security: []
+      responses:
+        "200":
+          description: 준비되었다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /metrics:
+    get:
+      operationId: syntheticDataMetrics
+      tags: [health]
+      summary: 지표 읽기
+      description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: synthetic-data
+      security: []
+      responses:
+        "200":
+          description: 지표
+          content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    device_mtls:
+      type: mutualTLS
+      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
+      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+    machine_token:
+      type: http
+      scheme: bearer
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 한 번에 받을 항목의 최대 개수
+      schema: { $ref: "../components.yaml#/components/schemas/PageLimit" }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 next_cursor. 없으면 첫 쪽
+      schema: { $ref: "../components.yaml#/components/schemas/PageCursor" }
+  headers:
+    RetryAfter:
+      description: 같은 요청을 다시 보내기 전에 기다릴 초
+      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
+  responses:
+    BadRequest:
+      description: 요청 본문이나 매개변수가 계약을 어겼다(RFC 9110 15.5.1)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unauthorized:
+      description: 인증이 없거나 틀렸다(RFC 9110 15.5.2)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Forbidden:
+      description: 인증은 됐으나 이 작업을 할 권한(역할)이 없다(RFC 9110 15.5.4)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    NotFound:
+      description: 가리킨 대상이 없다(RFC 9110 15.5.5)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Conflict:
+      description: 지금 상태와 충돌한다. reason 으로 사유를 가른다(RFC 9110 15.5.10)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unavailable:
+      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }

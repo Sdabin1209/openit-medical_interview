@@ -1,0 +1,392 @@
+openapi: 3.1.0
+info:
+  title: openit v7 문진 서비스(survey-service) API
+  version: 7.0.0
+  description: >-
+    문진 세션과 턴, 직원 알림과 개입, 시작 코드, 결과(의사 화면·병원 시스템 당겨 가기·FHIR)를 낸다. 값은 모두 ../components.yaml 의 정의를 참조한다.
+  contact: { name: head }
+servers:
+  - url: "https://survey-service"
+    description: "영역 사이 호출 주소. 영역 이름이 호스트 이름이다(TLS, 영역 게이트웨이 443)"
+tags:
+  - { name: questionnaires, description: 활성 문진표 }
+  - { name: start-codes, description: 직원이 발급하는 일회용 시작 코드 }
+  - { name: sessions, description: 키오스크가 진행하는 문진 세션과 턴 }
+  - { name: staff, description: 직원 알림과 개입 }
+  - { name: push, description: 웹 푸시 구독 }
+  - { name: results, description: 문진 결과(의사 화면과 병원 시스템의 당겨 가기) }
+  - { name: risk, description: 외부 위험 감지기의 신호 }
+  - { name: health, description: 건강 상태와 지표 }
+paths:
+  /v1/questionnaires:
+    get:
+      operationId: listActiveQuestionnaires
+      tags: [questionnaires]
+      summary: 활성 문진표 목록
+      description: 활성 릴리스에 들어 있는 문진표의 목록을 준다. 키오스크가 환자에게 선택을 받을 때와 직원이 시작 코드에 문진표를 묶을 때 쓴다(F30, U86).
+      x-owner: survey-service
+      security: [ { device_mtls: [] }, { oidc: [staff] } ]
+      responses:
+        "200": { description: 활성 문진표들, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveQuestionnaireList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/start-codes:
+    post:
+      operationId: issueStartCode
+      tags: [start-codes]
+      summary: 일회용 시작 코드 발급
+      description: 직원이 문진 대상자의 참조값으로 일회용 시작 코드(QR 이나 숫자)를 발급한다. 환자는 키오스크에서 이 코드로 세션을 시작한다. 병원 시스템은 같은 참조값으로 결과를 당겨 간다(C20, 사용자 결정 2026-11-10).
+      x-owner: survey-service
+      security: [ { oidc: [staff] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/StartCodeIssueRequest" } } }
+      responses:
+        "201": { description: 발급한 코드, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/StartCode" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions:
+    post:
+      operationId: startSession
+      tags: [sessions]
+      summary: 시작 코드로 세션 시작
+      description: 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(F29, D74). 코드가 발급된 적 없거나 만료되었거나 이미 쓰였으면 각각 START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED 사유의 오류로 답한다(409).
+      x-owner: survey-service
+      security: [ { device_mtls: [] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionStartRequest" } } }
+      responses:
+        "201": { description: 시작한 세션, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionStarted" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions/{session_id}/turns:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 턴을 보낼 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    post:
+      operationId: submitTurn
+      tags: [sessions]
+      summary: 환자 발화 한 턴 보내기
+      description: 환자의 발화를 보내고 다음 문장을 받는다. 같은 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다(F29, F30, D55, D75(1), D86).
+      x-owner: survey-service
+      security: [ { device_mtls: [] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/TurnRequest" } } }
+      responses:
+        "200": { description: 턴 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/TurnResponse" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions/{session_id}/end:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 끝낼 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    post:
+      operationId: endSession
+      tags: [sessions]
+      summary: 세션 끝내기
+      description: 환자가 문진을 끝낸다. 문진표가 끝까지 가지 않았으면 ENDED_PARTIAL 로 끝나고 부분 결과가 남는다. 이미 끝난 세션에 다시 보내도 같은 결과를 준다(F29).
+      x-owner: survey-service
+      security: [ { device_mtls: [] } ]
+      responses:
+        "200": { description: 끝난 세션, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionEnded" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions/{session_id}/state:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 확인할 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    get:
+      operationId: getSessionState
+      tags: [sessions]
+      summary: 세션 상태 확인
+      description: 키오스크가 2초마다 읽어 직원이 정지를 풀었는지 안다. 정지가 풀린 뒤에는 다음 발화 턴을 받기 전까지 resume_text 를 준다(F31, D66(6)).
+      x-owner: survey-service
+      security: [ { device_mtls: [] } ]
+      responses:
+        "200": { description: 세션 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionState" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions/{session_id}/staff-calls:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 직원을 부를 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    post:
+      operationId: requestStaffCall
+      tags: [sessions]
+      summary: 직원 다시 부르기
+      description: 직원 호출 알림이 닿지 않았을 때 키오스크가 직원을 다시 부른다. 세션은 멈추고 CALL_STAFF 알림이 새로 생긴다. 이미 열린 호출이 있으면 그 알림을 다시 알린다(F32, L23, D95).
+      x-owner: survey-service
+      security: [ { device_mtls: [] } ]
+      responses:
+        "202": { description: 직원 알림, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/StaffAlert" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/sessions/{session_id}/interventions:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 개입할 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    post:
+      operationId: decideIntervention
+      tags: [staff]
+      summary: 직원 개입 결정
+      description: 직원이 멈춘 세션의 알림을 확인하거나 정지를 푼다. 푼 직원의 ID 는 인증된 사용자에서 얻어 기록한다(F39, F40, D58(4)).
+      x-owner: survey-service
+      security: [ { oidc: [staff] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/InterventionDecision" } } }
+      responses:
+        "200": { description: 개입 뒤 세션 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionState" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/staff-alerts:
+    get:
+      operationId: listStaffAlerts
+      tags: [staff]
+      summary: 직원 알림 목록
+      description: 열려 있는 알림과 최근에 풀린 알림을 최근 것이 먼저 나오게 쪽으로 나누어 준다. 직원은 위험·직원 호출·되묻기 초과를, 의사는 결과 도착 알림을 본다(F38, F41).
+      x-owner: survey-service
+      security: [ { oidc: [staff, clinician] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 알림 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/StaffAlertPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/staff-alerts/stream:
+    get:
+      operationId: streamStaffAlerts
+      tags: [staff]
+      summary: 알림 스트림 구독
+      description: 알림이 생기거나 풀릴 때 서버가 밀어 주는 Server-Sent Events 스트림이다. 이벤트 이름은 alert, resolved, heartbeat, resync 이며 id 는 순번이다. 연결이 끊기면 Last-Event-ID 로 이어 받고, 놓친 것이 있으면 resync 를 받는다(F38, D66(4), D87).
+      x-owner: survey-service
+      security: [ { oidc: [staff, clinician] } ]
+      parameters:
+        - { name: Last-Event-ID, in: header, required: false, description: 마지막으로 받은 이벤트의 순번, schema: { $ref: "../components.yaml#/components/schemas/EventSequence" } }
+      responses:
+        "200": { description: 이벤트 스트림(각 이벤트의 data 는 StaffAlertEvent), content: { text/event-stream: { schema: { $ref: "../components.yaml#/components/schemas/StaffAlertEvent" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/push-config:
+    get:
+      operationId: getPushConfig
+      tags: [push]
+      summary: 웹 푸시 VAPID 공개키 읽기
+      description: 브라우저가 푸시를 구독할 때 쓰는 서버의 VAPID 공개키를 준다(F39, D66(7), RFC 8292).
+      x-owner: survey-service
+      security: [ { oidc: [staff, clinician] } ]
+      responses:
+        "200": { description: 공개키, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/PushConfig" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/push-subscriptions:
+    post:
+      operationId: registerPushSubscription
+      tags: [push]
+      summary: 웹 푸시 구독 등록
+      description: 직원이나 의사의 브라우저가 만든 웹 푸시 구독을 그 사람의 계정에 묶어 저장한다. 직원에게는 위험·직원 호출·되묻기 초과 알림이, 의사에게는 결과 도착 알림이 푸시로 간다. 전달은 표준 Web Push(RFC 8030, RFC 8291, RFC 8292)로 하며 내용은 WebPushPayload 다(F39, F41, C11, U92).
+      x-owner: survey-service
+      security: [ { oidc: [staff, clinician] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/PushSubscription" } } }
+      responses:
+        "201": { description: 저장한 구독, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/PushSubscriptionRegistered" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/results:
+    get:
+      operationId: listResults
+      tags: [results]
+      summary: 문진 결과 목록
+      description: 문진 결과를 최근 것이 먼저 나오게 쪽으로 나누어 준다. 의사는 목록을 보고 병원 시스템은 대상자 참조값으로 걸러 당겨 간다. 끝나지 않은 세션은 부분 결과로 상태와 함께 나온다. 밀어 보내기는 없다(F41, F44, C10, U83, D102).
+      x-owner: survey-service
+      security: [ { oidc: [clinician] }, { machine_token: [result-reader] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { name: subject_ref, in: query, required: false, description: 이 참조값의 대상자 결과만, schema: { $ref: "../components.yaml#/components/schemas/SubjectRef" } }
+        - { name: status, in: query, required: false, description: 이 상태의 세션 결과만, schema: { $ref: "../components.yaml#/components/schemas/SessionStatus" } }
+      responses:
+        "200": { description: 결과 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResultPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/results/{session_id}:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 결과를 볼 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    get:
+      operationId: getResult
+      tags: [results]
+      summary: 문진 결과 상세
+      description: 한 세션의 결과를 준다. 읽은 사람과 때를 접근 기록으로 남긴다(F41, F44, U83, U35).
+      x-owner: survey-service
+      security: [ { oidc: [clinician] }, { machine_token: [result-reader] } ]
+      responses:
+        "200": { description: 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SessionResult" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/results/{session_id}/fhir:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 결과를 FHIR 로 볼 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    get:
+      operationId: getResultFhir
+      tags: [results]
+      summary: 문진 결과를 FHIR QuestionnaireResponse 로 조회
+      description: 같은 결과를 HL7 FHIR R4 QuestionnaireResponse 로 낸다. 병원 시스템이 당겨 가는 표준 형식이며 리소스의 정의는 FHIR R4 사양을 참조한다(F44, C10, U83).
+      x-owner: survey-service
+      security: [ { oidc: [clinician] }, { machine_token: [result-reader] } ]
+      responses:
+        "200": { description: FHIR R4 QuestionnaireResponse, content: { application/fhir+json: { schema: { $ref: "../components.yaml#/components/schemas/FhirQuestionnaireResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/results/{session_id}/acknowledgements:
+    parameters:
+      - { name: session_id, in: path, required: true, description: 확인할 결과의 세션, schema: { $ref: "../components.yaml#/components/schemas/SessionId" } }
+    post:
+      operationId: acknowledgeResult
+      tags: [results]
+      summary: 결과 확인 표시
+      description: 의사가 결과를 봤다는 표시를 남긴다. 확인한 의사의 ID 는 인증된 사용자에서 얻는다. 같은 의사가 다시 보내도 처음 기록을 돌려준다(F42, U83).
+      x-owner: survey-service
+      security: [ { oidc: [clinician] } ]
+      responses:
+        "200": { description: 확인 기록, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResultAcknowledgement" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/risk-signals:
+    post:
+      operationId: receiveRiskSignal
+      tags: [risk]
+      summary: 위험 신호 받기
+      description: 외부 위험 감지기가 보낸 위험 신호를 받아 세션을 멈추고 직원 알림을 만든다. 위험 감지는 기본 꺼짐이어서 꺼져 있으면 403 으로 거절한다(F37, D85(2), L11).
+      x-owner: survey-service
+      security: [ { machine_token: [risk-detector] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RiskSignal" } } }
+      responses:
+        "202": { description: 만들어진 직원 알림, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/StaffAlert" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /healthz:
+    get:
+      operationId: surveyServiceHealthz
+      tags: [health]
+      summary: 살아 있음 확인
+      description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: survey-service
+      security: []
+      responses:
+        "200":
+          description: 살아 있다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /readyz:
+    get:
+      operationId: surveyServiceReadyz
+      tags: [health]
+      summary: 요청을 받을 준비 확인
+      description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: survey-service
+      security: []
+      responses:
+        "200":
+          description: 준비되었다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /metrics:
+    get:
+      operationId: surveyServiceMetrics
+      tags: [health]
+      summary: 지표 읽기
+      description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: survey-service
+      security: []
+      responses:
+        "200":
+          description: 지표
+          content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    device_mtls:
+      type: mutualTLS
+      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
+      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+    machine_token:
+      type: http
+      scheme: bearer
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 한 번에 받을 항목의 최대 개수
+      schema: { $ref: "../components.yaml#/components/schemas/PageLimit" }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 next_cursor. 없으면 첫 쪽
+      schema: { $ref: "../components.yaml#/components/schemas/PageCursor" }
+  headers:
+    RetryAfter:
+      description: 같은 요청을 다시 보내기 전에 기다릴 초
+      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
+  responses:
+    BadRequest:
+      description: 요청 본문이나 매개변수가 계약을 어겼다(RFC 9110 15.5.1)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unauthorized:
+      description: 인증이 없거나 틀렸다(RFC 9110 15.5.2)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Forbidden:
+      description: 인증은 됐으나 이 작업을 할 권한(역할)이 없다(RFC 9110 15.5.4)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    NotFound:
+      description: 가리킨 대상이 없다(RFC 9110 15.5.5)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Conflict:
+      description: 지금 상태와 충돌한다. reason 으로 사유를 가른다(RFC 9110 15.5.10)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unavailable:
+      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }

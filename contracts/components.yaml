@@ -22,7 +22,7 @@ components:
     ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), RFC 9110 4.1" }
     ProblemReason:
       type: string
-      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, STALE_REPORT, ALREADY_DECIDED, RELEASE_VERSION_MISMATCH, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, DEADLINE_EXCEEDED, QUESTION_STRUCTURE_MISMATCH, SAME_PERSON_APPROVAL, DUPLICATE_DELIVERY, PARSE_FAILED]
+      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, STALE_REPORT, ALREADY_DECIDED, RELEASE_VERSION_MISMATCH, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, DEADLINE_EXCEEDED, QUESTION_STRUCTURE_MISMATCH, SAME_PERSON_APPROVAL, DUPLICATE_DELIVERY]
       x-enum-descriptions:
         OUTPUT_INVALID: "LoRA-A 출력이 끝내 규칙을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다"
         TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(409, Retry-After 를 따른다)"
@@ -38,10 +38,9 @@ components:
         QUESTION_STRUCTURE_MISMATCH: "함께 운영하려는 문진표의 문항·칸 구조가 모델 패키지가 학습한 구조와 다르다"
         SAME_PERSON_APPROVAL: "2인 임상 승인이 켜진 설치에서 저자와 검수자가 같은 사람이다"
         DUPLICATE_DELIVERY: "이미 받은 전달을 다시 받았다(멱등으로 처리했음을 알린다)"
-        PARSE_FAILED: "올린 문항 자료를 읽지 못했다. 화면 입력으로 이어 갈 수 있다"
       description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값"
       x-owner: head
-      x-basis: "RFC 9457 3.2 (확장 멤버), D75(1) OUTPUT_INVALID, D86 TURN_IN_PROGRESS, D69 STALE_REPORT·ALREADY_DECIDED, D46 적재 거부, 사용자 결정 2026-11-10 시작 코드, D120 마감, U81 구조 대조, L13·D92 2인 승인, D16 멱등, D33 파싱 실패"
+      x-basis: "RFC 9457 3.2 (확장 멤버), D75(1) OUTPUT_INVALID, D86 TURN_IN_PROGRESS, D69 STALE_REPORT·ALREADY_DECIDED, D46 적재 거부, 사용자 결정 2026-11-10 시작 코드, D120 마감, U81 구조 대조, L13·D92 2인 승인, D16 멱등"
     JsonPointer: { type: string, format: json-pointer, maxLength: 1000, description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901, RFC 9457 4.1 (확장 멤버 예시), 길이 규칙 L3" }
     ProblemFieldError:
       type: object
@@ -146,10 +145,11 @@ components:
       x-basis: "U82(표준 IdP 와 역할), U83(clinician), D71(reviewer·release-approver), D124(author·clinical-reviewer), D105(2)(operator), D58(4)(staff)"
     MachineRole:
       type: string
-      enum: [result-reader, risk-detector, release-reader, model-serving, candidate-reader, decision-reader, question-reader, case-reader, signal-reader, trace-sender, rollback-requester, dataset-reader, dataset-publisher, model-publisher]
+      enum: [result-reader, risk-detector, inference-caller, release-reader, model-serving, candidate-reader, decision-reader, question-reader, case-reader, signal-reader, trace-sender, rollback-requester, dataset-reader, dataset-publisher, model-publisher]
       x-enum-descriptions:
         result-reader: "병원 시스템. 문진 결과와 FHIR 결과를 당겨 간다"
         risk-detector: "외부 위험 감지기. 위험 신호를 보낸다"
+        inference-caller: "survey-service. 추출과 응답 생성을 부르고 모델 적재 상태를 읽는다"
         release-reader: "활성 릴리스를 읽는 서비스(survey-service, ops-feedback)"
         model-serving: "추론 서버. 활성 릴리스의 모델 패키지를 스스로 읽는다"
         candidate-reader: "release-gate. 문항 세트와 모델 패키지 후보를 가져간다"
@@ -175,7 +175,7 @@ components:
       required: [client, roles, token_file]
       properties:
         client: { $ref: "#/components/schemas/MachineClientName", description: "호출자 이름" }
-        roles: { type: array, maxItems: 14, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들" }
+        roles: { type: array, maxItems: 15, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들" }
         token_file: { $ref: "#/components/schemas/SecretFilePath", description: "토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)" }
     MachineTokenTable:
       type: object

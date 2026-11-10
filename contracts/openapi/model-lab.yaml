@@ -1,0 +1,193 @@
+openapi: 3.1.0
+info:
+  title: openit v7 모델 개발·레지스트리(model-lab) API
+  version: 7.0.0
+  description: >-
+    후보 모델 패키지와 파일 읽기, 학습 서버의 학습 결과 게시를 낸다. 학습 서버로 가는 학습 실행 요청은 HTTP 가 아니라 TrainingRunRequest 로 정의한다.
+  contact: { name: head }
+servers:
+  - url: "https://model-lab"
+    description: "영역 사이 호출 주소. 영역 이름이 호스트 이름이다(TLS, 영역 게이트웨이 443)"
+tags:
+  - { name: model-packages, description: "후보 모델 패키지와 파일 읽기" }
+  - { name: training, description: "학습 서버의 학습 결과 게시" }
+  - { name: health, description: "건강 상태와 지표" }
+paths:
+  /v1/candidate-model-packages:
+    get:
+      operationId: listCandidateModelPackages
+      tags: [model-packages]
+      summary: 후보 모델 패키지 목록
+      description: 후보로 내놓은 모델 패키지의 요약을 쪽으로 나누어 준다. release-gate 의 후보 수집 잡이 가져간다. 모델 레지스트리는 model-lab 영역의 서버다(F07, D49, C06).
+      x-owner: model-lab
+      security: [ { machine_token: [candidate-reader] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 후보 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageCandidatePage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/model-packages/{model_package_id}:
+    parameters:
+      - { name: model_package_id, in: path, required: true, description: 읽을 모델 패키지, schema: { $ref: "../components.yaml#/components/schemas/ModelPackageId" } }
+    get:
+      operationId: getModelPackage
+      tags: [model-packages]
+      summary: 모델 패키지 목록표 읽기
+      description: 모델 패키지의 목록표(어댑터, 짝이 되는 시스템 프롬프트, 서빙 설정, 계보, 평가 보고서)를 준다. 평가 보고서는 model-lab 이 만들어 패키지와 함께 낸다(F07, C06, D75(4), D97).
+      x-owner: model-lab
+      security: [ { machine_token: [candidate-reader] } ]
+      responses:
+        "200": { description: 모델 패키지 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageManifest" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/model-packages/{model_package_id}/artifacts/{artifact_id}:
+    parameters:
+      - { name: model_package_id, in: path, required: true, description: 모델 패키지, schema: { $ref: "../components.yaml#/components/schemas/ModelPackageId" } }
+      - { name: artifact_id, in: path, required: true, description: 내려받을 파일, schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    get:
+      operationId: downloadModelPackageArtifact
+      tags: [model-packages]
+      summary: 모델 패키지의 파일 내려받기
+      description: 목록표가 가리키는 어댑터 가중치나 시스템 프롬프트를 내려준다. 받는 쪽은 목록표의 해시로 내용을 확인한다(F07, D49).
+      x-owner: model-lab
+      security: [ { machine_token: [candidate-reader] } ]
+      responses:
+        "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/training-run-results:
+    post:
+      operationId: publishTrainingRunResult
+      tags: [training]
+      summary: 학습 결과 게시
+      description: 학습 서버가 학습 결과(성공 여부, 어댑터 파일 참조, 실행 기록 참조)를 HTTPS 로 모델 레지스트리에 게시한다. 응답이 아직 올라오지 않은 파일을 알려 준다. 같은 학습 실행을 다시 게시해도 결과는 같다(F67, C16, D78, G06).
+      x-owner: model-lab
+      security: [ { machine_token: [model-publisher] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/TrainingRunResult" } } }
+      responses:
+        "201": { description: 게시를 받았다(올려야 할 파일 포함), content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/TrainingRunReceipt" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/training-run-results/{training_run_id}/artifacts/{artifact_id}:
+    parameters:
+      - { name: training_run_id, in: path, required: true, description: 파일이 속한 학습 실행, schema: { $ref: "../components.yaml#/components/schemas/TrainingRunId" } }
+      - { name: artifact_id, in: path, required: true, description: 올리는 파일(게시한 결과가 가리키는 식별자), schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    put:
+      operationId: uploadTrainingArtifact
+      tags: [training]
+      summary: 학습 결과 파일 올리기
+      description: 게시한 학습 결과가 가리키는 어댑터 파일이나 실행 기록 파일을 올린다. 서버는 내용의 해시가 게시한 값과 같은지 확인하고 다르면 400 으로 거절한다. 같은 파일을 다시 올려도 결과는 같다(F67, C16, RFC 9110 9.3.4).
+      x-owner: model-lab
+      security: [ { machine_token: [model-publisher] } ]
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } }
+      responses:
+        "204": { description: 파일을 받았다 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /healthz:
+    get:
+      operationId: modelLabHealthz
+      tags: [health]
+      summary: 살아 있음 확인
+      description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-lab
+      security: []
+      responses:
+        "200":
+          description: 살아 있다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /readyz:
+    get:
+      operationId: modelLabReadyz
+      tags: [health]
+      summary: 요청을 받을 준비 확인
+      description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-lab
+      security: []
+      responses:
+        "200":
+          description: 준비되었다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /metrics:
+    get:
+      operationId: modelLabMetrics
+      tags: [health]
+      summary: 지표 읽기
+      description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-lab
+      security: []
+      responses:
+        "200":
+          description: 지표
+          content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    device_mtls:
+      type: mutualTLS
+      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
+      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+    machine_token:
+      type: http
+      scheme: bearer
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 한 번에 받을 항목의 최대 개수
+      schema: { $ref: "../components.yaml#/components/schemas/PageLimit" }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 next_cursor. 없으면 첫 쪽
+      schema: { $ref: "../components.yaml#/components/schemas/PageCursor" }
+  headers:
+    RetryAfter:
+      description: 같은 요청을 다시 보내기 전에 기다릴 초
+      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
+  responses:
+    BadRequest:
+      description: 요청 본문이나 매개변수가 계약을 어겼다(RFC 9110 15.5.1)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unauthorized:
+      description: 인증이 없거나 틀렸다(RFC 9110 15.5.2)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Forbidden:
+      description: 인증은 됐으나 이 작업을 할 권한(역할)이 없다(RFC 9110 15.5.4)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    NotFound:
+      description: 가리킨 대상이 없다(RFC 9110 15.5.5)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Conflict:
+      description: 지금 상태와 충돌한다. reason 으로 사유를 가른다(RFC 9110 15.5.10)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unavailable:
+      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }

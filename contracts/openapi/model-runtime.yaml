@@ -1,0 +1,149 @@
+openapi: 3.1.0
+info:
+  title: openit v7 추론 서버(model-runtime) API
+  version: 7.0.0
+  description: >-
+    활성 릴리스를 스스로 읽어 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고 적재 상태를 낸다.
+  contact: { name: head }
+servers:
+  - url: "https://model-runtime"
+    description: "영역 사이 호출 주소. 영역 이름이 호스트 이름이다(TLS, 영역 게이트웨이 443)"
+tags:
+  - { name: inference, description: "LoRA-A 추출과 LoRA-B 응답 생성" }
+  - { name: model, description: "모델 적재 상태" }
+  - { name: health, description: "건강 상태와 지표" }
+paths:
+  /v1/extractions:
+    post:
+      operationId: extractAction
+      tags: [inference]
+      summary: LoRA-A 로 값과 행동 추출
+      description: 환자 발화와 문항 순서표와 칸 규격을 받아 LoRA-A 로 행동과 칸 값을 뽑는다. 출력은 규칙 보증(값 범위, targets 가 values 의 부분집합, 다음 문항이 순서표와 맞음)을 마친 값이며 받는 쪽은 다시 검증하지 않는다. 끝내 형식을 못 지키면 값을 지어내지 않고 503 OUTPUT_INVALID 로 낸다(F33, F34, D74, D75(1), D104(3), D115, D108).
+      x-owner: model-runtime
+      security: [ { machine_token: [inference-caller] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ExtractionRequest" } } }
+      responses:
+        "200": { description: 보증을 마친 추출 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActionExtraction" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/responses:
+    post:
+      operationId: generateResponse
+      tags: [inference]
+      summary: LoRA-B 로 응답 문장 만들기
+      description: 행동과 사유와 모은 값과 다음 자리를 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(F33, F34, D74, D77).
+      x-owner: model-runtime
+      security: [ { machine_token: [inference-caller] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseRequest" } } }
+      responses:
+        "200": { description: 응답 문장, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseResult" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/model-status:
+    get:
+      operationId: getModelStatus
+      tags: [model]
+      summary: 모델 적재 상태 읽기
+      description: 추론 서버가 지금 적재한 릴리스와 적재 상태를 준다. 적재는 추론 서버가 활성 릴리스를 스스로 읽어 일으키며 문진 서비스는 이 상태를 읽기만 한다(F35, C05, U45, D46).
+      x-owner: model-runtime
+      security: [ { machine_token: [inference-caller] } ]
+      responses:
+        "200": { description: 모델 상태, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelStatus" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /healthz:
+    get:
+      operationId: modelRuntimeHealthz
+      tags: [health]
+      summary: 살아 있음 확인
+      description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-runtime
+      security: []
+      responses:
+        "200":
+          description: 살아 있다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /readyz:
+    get:
+      operationId: modelRuntimeReadyz
+      tags: [health]
+      summary: 요청을 받을 준비 확인
+      description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-runtime
+      security: []
+      responses:
+        "200":
+          description: 준비되었다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /metrics:
+    get:
+      operationId: modelRuntimeMetrics
+      tags: [health]
+      summary: 지표 읽기
+      description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: model-runtime
+      security: []
+      responses:
+        "200":
+          description: 지표
+          content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    device_mtls:
+      type: mutualTLS
+      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
+      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+    machine_token:
+      type: http
+      scheme: bearer
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 한 번에 받을 항목의 최대 개수
+      schema: { $ref: "../components.yaml#/components/schemas/PageLimit" }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 next_cursor. 없으면 첫 쪽
+      schema: { $ref: "../components.yaml#/components/schemas/PageCursor" }
+  headers:
+    RetryAfter:
+      description: 같은 요청을 다시 보내기 전에 기다릴 초
+      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
+  responses:
+    BadRequest:
+      description: 요청 본문이나 매개변수가 계약을 어겼다(RFC 9110 15.5.1)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unauthorized:
+      description: 인증이 없거나 틀렸다(RFC 9110 15.5.2)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Forbidden:
+      description: 인증은 됐으나 이 작업을 할 권한(역할)이 없다(RFC 9110 15.5.4)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    NotFound:
+      description: 가리킨 대상이 없다(RFC 9110 15.5.5)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Conflict:
+      description: 지금 상태와 충돌한다. reason 으로 사유를 가른다(RFC 9110 15.5.10)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unavailable:
+      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }

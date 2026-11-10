@@ -1,0 +1,422 @@
+openapi: 3.1.0
+info:
+  title: openit v7 출시 게이트(release-gate) API
+  version: 7.0.0
+  description: >-
+    후보 읽기, 출고 제출과 사람 승인, 릴리스 활성화와 롤백, 활성 릴리스와 모델 패키지 읽기, 게이트 판정 읽기, 롤백 요청을 낸다.
+  contact: { name: head }
+servers:
+  - url: "https://release-gate"
+    description: "영역 사이 호출 주소. 영역 이름이 호스트 이름이다(TLS, 영역 게이트웨이 443)"
+tags:
+  - { name: releases, description: 릴리스 읽기와 활성화·롤백 }
+  - { name: candidates, description: 게이트가 가져온 후보 }
+  - { name: submissions, description: 출고 제출과 사람 승인 }
+  - { name: decisions, description: 게이트 판정 읽기 }
+  - { name: rollback-requests, description: 롤백 요청 }
+  - { name: health, description: 건강 상태와 지표 }
+paths:
+  /v1/releases/active:
+    get:
+      operationId: getActiveRelease
+      tags: [releases]
+      summary: 활성 릴리스 읽기
+      description: 지금 활성인 릴리스의 목록표와 활성화 기록을 준다. survey-service 는 새 세션부터 이 릴리스의 문항을 쓰고, 추론 서버는 시작할 때와 릴리스가 바뀔 때 스스로 읽어 모델을 적재하며, ops-feedback 잡도 읽는다(F11, F12, F13, C05, D46).
+      x-owner: release-gate
+      security: [ { machine_token: [release-reader, model-serving] }, { oidc: [operator, release-approver] } ]
+      responses:
+        "200": { description: 활성 릴리스, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveRelease" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases:
+    get:
+      operationId: listReleases
+      tags: [releases]
+      summary: 릴리스 목록
+      description: 만들어진 릴리스를 최근 것이 먼저 나오게 쪽으로 나누어 준다. 운영자가 활성화나 롤백 대상을 고를 때 쓴다(F10).
+      x-owner: release-gate
+      security: [ { oidc: [operator, release-approver] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 릴리스 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ReleasePage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases/{release_id}:
+    parameters:
+      - { name: release_id, in: path, required: true, description: 읽을 릴리스, schema: { $ref: "../components.yaml#/components/schemas/ReleaseId" } }
+    get:
+      operationId: getRelease
+      tags: [releases]
+      summary: 릴리스 목록표 읽기
+      description: 릴리스 하나의 목록표를 준다. 문항 세트는 내용 해시로, 모델 패키지는 식별자로 고정되어 있다(F11, D27).
+      x-owner: release-gate
+      security: [ { machine_token: [release-reader, model-serving] }, { oidc: [operator, release-approver] } ]
+      responses:
+        "200": { description: 릴리스 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ReleaseManifest" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases/{release_id}/question-sets/{question_set_version_id}:
+    parameters:
+      - { name: release_id, in: path, required: true, description: 릴리스, schema: { $ref: "../components.yaml#/components/schemas/ReleaseId" } }
+      - { name: question_set_version_id, in: path, required: true, description: 릴리스에 든 문항 세트 버전, schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersionId" } }
+    get:
+      operationId: getReleaseQuestionSet
+      tags: [releases]
+      summary: 릴리스에 든 문항 세트 읽기
+      description: 릴리스에 묶인 문항 세트 버전의 내용을 준다. survey-service 가 세트별로 읽어 적재한다. 릴리스가 규칙 세대나 서빙 구성의 버전이 설치본과 맞지 않으면 받는 쪽이 적재를 거부하고 이전 릴리스를 유지한다(F11, D46, U85).
+      x-owner: release-gate
+      security: [ { machine_token: [release-reader] } ]
+      responses:
+        "200": { description: 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases/{release_id}/model-package:
+    parameters:
+      - { name: release_id, in: path, required: true, description: 릴리스, schema: { $ref: "../components.yaml#/components/schemas/ReleaseId" } }
+    get:
+      operationId: getReleaseModelPackage
+      tags: [releases]
+      summary: 릴리스의 모델 패키지 목록표 읽기
+      description: 릴리스에 든 모델 패키지의 목록표(어댑터, 짝이 되는 시스템 프롬프트, 서빙 설정)를 준다. 추론 서버가 스스로 읽어 적재한다(F12, C05, D72, D75(4)).
+      x-owner: release-gate
+      security: [ { machine_token: [model-serving, release-reader] } ]
+      responses:
+        "200": { description: 모델 패키지 목록표, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ModelPackageManifest" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases/{release_id}/artifacts/{artifact_id}:
+    parameters:
+      - { name: release_id, in: path, required: true, description: 릴리스, schema: { $ref: "../components.yaml#/components/schemas/ReleaseId" } }
+      - { name: artifact_id, in: path, required: true, description: 내려받을 파일(어댑터 가중치 또는 시스템 프롬프트), schema: { $ref: "../components.yaml#/components/schemas/ArtifactId" } }
+    get:
+      operationId: downloadReleaseArtifact
+      tags: [releases]
+      summary: 릴리스의 파일 내려받기
+      description: 모델 패키지 목록표가 가리키는 파일을 내려준다. 받는 쪽은 목록표의 해시로 내용을 확인한다(F12, D49).
+      x-owner: release-gate
+      security: [ { machine_token: [model-serving] } ]
+      responses:
+        "200": { description: 파일 내용, content: { application/octet-stream: { schema: { $ref: "../components.yaml#/components/schemas/ArtifactContent" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/releases/{release_id}/activation:
+    parameters:
+      - { name: release_id, in: path, required: true, description: 활성화할 릴리스, schema: { $ref: "../components.yaml#/components/schemas/ReleaseId" } }
+    post:
+      operationId: activateRelease
+      tags: [releases]
+      summary: 릴리스 활성화
+      description: 운영자가 승인된 릴리스를 활성으로 바꾼다. 활성화한 사람은 개별 계정으로 기록된다. 이미 활성인 릴리스를 다시 활성화해도 결과는 같다(F10, D85(3), C07, U7).
+      x-owner: release-gate
+      security: [ { oidc: [operator] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActivationRequest" } } }
+      responses:
+        "200": { description: 활성 릴리스, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveRelease" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/rollbacks:
+    post:
+      operationId: rollbackRelease
+      tags: [releases]
+      summary: 이전 릴리스로 롤백
+      description: 운영자가 활성 릴리스를 이전에 활성이었던 릴리스로 되돌린다. 롤백 요청을 처리하는 것이면 그 요청이 EXECUTED 가 된다(F10, F14, D85(3), C07).
+      x-owner: release-gate
+      security: [ { oidc: [operator] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackCommand" } } }
+      responses:
+        "200": { description: 롤백 뒤 활성 릴리스, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ActiveRelease" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/candidates:
+    get:
+      operationId: listCandidates
+      tags: [candidates]
+      summary: 가져온 후보 목록
+      description: 게이트가 question-authoring 과 model-lab 에서 가져와 둔 후보를 쪽으로 나누어 준다. 승인자가 제출을 만들 때 고른다(F05, F06, F07).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { name: kind, in: query, required: false, description: 이 종류의 후보만, schema: { $ref: "../components.yaml#/components/schemas/CandidateKind" } }
+      responses:
+        "200": { description: 후보 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/CandidatePage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/submissions:
+    post:
+      operationId: createSubmission
+      tags: [submissions]
+      summary: 출고 제출
+      description: 승인자가 함께 운영할 문진표 버전 목록과 모델 패키지를 묶어 제출한다. 게이트가 기술 호환(릴리스 구성의 버전, 문항·칸 구조와 모델의 일치, 평가 보고서 형식, 저자 확인)을 검사해 어긋나면 반려하고 통과하면 사람의 승인을 기다리는 상태에서 멈춘다. 구조가 다른 문진표 세트는 QUESTION_STRUCTURE_MISMATCH 로 거절한다(F06, U81, U85, D53).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SubmissionRequest" } } }
+      responses:
+        "201": { description: 접수한 제출과 자동 검사 결과, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/Submission" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    get:
+      operationId: listSubmissions
+      tags: [submissions]
+      summary: 출고 제출 목록
+      description: 제출을 최근 것이 먼저 나오게 쪽으로 나누어 준다. 승인 화면이 승인 대기 목록을 보여 줄 때 쓴다(F47, D68).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver, operator] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { name: status, in: query, required: false, description: 이 상태의 제출만, schema: { $ref: "../components.yaml#/components/schemas/SubmissionStatus" } }
+      responses:
+        "200": { description: 제출 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/SubmissionPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/submissions/{submission_id}:
+    parameters:
+      - { name: submission_id, in: path, required: true, description: 읽을 제출, schema: { $ref: "../components.yaml#/components/schemas/SubmissionId" } }
+    get:
+      operationId: getSubmission
+      tags: [submissions]
+      summary: 출고 제출 읽기
+      description: 제출 하나의 상태와 검사 결과를 준다(F47, D68).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver, operator] } ]
+      responses:
+        "200": { description: 제출, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/Submission" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/submissions/{submission_id}/review-report:
+    parameters:
+      - { name: submission_id, in: path, required: true, description: 보고서를 볼 제출, schema: { $ref: "../components.yaml#/components/schemas/SubmissionId" } }
+    get:
+      operationId: getReviewReport
+      tags: [submissions]
+      summary: 검토 보고서 읽기
+      description: 후보와 현재 활성 릴리스를 같은 지표끼리 맞댄 보고서를 준다. 보고서 해시는 서버만 계산하고 승인 요청이 그대로 돌려보낸다(F08, F47, D53, D69).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver, operator] } ]
+      responses:
+        "200": { description: 검토 보고서, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ReviewReport" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/submissions/{submission_id}/decisions:
+    parameters:
+      - { name: submission_id, in: path, required: true, description: 결정할 제출, schema: { $ref: "../components.yaml#/components/schemas/SubmissionId" } }
+    post:
+      operationId: decideSubmission
+      tags: [submissions]
+      summary: 출고 승인 또는 반려
+      description: 승인자가 검토 보고서를 본 뒤 승인하거나 사유와 함께 반려한다. 승인자는 개인 계정으로 식별하며 본문이 아니라 인증된 사용자가 우선한다. 보고서 해시가 지금과 다르면 STALE_REPORT, 이미 사람이 결정했으면 ALREADY_DECIDED 로 409 를 낸다. 승인하면 릴리스가 만들어진다(F09, F47, F49, D53, D69, D88 U7).
+      x-owner: release-gate
+      security: [ { oidc: [release-approver] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ApprovalRequest" } } }
+      responses:
+        "201": { description: 판정 기록, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/GateDecision" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/submissions/{submission_id}/redecisions:
+    parameters:
+      - { name: submission_id, in: path, required: true, description: 다시 판정할 제출, schema: { $ref: "../components.yaml#/components/schemas/SubmissionId" } }
+    post:
+      operationId: redecideSubmission
+      tags: [submissions]
+      summary: 자동 검사 재판정
+      description: 정책 버전이 바뀐 뒤 운영자가 같은 제출에 새 판정을 더한다. 사람이 이미 결정한 제출은 다시 판정하지 않는다(ALREADY_DECIDED)(F09, D105(2)).
+      x-owner: release-gate
+      security: [ { oidc: [operator] } ]
+      responses:
+        "201": { description: 새 판정 기록, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/GateDecision" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/gate-decisions:
+    get:
+      operationId: listGateDecisions
+      tags: [decisions]
+      summary: 게이트 판정 목록
+      description: 판정을 쪽으로 나누어 준다. question-authoring 과 model-lab 은 자기 산출물(문항 세트 버전이나 모델 패키지)이 통과했는지 subject_id 로 걸러 읽는다(C17, D03, D53).
+      x-owner: release-gate
+      security: [ { machine_token: [decision-reader] }, { oidc: [release-approver, operator] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { name: subject_id, in: query, required: false, description: 이 문항 세트 버전이나 모델 패키지가 든 제출의 판정만, schema: { $ref: "../components.yaml#/components/schemas/CandidateSubjectId" } }
+      responses:
+        "200": { description: 판정 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/GateDecisionPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/rollback-requests:
+    post:
+      operationId: createRollbackRequest
+      tags: [rollback-requests]
+      summary: 롤백 요청
+      description: ops-feedback 이 사람이 CONFIRMED 로 검토한 사례를 근거로 롤백을 요청한다. 자동 제출은 기본으로 끄고, 요청은 사람의 결정을 기다릴 뿐 활성 릴리스를 바꾸지 않는다(F14, L07, C21, D88 U11).
+      x-owner: release-gate
+      security: [ { machine_token: [rollback-requester] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackRequestCreate" } } }
+      responses:
+        "201": { description: 접수한 요청, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackRequest" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    get:
+      operationId: listRollbackRequests
+      tags: [rollback-requests]
+      summary: 롤백 요청 목록
+      description: 접수된 롤백 요청을 쪽으로 나누어 준다. 운영자가 보고 롤백을 결정한다(F10, F14).
+      x-owner: release-gate
+      security: [ { oidc: [operator, release-approver] } ]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: 요청 한 쪽, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/RollbackRequestPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /healthz:
+    get:
+      operationId: releaseGateHealthz
+      tags: [health]
+      summary: 살아 있음 확인
+      description: 프로세스가 살아 있는지만 본다. 의존 서비스는 보지 않는다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: release-gate
+      security: []
+      responses:
+        "200":
+          description: 살아 있다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /readyz:
+    get:
+      operationId: releaseGateReadyz
+      tags: [health]
+      summary: 요청을 받을 준비 확인
+      description: 데이터베이스와 이웃 같은 의존이 준비되었는지 본다. 준비되지 않았으면 503 으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: release-gate
+      security: []
+      responses:
+        "200":
+          description: 준비되었다
+          content: { application/health+json: { schema: { $ref: "../components.yaml#/components/schemas/HealthReport" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /metrics:
+    get:
+      operationId: releaseGateMetrics
+      tags: [health]
+      summary: 지표 읽기
+      description: Prometheus 가 주기적으로 읽는 지표를 텍스트 노출 형식으로 낸다. 영역 안에서만 닿고 공개 입구로 내보내지 않는다(D129).
+      x-owner: release-gate
+      security: []
+      responses:
+        "200":
+          description: 지표
+          content: { text/plain: { schema: { $ref: "../components.yaml#/components/schemas/PrometheusExposition" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    device_mtls:
+      type: mutualTLS
+      description: 키오스크 기기 인증서(mTLS). 공개 입구가 조직 PKI 의 CA 와 허용 목록으로 검증하고, 서비스는 확인된 기기 ID(인증서 주체 CN)를 믿는다(D136, D113).
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://platform/realms/openit/.well-known/openid-configuration"
+      description: 사람은 OIDC(Keycloak)로 로그인한다. 공개 입구가 접근 토큰을 검증해 넘기고 서비스는 UserIdentityClaims 의 역할(UserRole)로 권한을 판단한다. 요구 값은 필요한 역할 이름이다(U82, D127).
+    machine_token:
+      type: http
+      scheme: bearer
+      description: 영역 사이 호출은 bearer 기계 토큰이다. 받는 쪽이 MachineTokenTable 로 호출자와 권한(MachineRole)을 가른다. 요구 값은 필요한 권한 이름이다(D122, D84).
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 한 번에 받을 항목의 최대 개수
+      schema: { $ref: "../components.yaml#/components/schemas/PageLimit" }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 이전 응답의 next_cursor. 없으면 첫 쪽
+      schema: { $ref: "../components.yaml#/components/schemas/PageCursor" }
+  headers:
+    RetryAfter:
+      description: 같은 요청을 다시 보내기 전에 기다릴 초
+      schema: { $ref: "../components.yaml#/components/schemas/RetryAfterSeconds" }
+  responses:
+    BadRequest:
+      description: 요청 본문이나 매개변수가 계약을 어겼다(RFC 9110 15.5.1)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unauthorized:
+      description: 인증이 없거나 틀렸다(RFC 9110 15.5.2)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Forbidden:
+      description: 인증은 됐으나 이 작업을 할 권한(역할)이 없다(RFC 9110 15.5.4)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    NotFound:
+      description: 가리킨 대상이 없다(RFC 9110 15.5.5)
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Conflict:
+      description: 지금 상태와 충돌한다. reason 으로 사유를 가른다(RFC 9110 15.5.10)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
+    Unavailable:
+      description: 지금은 처리할 수 없다. 변경은 되돌렸고 Retry-After 뒤에 다시 보낼 수 있다(RFC 9110 15.6.4)
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      content: { application/problem+json: { schema: { $ref: "../components.yaml#/components/schemas/ProblemDetails" } } }
