@@ -29,6 +29,8 @@ LABEL org.opencontainers.image.revision="${REVISION}" \
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /app/.venv /app/.venv
+# 왜: 허용형 라이선스는 이미지에 저작권 표시와 라이선스 전문을 함께 주라고 요구한다. 잠금 파일에서 생성한 고지를 넣는다(ADR 0018)
+COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER 10001:10001
 EXPOSE 8080

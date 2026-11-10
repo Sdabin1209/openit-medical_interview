@@ -20,6 +20,7 @@ uv run lint-imports      # 경계 점검
 uv run pyright           # 타입 검사(strict)
 uv run ruff check        # 린트
 deploy/deploy build __AREA__   # 이미지 빌드
+uv run --project tools/checks openit-notices generate services/__AREA__   # 의존을 바꾼 뒤 THIRD_PARTY_NOTICES 를 잠금 파일에서 다시 만든다(리포 루트에서, ADR 0018)
 tools/smoke service __AREA__           # 이미지 스모크(/healthz, /readyz)
 ```
 

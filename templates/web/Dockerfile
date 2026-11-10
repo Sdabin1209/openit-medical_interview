@@ -30,6 +30,9 @@ USER 0:0
 RUN apk upgrade --no-cache
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/dist /usr/share/nginx/html
+# 왜: 번들된 JavaScript 는 브라우저로 배포되므로 고지를 이미지 문서 폴더와 서버(/THIRD_PARTY_NOTICES.txt) 두 곳에 둔다(ADR 0018)
+COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
+COPY THIRD_PARTY_NOTICES /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt
 # 이 기반 이미지의 기본 사용자는 비root(nginx, uid 101)다. 명시해 두면 기본값이 바뀌어도 root 로 돌지 않는다.
 USER 101:101
 EXPOSE 8080

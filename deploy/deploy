@@ -270,6 +270,19 @@ def trivy_image_scan(names: list[str]) -> None:
         trivy_or_fail(f"trivy image {local_image(name)}", result)
 
 
+def notices_scan(names: list[str], targets: dict[str, str]) -> None:
+    """빌드 뒤: 이미지 안의 THIRD_PARTY_NOTICES 가 잠금 파일에서 만든 것과 같은지 본다(ADR 0018). 어긋나면 lock 에 digest 를 쓰지 않는다."""
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}  # 왜: deploy 자신의 uv 스크립트 환경이 tools/checks 의 uv run 에 섞여 경고가 나는 것을 막는다
+    for name in names:
+        result = subprocess.run(  # noqa: S603, S607
+            ["uv", "run", "--project", str(ROOT / "tools" / "checks"), "--frozen", "openit-notices", "--root", str(ROOT),
+             "image", str(ROOT / area_folder(name, targets[name])), "--image", f"{local_image(name)}:local"],
+            cwd=ROOT, env=env, text=True, check=False,
+        )  # fmt: skip
+        if result.returncode != 0:
+            fail(f"{name}: 이미지의 제3자 고지 점검 실패(rc={result.returncode})")
+
+
 @app.command()
 def build(
     service: Annotated[str | None, typer.Argument(help="빌드할 대상(없으면 전부)")] = None,
@@ -303,6 +316,7 @@ def build(
     if check:
         typer.echo("Dockerfile 검사 통과")
         return
+    notices_scan(names, targets)  # 왜 lock 을 쓰기 전: 고지가 없거나 잠금 파일과 다른 이미지의 digest 를 기록하지 않는다
     trivy_image_scan(names)  # 왜 lock 을 쓰기 전: 검사를 통과하지 못한 이미지의 digest 를 기록하지 않는다
     built = json.loads(meta.read_text(encoding="utf-8"))
     lock = read_lock()

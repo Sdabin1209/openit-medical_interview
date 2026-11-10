@@ -27,6 +27,7 @@ npx tsc --noEmit       # 타입 검사
 npm test               # Vitest(단위·계약·경계)
 npm run test:e2e       # Playwright(브라우저, 처음에는 `npx playwright install chromium`)
 deploy/deploy build web-__PKG__   # 이미지 빌드
+uv run --project tools/checks openit-notices generate web/__AREA__   # 의존을 바꾼 뒤 THIRD_PARTY_NOTICES 를 잠금 파일에서 다시 만든다(리포 루트에서, ADR 0018)
 tools/smoke web __AREA__              # 이미지 스모크(/healthz, /readyz)
 ```
 

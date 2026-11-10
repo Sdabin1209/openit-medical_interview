@@ -2,7 +2,7 @@
 [project]
 name = "openit-checks"
 version = "0.1.0"
-description = "openit 모노레포 공통 점검: 라이선스, docker 설정 격리, 이미지 고정, bake 대상, 영역 경계"
+description = "openit 모노레포 공통 점검: 라이선스, 제3자 고지, docker 설정 격리, 이미지 고정, bake 대상, 영역 경계"
 requires-python = ">=3.12,<3.13"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 openit-check = "openit_checks.cli:main"
+openit-notices = "openit_checks.notices_cli:main"
 
 [dependency-groups]
 dev = [
