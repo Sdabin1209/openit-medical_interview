@@ -1,0 +1,32 @@
+/* 고령자 키오스크 기본 스타일. 글자는 본문 1.5rem 이상, 누르는 곳은 높이 4.5rem 이상, 글자 대비는 WCAG 2.1 AAA(7:1) 이상으로 잡았다(ADR 0004) */
+:root {
+  --text: #111827;
+  --muted: #374151;
+  --surface: #ffffff;
+  --bg: #f3f4f6;
+  --border: #4b5563;
+  --accent: #1d4ed8;
+  --accent-soft: #dbeafe;
+  --danger: #991b1b;
+  --danger-bg: #fee2e2;
+  font-size: 24px;
+  line-height: 1.5;
+  color: var(--text);
+}
+body { margin: 0; background: var(--bg); }
+#root { min-height: 100vh; display: flex; }
+.kiosk-shell { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; gap: 1.5rem; }
+h1 { font-size: 2.25rem; margin: 0; text-align: center; }
+button { font: inherit; }
+button:focus-visible, textarea:focus-visible { outline: 4px solid #f59e0b; outline-offset: 3px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.big-button {
+  min-height: 5rem; padding: 0.75rem 2rem; font-size: 1.75rem; font-weight: 700; cursor: pointer;
+  border: 3px solid var(--accent); border-radius: 0.75rem; background: var(--surface); color: var(--accent);
+}
+.big-button.primary { background: var(--accent); color: #fff; min-width: 20rem; }
+.secondary-button {
+  min-height: 4.5rem; padding: 0.5rem 1.5rem; font-size: 1.5rem; cursor: pointer;
+  border: 3px solid var(--border); border-radius: 0.75rem; background: var(--surface); color: var(--text);
+}
+.error { margin: 0; padding: 0.75rem 1.25rem; border-radius: 0.5rem; background: var(--danger-bg); color: var(--danger); font-weight: 700; }
