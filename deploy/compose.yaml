@@ -1,6 +1,21 @@
-# 영역과 무관한 기반 서비스(ADR 0004). 영역 서비스는 계약이 정해진 뒤 더한다.
+# 기반 서비스(ADR 0004, 0008)와 영역 서비스(ADR 0023). 영역 이미지의 이름은 ./deploy 가 images.lock 에서 만든 generated/images.env 의 digest 참조다.
+# 영역 이미지의 진입점·HEALTHCHECK·USER 는 이미지가 가진다(command·entrypoint·healthcheck·user 를 쓰지 않는다). 기반 서비스(공식 이미지)만 쓴다.
 # 규칙: 이미지는 digest 고정, 비밀은 compose secrets(파일), 고정 호스트 포트 없음, 가능하면 읽기 전용 루트.
 name: openit
+
+x-area-gateway: &area-gateway
+  # 영역 게이트웨이(platform ADR 0007, platform/caddy/area-gateway.md): 서비스 영역마다 하나. 서비스 이름으로 사설 CA 에서 인증서를 받아 TLS(mTLS)를 끝내고 영역 안 서비스에 평문으로 넘긴다.
+  image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+  restart: unless-stopped
+  read_only: true
+  user: "10001:10001"
+  # 왜 NET_BIND_SERVICE: ACME http-01 검증은 서비스 이름의 80 번이다. TLS(OPENIT_SERVICE_PORT)와 감시(9100) 포트는 1024 이상이라 권한이 필요 없다
+  cap_drop: [ALL]
+  cap_add: [NET_BIND_SERVICE]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /data:uid=10001,gid=10001,mode=0700
+    - /config:uid=10001,gid=10001,mode=0700
 
 services:
   postgres:
@@ -44,7 +59,13 @@ services:
       - ingress-certs:/ingress-certs
     ports:
       - "${OPENIT_BIND_ADDRESS}::${OPENIT_LISTEN_PORT}" # 입구(envoy)의 포트. 호스트 포트는 Docker 가 배정한다(고정 포트 없음)
-    networks: [edge, backend] # 입구가 가질 이름은 generated/compose.platform.yaml(./deploy 가 만든다)이 더한다
+    # 입구가 가질 이름은 generated/compose.platform.yaml(./deploy 가 만든다)이 더한다.
+    # 왜 영역 네트워크에 gateway 별칭: 나가는 호출(OPENIT_EGRESS_PROXY)은 입구의 CONNECT 터널을 지난다(D128). 서비스는 자기 영역 네트워크에만 있어 거기서 터널에 닿는다
+    networks:
+      edge: {}
+      backend: {}
+      survey-service-area: { aliases: [gateway] }
+      model-runtime-area: { aliases: [gateway] }
     healthcheck:
       # 왜 파일 확인: 인증서를 받았는지 본다. 인증서 검증을 끄고 HTTPS 를 두드리지 않는다(검증은 `./deploy ca status` 와 감시가 신뢰 목록으로 한다)
       test: ["CMD-SHELL", "test -s ${OPENIT_AGENT_CERT_FILE} && test -s ${OPENIT_GATEWAY_CERT_FILE}"]
@@ -135,7 +156,7 @@ services:
     volumes:
       - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
     command:
-      - --provider=keycloak-oidc
+      - --provider=oidc # 왜: keycloak-oidc 제공자는 groups 에 role: 접두어 항목을 더한다. oidc 제공자는 groups 클레임(Keycloak 매퍼가 내는 realm 역할)만 담는다(platform ADR 0004)
       - --oidc-issuer-url=${OPENIT_OIDC_ISSUER_URL}
       - --provider-ca-file=/etc/openit/trust-list.pem # 신뢰 목록의 루트로 발급자(입구)의 인증서를 검증한다(검증을 끄지 않는다)
       - --client-id=oauth2-proxy
@@ -334,10 +355,253 @@ services:
       timeout: 3s
       retries: 10
 
+  # ---- survey-service(영역 서비스, ADR 0023). DB 는 영역이 가진다(공유 DB 없음, D126). 영역 네트워크에는 게이트웨이와 DB 만 있다 ----
+  survey-db:
+    image: postgres:16.10-bookworm@sha256:38471f330eb885e04de130b768d6db4e10469e2311879c7e5c699f6d2d8a1c74
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /run/postgresql]
+    environment:
+      POSTGRES_USER: survey
+      POSTGRES_DB: survey
+      POSTGRES_PASSWORD_FILE: /run/secrets/survey_db_password
+    secrets: [survey_db_password]
+    volumes:
+      - survey-db-data:/var/lib/postgresql/data
+    networks: [survey-service-area]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username survey --dbname survey"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  survey-service:
+    image: ${OPENIT_IMAGE_SURVEY_SERVICE}
+    pull_policy: never # 왜: digest 로 이미 엔진에 있는 이미지다(./deploy build 또는 pull 이 만든다). 없으면 up 이 먼저 막는다
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    depends_on:
+      survey-db: { condition: service_healthy }
+      survey-service-gateway: { condition: service_healthy }
+    environment:
+      OPENIT_LOG_LEVEL: INFO
+      OPENIT_LISTEN_PORT: "8080"
+      OPENIT_OIDC_ISSUER_URL: ${OPENIT_OIDC_ISSUER_URL}
+      OPENIT_ROOT_CERTIFICATE_FILE: /etc/openit/trust-list.pem
+      OPENIT_OIDC_AUDIENCE: survey-service
+      OPENIT_EGRESS_PROXY: ${OPENIT_EGRESS_PROXY_SURVEY_SERVICE}
+      OPENIT_TLS_CERTIFICATE_FILE: ${OPENIT_AREA_CRT_SURVEY_SERVICE}
+      OPENIT_TLS_PRIVATE_KEY_FILE: ${OPENIT_AREA_KEY_SURVEY_SERVICE}
+      OPENIT_DATABASE_URL: postgresql://survey@survey-db:5432/survey
+      OPENIT_DATABASE_PASSWORD_FILE: /run/secrets/survey_db_password
+      OPENIT_MODEL_RUNTIME_URL: https://model-runtime:${OPENIT_SERVICE_PORT}
+      OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE: /run/machine-clients/survey-service
+      OPENIT_MACHINE_TOKENS_FILE: /etc/openit/machine-callers.json
+      OPENIT_VAPID_PRIVATE_KEY_FILE: /run/secrets/vapid_private_key
+      OPENIT_VAPID_SUBJECT: ${OPENIT_VAPID_SUBJECT}
+    secrets: [survey_db_password, vapid_private_key]
+    volumes:
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ./machine-callers.json:/etc/openit/machine-callers.json:ro
+      - ./secrets/machine-clients/survey-service:/run/machine-clients/survey-service:ro
+      - survey-service-certs:/area-certs:ro
+    networks: [survey-service-area]
+
+  survey-service-gateway:
+    <<: *area-gateway
+    depends_on:
+      step-ca: { condition: service_healthy }
+    environment:
+      OPENIT_AREA_NAME: survey-service
+      OPENIT_AREA_UPSTREAM: survey-service:8080
+      OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
+      OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
+    volumes:
+      - ../platform/caddy/area-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - survey-service-certs:/area-certs
+    # 서비스 이름의 별칭은 게이트웨이만 갖는다: 입구·감시·이웃이 게이트웨이로만 온다(서비스 컨테이너는 별칭이 없다)
+    networks:
+      backend: { aliases: [survey-service] }
+      survey-service-area: {}
+    healthcheck:
+      # 왜 파일 확인: 인증서와 키를 받았는지 본다(platform/caddy/area-gateway.md). 클라이언트 인증서가 없는 TLS 연결은 거절되고 검증을 끄고 두드리지 않는다
+      test: ["CMD-SHELL", "${OPENIT_AREA_HEALTH_SURVEY_SERVICE}"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  # ---- model-runtime(영역 서비스) + 추론 엔진(vLLM, 서빙 GPU 서버 배치, design.md 6절) ----
+  model-runtime:
+    image: ${OPENIT_IMAGE_MODEL_RUNTIME}
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    depends_on:
+      model-runtime-gateway: { condition: service_healthy }
+      # 왜 required: false: 추론 엔진은 서빙 GPU 서버에서만 돈다(프로파일 inference-engine, OPENIT_INFERENCE_ENGINE_LOCAL). 엔진이 없는 배치에서는 준비되지 않은 상태(readyz 503)로 선다
+      inference-engine: { condition: service_started, required: false }
+    environment:
+      OPENIT_LOG_LEVEL: INFO
+      OPENIT_LISTEN_PORT: "8080"
+      OPENIT_OIDC_ISSUER_URL: ${OPENIT_OIDC_ISSUER_URL}
+      OPENIT_ROOT_CERTIFICATE_FILE: /etc/openit/trust-list.pem
+      OPENIT_OIDC_AUDIENCE: model-runtime
+      OPENIT_EGRESS_PROXY: ${OPENIT_EGRESS_PROXY_MODEL_RUNTIME}
+      OPENIT_TLS_CERTIFICATE_FILE: ${OPENIT_AREA_CRT_MODEL_RUNTIME}
+      OPENIT_TLS_PRIVATE_KEY_FILE: ${OPENIT_AREA_KEY_MODEL_RUNTIME}
+      OPENIT_REGISTRY_URL: https://${OPENIT_REGISTRY_HOST}
+      OPENIT_REGISTRY_REPOSITORY: ${OPENIT_MODEL_REGISTRY_REPOSITORY}
+      OPENIT_REGISTRY_CREDENTIALS_FILE: /run/secrets/registry_credentials
+      OPENIT_MACHINE_TOKENS_FILE: /etc/openit/machine-callers.json
+      OPENIT_MODEL_PROFILE: ${OPENIT_MODEL_PROFILE}
+      OPENIT_MODEL_CACHE_DIR: /var/lib/openit/model-runtime/cache
+      OPENIT_INFERENCE_ENGINE_URL: http://inference-engine:8000
+    secrets: [registry_credentials]
+    volumes:
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ./machine-callers.json:/etc/openit/machine-callers.json:ro
+      - model-runtime-data:/var/lib/openit/model-runtime
+      - model-runtime-certs:/area-certs:ro
+    networks: [model-runtime-area]
+
+  model-runtime-gateway:
+    <<: *area-gateway
+    depends_on:
+      step-ca: { condition: service_healthy }
+    environment:
+      OPENIT_AREA_NAME: model-runtime
+      OPENIT_AREA_UPSTREAM: model-runtime:8080
+      OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
+      OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
+    volumes:
+      - ../platform/caddy/area-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - model-runtime-certs:/area-certs
+    # 서비스 이름의 별칭은 게이트웨이만 갖는다: 입구·감시·이웃이 게이트웨이로만 온다(서비스 컨테이너는 별칭이 없다)
+    networks:
+      backend: { aliases: [model-runtime] }
+      model-runtime-area: {}
+    healthcheck:
+      # 왜 파일 확인: 인증서와 키를 받았는지 본다(platform/caddy/area-gateway.md). 클라이언트 인증서가 없는 TLS 연결은 거절되고 검증을 끄고 두드리지 않는다
+      test: ["CMD-SHELL", "${OPENIT_AREA_HEALTH_MODEL_RUNTIME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  # 추론 엔진(vLLM 공식 이미지, Apache-2.0). 서빙 GPU 서버에서만 띄운다(OPENIT_INFERENCE_ENGINE_LOCAL=true 일 때 ./deploy 가 프로파일을 켠다).
+  # 어댑터 폴더는 model-runtime 과 같은 경로로 읽기 전용 마운트한다(vLLM 의 lora_path 가 엔진 컨테이너에서 보는 경로, 계약 ModelRuntimeEnv).
+  inference-engine:
+    profiles: [inference-engine]
+    image: vllm/vllm-openai:v0.33.0@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # 왜 command: 공식 이미지의 서버 인자다(영역 이미지가 아니다). 기반 모델은 프로파일(OPENIT_MODEL_PROFILE)에 맞춰 설치처가 OPENIT_BASE_MODEL 로 준다
+    command: ["--model", "${OPENIT_BASE_MODEL}", "--enable-lora", "--lora-modules-dir-readonly", "--host", "0.0.0.0", "--port", "8000"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+    volumes:
+      - model-runtime-data:/var/lib/openit/model-runtime:ro
+    networks: [model-runtime-area]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  # ---- 화면 둘(정적 서버, ADR 0011). 입구가 경로 접두어(/console/, /kiosk/)로 나눠 보낸다 ----
+  admin-console:
+    image: ${OPENIT_IMAGE_WEB_ADMIN_CONSOLE}
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    networks: [admin-console-area]
+
+  admin-console-gateway:
+    <<: *area-gateway
+    depends_on:
+      step-ca: { condition: service_healthy }
+    environment:
+      OPENIT_AREA_NAME: admin-console
+      OPENIT_AREA_UPSTREAM: admin-console:8080
+      OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
+      OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
+    volumes:
+      - ../platform/caddy/area-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - admin-console-certs:/area-certs
+    # 서비스 이름의 별칭은 게이트웨이만 갖는다: 입구·감시·이웃이 게이트웨이로만 온다(서비스 컨테이너는 별칭이 없다)
+    networks:
+      backend: { aliases: [admin-console] }
+      admin-console-area: {}
+    healthcheck:
+      # 왜 파일 확인: 인증서와 키를 받았는지 본다(platform/caddy/area-gateway.md). 클라이언트 인증서가 없는 TLS 연결은 거절되고 검증을 끄고 두드리지 않는다
+      test: ["CMD-SHELL", "${OPENIT_AREA_HEALTH_ADMIN_CONSOLE}"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  kiosk-frontend:
+    image: ${OPENIT_IMAGE_WEB_KIOSK_FRONTEND}
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    networks: [kiosk-frontend-area]
+
+  kiosk-frontend-gateway:
+    <<: *area-gateway
+    depends_on:
+      step-ca: { condition: service_healthy }
+    environment:
+      OPENIT_AREA_NAME: kiosk-frontend
+      OPENIT_AREA_UPSTREAM: kiosk-frontend:8080
+      OPENIT_SERVICE_PORT: ${OPENIT_SERVICE_PORT}
+      OPENIT_INTERNAL_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
+    volumes:
+      - ../platform/caddy/area-gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - kiosk-frontend-certs:/area-certs
+    # 서비스 이름의 별칭은 게이트웨이만 갖는다: 입구·감시·이웃이 게이트웨이로만 온다(서비스 컨테이너는 별칭이 없다)
+    networks:
+      backend: { aliases: [kiosk-frontend] }
+      kiosk-frontend-area: {}
+    healthcheck:
+      # 왜 파일 확인: 인증서와 키를 받았는지 본다(platform/caddy/area-gateway.md). 클라이언트 인증서가 없는 TLS 연결은 거절되고 검증을 끄고 두드리지 않는다
+      test: ["CMD-SHELL", "${OPENIT_AREA_HEALTH_KIOSK_FRONTEND}"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
 networks:
   edge: {}
   backend:
     internal: true # 왜: 기반 서비스끼리만 만나고 밖으로 나가는 길이 없다(외부 호출은 게이트웨이의 CONNECT 터널만, 워크스페이스 D128)
+  # 영역 전용 내부 네트워크(ADR 0023): 영역 서비스·영역 DB·그 영역 게이트웨이만 있다. 서비스 컨테이너는 여기에만 있어 영역 게이트웨이만 서비스에 닿는다
+  # (X-Forwarded-Client-Cert 를 믿는 근거, 계약 device_mtls). internal: 밖으로 나가는 길이 없다(나가는 호출은 입구의 CONNECT 터널만, D128)
+  survey-service-area: { internal: true }
+  model-runtime-area: { internal: true }
+  admin-console-area: { internal: true }
+  kiosk-frontend-area: { internal: true }
 
 secrets:
   postgres_password: { file: ./secrets/postgres_password }
@@ -347,6 +611,9 @@ secrets:
   oauth2_proxy_cookie_secret: { file: ./secrets/oauth2_proxy_cookie_secret }
   step_ca_password: { file: ./secrets/step_ca_password }
   step_ca_intermediate_key: { file: ./pki/ca/intermediate_ca.key }
+  survey_db_password: { file: ./secrets/survey_db_password }
+  vapid_private_key: { file: ./secrets/vapid_private_key }
+  registry_credentials: { file: ./secrets/registry_credentials }
 
 volumes:
   postgres-data: {}
@@ -358,3 +625,13 @@ volumes:
   step-ca-data: {}
   registry-data: {}
   prometheus-data: {}
+  survey-db-data: {}
+  # 영역 데이터: 활성화 기록과 받은 모델 패키지(어댑터)가 남는다. 엔진이 같은 경로로 읽기 전용 마운트한다
+  model-runtime-data: {}
+  # 영역 게이트웨이가 받은 인증서(서비스가 읽기 전용으로 마운트해 이웃을 부를 때 클라이언트 인증서로 쓴다). 입구 인증서 볼륨과 같은 이유로 tmpfs 형식·uid 10001
+  survey-service-certs: &area-certs
+    driver: local
+    driver_opts: { type: tmpfs, device: tmpfs, o: "uid=10001,gid=10001,mode=0700" }
+  model-runtime-certs: *area-certs
+  admin-console-certs: *area-certs
+  kiosk-frontend-certs: *area-certs

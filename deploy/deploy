@@ -39,6 +39,7 @@ import dockerenv  # noqa: E402
 
 # 왜 platform/src: 기성품 구성(입구·사람 인증·감시·사설 CA)의 설정은 platform 영역이 갖고 이 명령은 그 생성기를 부른다(design.md 5절, platform ADR 0001)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "src"))
+from openit_platform import area_gateway as pf_area_gateway  # noqa: E402
 from openit_platform import generate as pf_generate  # noqa: E402
 from openit_platform import identity as pf_identity  # noqa: E402
 from openit_platform import pki  # noqa: E402
@@ -174,6 +175,34 @@ def sync_image_env() -> list[str]:
     return unbuilt
 
 
+AREA_SERVICES = ("survey-service", "model-runtime", "admin-console", "kiosk-frontend")  # 영역 게이트웨이를 가진 서비스 영역(compose.yaml)
+
+
+def sync_area_env() -> None:
+    """영역 게이트웨이와 서비스가 compose 에서 읽는 파생 값을 generated/areas.env 에 쓴다.
+
+    인증서·키 경로와 건강 확인은 platform 의 영역 게이트웨이 규칙(area_gateway.py)이고, 나가는 터널 주소는 platform 이 만든 egress-proxies.json 이다.
+    compose 는 JSON 을 읽지 못해 여기서 변수로 옮긴다. 터널이 없는 영역(노출 선언의 egress 가 비었다)은 빈 값이다.
+    """
+    env = env_values()
+    acme = env["OPENIT_INTERNAL_ACME_DIRECTORY_URL"]
+    manifest_file = GENERATED / "gateway" / "egress-proxies.json"
+    egress = json.loads(manifest_file.read_text(encoding="utf-8")) if manifest_file.is_file() else {}
+    lines: list[str] = []
+    for area in AREA_SERVICES:
+        suffix = re.sub(r"[^A-Z0-9]", "_", area.upper())
+        crt, key = pf_area_gateway.certificate_paths(area, acme)
+        lines += [f"OPENIT_AREA_CRT_{suffix}={crt}\n", f"OPENIT_AREA_KEY_{suffix}={key}\n",
+                  f"OPENIT_AREA_HEALTH_{suffix}={pf_area_gateway.healthcheck_command(area, acme)}\n",
+                  f"OPENIT_EGRESS_PROXY_{suffix}={egress.get(area, '')}\n"]
+    # 왜 첫 이름: 레지스트리 인증서의 첫 이름이 영역 서비스가 부르는 이름이다(external 이면 설치처 주소의 호스트)
+    registry = (env["OPENIT_REGISTRY_ADDRESS"].split("/")[0] if env["OPENIT_REGISTRY_MODE"] == "external" else env["OPENIT_REGISTRY_NAMES"].split(",")[0].strip())
+    lines.append(f"OPENIT_REGISTRY_HOST={registry}\n")
+    changed = write_if_changed(GENERATED / "areas.env", "# ./deploy 가 만든다. 영역 게이트웨이·서비스가 compose 에서 읽는 파생 값이다. 손으로 고치지 않는다.\n" + "".join(lines))
+    if changed:
+        PENDING_CHANGES.add("areas.env")
+
+
 def compose_args() -> list[str]:
     args = ["compose", "--project-name", project_name(), "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
             "--env-file", str(DEPLOY / "env.example")]
@@ -186,7 +215,10 @@ def compose_args() -> list[str]:
             raise
         typer.echo("경고: platform 설정을 새로 만들지 못해 이전에 만든 파일로 진행한다", err=True)
     sync_image_env()
-    args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env"), "--env-file", str(GENERATED / "images.env")]
+    sync_area_env()
+    args += ["-f", str(GENERATED / "compose.platform.yaml"), "--env-file", str(GENERATED / "platform.env"), "--env-file", str(GENERATED / "images.env"), "--env-file", str(GENERATED / "areas.env")]
+    if env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true":
+        args += ["--profile", "inference-engine"]  # 왜: 추론 엔진(vLLM)은 서빙 GPU 서버 배치다. 이 서버에서 안 띄우면 false(design.md 6절)
     if (DEPLOY / ".env").exists():
         args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
     return args
@@ -433,6 +465,12 @@ def doctor() -> None:
         check("고정 호스트 포트 없음", not fixed, ", ".join(fixed))
         unpinned = [n for n, s in model.get("services", {}).items() if "@sha256:" not in s.get("image", "")]
         check("compose 이미지 digest 고정", not unpinned, ", ".join(unpinned))
+    if env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] not in ("true", "false"):
+        check("추론 엔진 배치 설정", False, "OPENIT_INFERENCE_ENGINE_LOCAL 은 true 또는 false 다")
+    elif env_values()["OPENIT_INFERENCE_ENGINE_LOCAL"] == "true" and not env_values()["OPENIT_BASE_MODEL"]:
+        check("추론 엔진 배치 설정", False, "OPENIT_INFERENCE_ENGINE_LOCAL=true 인데 OPENIT_BASE_MODEL 이 비어 있다")
+    else:
+        typer.echo(f"[OK] 추론 엔진 배치: 이 서버에서 {'띄운다' if env_values()['OPENIT_INFERENCE_ENGINE_LOCAL'] == 'true' else '띄우지 않는다(서빙 GPU 서버 배치)'}")
     monitoring = docker(
         ["run", "--rm", "--network", "none", "--entrypoint", "sh", "-v", f"{PLATFORM / 'monitoring'}:/etc/prometheus:ro", prometheus_image(),
          "-c", "cd /etc/prometheus && promtool check config --lint=none prometheus.yml && promtool test rules rules.test.yml"],

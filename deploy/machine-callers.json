@@ -1,0 +1,5 @@
+{
+  "tokens": [
+    { "client": "survey-service", "roles": ["inference-caller"], "client_secret_file": "/run/machine-clients/survey-service" }
+  ]
+}
