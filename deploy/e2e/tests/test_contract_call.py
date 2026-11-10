@@ -79,3 +79,9 @@ def test_format_assertion_is_on() -> None:
     )
     with pytest.raises(StepFailure, match="응답이 계약"):
         CONTRACT.call(http, "survey-service", "issueStartCode", expect=(201,), body={"subject_ref": "s1"}, idempotent=True)
+
+
+def test_model_load_limit_is_read_from_the_contract_time_budget() -> None:
+    assert CONTRACT.integer_constant("ModelLoadLimitSeconds") == 180
+    with pytest.raises(StepFailure, match="정수가 아니다"):
+        CONTRACT.integer_constant("ModelLoadState")  # const 가 없는 스키마는 KeyError 가 아니라 계약 위반으로 알린다

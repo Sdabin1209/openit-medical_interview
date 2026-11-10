@@ -71,6 +71,13 @@ class Contract:
         document: dict[str, Any] = {**json.loads(text), "components": self.components["components"]}
         return Draft202012Validator(document, format_checker=Draft202012Validator.FORMAT_CHECKER)
 
+    def integer_constant(self, name: str) -> int:
+        """계약의 정수 상수 스키마(`const`)의 값. 시간 상한처럼 계약이 정한 값을 복사하지 않고 읽는다."""
+        value = self.components["components"]["schemas"][name].get("const")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise StepFailure(f"계약 {name} 의 const 가 정수가 아니다")
+        return value
+
     def named(self, name: str) -> Draft202012Validator:
         return self.validator({"$ref": f"#/components/schemas/{name}"})
 

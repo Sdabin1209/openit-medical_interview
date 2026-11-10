@@ -28,8 +28,8 @@ from .report import StepResult
 from .sandbox import ADAPTERS_IN_CONTAINER, DEVICE_ID, HOSPITAL, INPUTS_IN_CONTAINER, OUT_IN_CONTAINER, Sandbox
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-# 왜 190초: 계약에 모델 적재 완료의 상한이 없다(확인함). 계약 D125 가 사람 화면에 준 가장 긴 상한(release-gate 화면 190초)을 빌려 쓴다. 측정한 값이 아니다(ADR 0025)
-LOAD_LIMIT = 190
+# 왜 계약에서 읽나: 모델 적재 완료의 상한은 계약 9.1.0 의 TimeBudgetTable.model_load(ModelLoadLimitSeconds)다. 복사하지 않는다
+LOAD_LIMIT_SCHEMA = "ModelLoadLimitSeconds"
 POLL_INTERVAL = 2  # 계약 SessionStatePollSeconds(2초)와 같은 간격으로 상태를 본다
 PIPELINE_TURNS = 6  # pipeline 모드가 보내는 턴 수. 어댑터가 학습되지 않아 문진이 끝까지 가지 않으므로 상한을 둔다(대본의 앞 문항들)
 PRODUCT_TURN_GUARD = len(script.SCRIPT) + 5  # product 모드: 순서표가 대본보다 길게 이어지면 멈춘다(대본에 없는 문항에서 막힌다)
@@ -156,18 +156,19 @@ def activate(ctx: Context, checks: list[str], findings: list[str]) -> None:
         body={"package_digest": ctx.package_digest, "reason": "E2E: 게시한 패키지의 적재·추론 경로 확인"},
     )
     checks.append(f"activateModelPackage {accepted.status}")
-    deadline = time.monotonic() + LOAD_LIMIT
+    load_limit = ctx.contract.integer_constant(LOAD_LIMIT_SCHEMA)
+    deadline = time.monotonic() + load_limit
     status: dict[str, Any] = accepted.body
     while status["state"] != "READY":
         if status["state"] == "FAILED":
             raise StepFailure(f"적재가 실패했다(FAILED): {json.dumps(status, ensure_ascii=False)[:300]}")
         if time.monotonic() > deadline:
-            raise StepFailure(f"{LOAD_LIMIT}초 안에 READY 가 되지 않았다(마지막 상태 {status['state']})")
+            raise StepFailure(f"{load_limit}초 안에 READY 가 되지 않았다(마지막 상태 {status['state']})")
         time.sleep(POLL_INTERVAL)
         status = ctx.call(approver, "model-runtime", "getModelStatus", expect=(200,)).body
     if status.get("package_digest") != ctx.package_digest or status.get("runtime_contract_version") != RUNTIME_CONTRACT_VERSION:
         raise StepFailure(f"READY 인데 활성 패키지·문항 은행 버전이 기대와 다르다: {json.dumps(status, ensure_ascii=False)[:300]}")
-    checks.append(f"getModelStatus READY(적재 상한 {LOAD_LIMIT}초 안), 활성 패키지가 게시한 것이다")
+    checks.append(f"getModelStatus READY(계약 적재 상한 {load_limit}초 안), 활성 패키지가 게시한 것이다")
 
 
 # ---------------------------------------------------------------- ③ 문항 세트

@@ -299,3 +299,33 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             assert (
                 await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
             ).status_code == 200
+
+
+async def test_load_that_passes_the_contract_limit_fails_and_keeps_the_previous_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """계약 TimeBudgetTable.model_load: 상한을 넘긴 적재는 FAILED 이고 이전 패키지를 유지한다(D46).
+
+    시간을 재지 않는다: 상한을 0 으로 바꾸면 적재의 첫 대기에서 바로 상한이 닿는다."""
+    identity = Identity.new()
+    with world(tmp_path) as w:
+        first = await anyio.to_thread.run_sync(lambda: w.publish("one"))
+        second = await anyio.to_thread.run_sync(lambda: w.publish("two", prompt_suffix=" (둘째)"))
+        async with serving(w, identity) as (client, app):
+            approver = human(identity, "release-approver")
+            assert (
+                await client.post(
+                    "/v1/model-activations", json={"package_digest": first, "reason": "첫째"}, headers=approver
+                )
+            ).status_code == 202
+            await settle(app)
+            monkeypatch.setattr("model_runtime.link.runtime.LOAD_LIMIT_SECONDS", 0)
+            late = await client.post(
+                "/v1/model-activations", json={"package_digest": second, "reason": "상한 시험"}, headers=approver
+            )
+            assert late.status_code == 202
+            await settle(app)
+            status = (await client.get("/v1/model-status", headers=machine(identity))).json()
+            assert status["state"] == "FAILED" and status["package_digest"] == first  # 보이는 것은 유지된 이전 패키지
+            ok = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
+            assert ok.status_code == 200 and ok.json()["package_digest"] == first  # 이전 패키지가 계속 낸다

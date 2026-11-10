@@ -56,6 +56,9 @@ logger = logging.getLogger("model_runtime")
 # 왜 계약 값: 서버 쪽 시간 상한은 D125 가 정하고 계약이 ModelExtractLimitSeconds 와 ModelRespondLimitSeconds 로 둔다
 EXTRACT_LIMIT_SECONDS = 20
 RESPOND_LIMIT_SECONDS = 25
+# 왜 180: 계약 9.1.0 TimeBudgetTable.model_load(ModelLoadLimitSeconds). 활성화 요청부터 적재가 끝나기까지의
+# 실패 판정 상한이다. 측정한 값이 아니다(계약 x-basis, ADR 0012)
+LOAD_LIMIT_SECONDS = 180
 # 왜 이 구간: 목표 p95 2초(D125)와 상한 20·25초 사이를 두루 본다. 측정으로 정한 값이 아니다(ADR 0002)
 _CALL_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 25.0)
 _RESIDENT_PACKAGES = 2  # 왜 2: 활성 패키지와 롤백 대상(직전 패키지)의 어댑터는 엔진에 남겨 롤백이 빠르게 한다
@@ -290,16 +293,22 @@ class Runtime:
         """패키지를 받아 적재한다. 성공하면 활성이 되고, 실패하면 이전 패키지를 유지한다(D46)."""
         package: LoadedPackage | None = None
         try:
-            ready = inspected or await inspect_package(
-                self._source, digest, self._folder(digest), self._installed_version, self._base_model
-            )
-            package = await load_package(self._source, self._adapters, ready, self._folder(digest))
+            # 왜 받기와 올리기까지만 감싼다: 기록 쓰기(release)가 중간에 끊기면 기록과 상태가 어긋난다
+            async with asyncio.timeout(LOAD_LIMIT_SECONDS):
+                ready = inspected or await inspect_package(
+                    self._source, digest, self._folder(digest), self._installed_version, self._base_model
+                )
+                package = await load_package(self._source, self._adapters, ready, self._folder(digest))
             if restored:
                 self._release.restored(digest)
             else:
                 await self._release.loaded(digest, loaded_summary(package), self._clock())
         except asyncio.CancelledError:
             raise
+        except TimeoutError:
+            logger.warning("모델 패키지 적재가 시간 상한을 넘었다 digest=%s 상한=%s초", digest, LOAD_LIMIT_SECONDS)
+            await self._release.failed(digest, f"적재가 {LOAD_LIMIT_SECONDS}초 안에 끝나지 않았다", self._clock())
+            return
         except Exception as error:
             if package is not None:
                 for adapter in package.adapters.values():

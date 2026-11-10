@@ -4,7 +4,7 @@
 모델 패키지(OCI 아티팩트)를 레지스트리에서 digest 로 받아 검증·적재하고, 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 문장을 낸다. 추출 출력이 계약의 합격 조건을 지키는지 한 번 검사하고(output_guard) 값 고쳐 쓰기(D115)를 적용한다. 활성화 승인과 롤백을 받고 그 기록(승인자, 시각, 사유)을 남긴다. 추론 엔진(vLLM 의 OpenAI 호환 서버)은 별도 컨테이너이고 이 서비스가 부른다. 모델 패키지를 만드는 `package-publish` 도구도 이 영역에 있다. 모델 입출력 글자 규칙은 [libs/model-io](../../libs/model-io/README.md) 가 가진다.
 
 ## 2. 받는 계약·내는 계약
-계약은 [9.0.0](../../contracts/README.md)(`contracts/README.md` 의 9.0.0 절)이다.
+계약은 [9.1.0](../../contracts/README.md)(`contracts/README.md` 의 9.0.0·9.1.0 절)이다. 적재 시간 상한은 계약 `TimeBudgetTable.model_load` 다([ADR 0012](docs/adr/0012-적재-시간-상한은-계약-값이다.md)).
 
 - HTTP 계약: [contracts/openapi/model-runtime.yaml](../../contracts/openapi/model-runtime.yaml)(작업 일곱 개와 `/healthz`, `/readyz`, `/metrics`). 게시된 패키지 목록(`listModelPackages`)은 [ADR 0008](docs/adr/0008-게시된-모델-패키지-목록.md). 타입은 `src/model_runtime/contract/models.py` 로 생성한다(`pyproject.toml` 의 `[tool.openit.contract]` 가 정본).
 - 환경 입력: 계약 `ModelRuntimeEnv`(엔진 주소 `OPENIT_INFERENCE_ENGINE_URL`, 이름 표 `HostsTable`, 레지스트리 자격은 한 줄 `사용자:비밀번호`의 HTTP 기본 인증: [ADR 0006](docs/adr/0006-계약-9.0.0-입력-엔진-주소-이름-표-자격-어댑터-배치.md)). `tests/unit/test_settings.py` 가 설정 이름이 계약과 같은지 본다.
@@ -25,7 +25,7 @@
 | package_loader | `components/package_loader.py` | 패키지 digest → 적재된 모델 | 매니페스트·파일 digest·모델 입출력 버전·서빙 버전·기반 모델(프로파일 표) 검증, 어댑터 적재 |
 | release | `components/release.py`, `store/release_log.py` | 활성화·롤백 요청 → 활성 패키지 | 활성 포인터와 기록(승인자, 시각, 사유) |
 | prompt | `components/prompt.py` | 구조화된 요청 → 모델 입력 | state 에 넣을 문항 고르기, 사람 말 조각 만들기, 학습 데이터와 글자가 같은 직렬화 |
-| inference | `components/inference.py`, `link/engine.py` | 모델 입력 → 모델 출력 글자 | 엔진 호출과 시간 상한(추출 20초, 응답 25초) |
+| inference | `components/inference.py`, `link/engine.py` | 모델 입력 → 모델 출력 글자 | 엔진 호출(학습과 같은 비생각 모드, ADR 0010)과 시간 상한(추출 20초, 응답 25초) |
 | output_guard | `components/output_guard.py` | 모델 출력 → 검증된 추출 결과 | 위반 코드 10개 검사, D115 고쳐 쓰기, 출력 불가 |
 | responder | `components/responder.py` | 모델 출력 → 응답 문장 | 비었거나 길거나 JSON 으로 감싼 출력을 거른다 |
 | package_publish(도구) | `components/package_publish.py`, `publish.py`, `link/publish_registry.py` | 어댑터 폴더·평가 집합 → 패키지 digest | 평가 보고서를 만들고 OCI 아티팩트로 올린다 |
@@ -97,5 +97,6 @@ tools/smoke service model-runtime           # 이미지 스모크(평문 HTTP, �
 - [0009 노출 선언과 나가는 호출 선언](docs/adr/0009-노출-선언과-나가는-호출-선언.md)
 - [0010 채팅 호출은 학습과 같은 템플릿 조건(비생각 모드)으로 한다](docs/adr/0010-채팅-호출은-학습과-같은-템플릿-조건-비생각-모드.md)
 - [0011 저장소 경로는 레지스트리 이름과 따로 ORAS Container 로 만든다](docs/adr/0011-저장소-경로는-레지스트리-이름과-따로-ORAS-Container-로-만든다.md)(0008 의 목록 결함을 고침)
+- [0012 모델 적재의 시간 상한은 계약 값이다](docs/adr/0012-적재-시간-상한은-계약-값이다.md)
 
 변경 요청: [001](../../docs/change-requests/model-runtime-001.md) 계약 문구와 정본의 차이, [002](../../docs/change-requests/model-runtime-002.md) D115 R1·R3(9.0.0 이 명시적 비활성으로 정함), [003](../../docs/change-requests/model-runtime-003.md) 환경 입력·파일 형식(9.0.0 이 정함), [004](../../docs/change-requests/model-runtime-004.md) 구조화된 요청, [005](../../docs/change-requests/model-runtime-005.md) 레지스트리 egress 선언(확정: deploy 가 설치 설정에서 더함), [006](../../docs/change-requests/model-runtime-006.md) 기계 토큰 역할 클레임(확정: platform 이 범위를 제한하고 서비스는 계약 모델로 그대로 검증). 모델 패키지 목록은 admin-console-002 를 구현했다.
