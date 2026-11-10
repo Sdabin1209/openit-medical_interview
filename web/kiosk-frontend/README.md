@@ -40,7 +40,9 @@ tools/smoke web kiosk-frontend        # 이미지 스모크
 
 ## 5. 시험 상태
 이 절은 이 영역의 시험 상태만 쓴다. 2026-11-10 기준.
-- `npm test`, `npx tsc --noEmit`, `npm run lint`, `tools/web-e2e kiosk-frontend`, 이미지 빌드와 스모크의 결과는 작업 보고에 있다(아래 줄을 시험을 돌린 뒤 갱신한다).
+- 단위·계약·경계(`npm test`): 8 파일 92 시험 통과. `npx tsc --noEmit`, `npm run lint`, `npm run check:contract` 통과.
+- 브라우저(`tools/web-e2e kiosk-frontend`): 10 시나리오 통과(시작 → 턴 → 종료, 틀린 코드, 실패 신호, 직원 호출·재개, 중간 종료, 크기, 음성 대역 2가지, 보안 헤더, 라우팅).
+- 이미지: `deploy/deploy build web-kiosk-frontend`(hadolint, Trivy 포함)와 `tools/smoke web kiosk-frontend` 통과.
 - 확인하지 못한 것: 실제 키오스크 Chrome 의 Web Speech API(기기 안 인식 가능 여부, 한국어 목소리). Playwright 이미지의 headless Chromium 은 `SpeechRecognition.available()` 에서 죽어 대역으로 시험했다(ADR 0002). 고령자 사용 시험, 대비 측정 도구 확인, 기기 인증서(mTLS)가 걸린 게이트웨이 뒤의 실제 호출, nginx 이미지 위에서의 브라우저 시험(브라우저 시험은 같은 보안 헤더를 붙인 `vite preview` 에서 돈다).
 
 ## 6. ADR 목록
