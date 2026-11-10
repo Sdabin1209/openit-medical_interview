@@ -21,11 +21,12 @@ export async function stubSpeech(page: Page, stub: SpeechStub): Promise<void> {
       start(): void {
         // 왜 processLocally 를 기록: 화면이 기기 안 처리를 요구했는지 시험이 본다
         (window as unknown as { __processLocally: boolean }).__processLocally = this.processLocally;
-        setTimeout(() => {
+        // 왜 지연 없이 다음 마이크로태스크: 인식 결과는 start() 뒤에 비동기로 온다는 것만 흉내 낸다. 실제 시간은 기다리지 않는다
+        queueMicrotask(() => {
           const result = Object.assign([{ transcript: config.transcript ?? "" }], { isFinal: true });
           this.onresult?.({ resultIndex: 0, results: [result] });
           this.onend?.();
-        }, 50);
+        });
       }
       stop(): void {}
       abort(): void {}

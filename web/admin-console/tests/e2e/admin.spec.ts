@@ -26,6 +26,8 @@ async function withBackend(page: Page, options: FakeOptions) {
 
 test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async ({ page }) => {
   const backend = await withBackend(page, { roles: ["staff", "clinician", "release-approver"] });
+  // 가짜 시계(Playwright Clock API): 적재 중 재읽기 간격(3초)은 실제로 기다리지 않고 fastForward 로 넘긴다
+  await page.clock.install();
   await page.goto("/console/");
 
   // 1. 직원이 시작 코드를 발급한다(첫 화면). 6자리 숫자가 보이고 QR 은 없다
@@ -59,8 +61,10 @@ test("시작 코드 발급 → 결과 확인 → 모델 활성화 승인", async
   await dialog.getByRole("button", { name: "승인" }).click();
   await expect(dialog).toHaveCount(0);
   expect(backend.calls.find((c) => c.path === "/v1/model-activations")?.body).toEqual({ package_digest: DIGESTS.candidate, reason: "평가 보고서 확인" });
-  // 적재가 끝나면(가짜는 곧 끝낸다) 활성 패키지가 승인한 것으로 바뀐다
-  await expect(page.getByRole("status").first()).toContainText("준비됨", { timeout: 15_000 });
+  // 적재 중이라고 보인 뒤 재읽기 간격만큼 시계를 넘기면 가짜는 다음 읽기에서 적재를 끝낸다. 활성 패키지가 승인한 것으로 바뀐다
+  await expect(page.getByRole("status").first()).toContainText("적재 중");
+  await page.clock.fastForward(3000);
+  await expect(page.getByRole("status").first()).toContainText("준비됨");
   await expect(page.getByText(DIGESTS.candidate).first()).toBeVisible();
   // 목록의 활성 표시가 승인한 패키지로 옮겨진다
   await expect(page.getByRole("row", { name: new RegExp(`${DIGESTS.candidate}.*\\s활성`) })).toBeVisible();
