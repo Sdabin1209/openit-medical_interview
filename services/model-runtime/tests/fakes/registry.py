@@ -10,11 +10,15 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 
+from package_factory import REPO
+
 
 class FakeRegistry:
     """메모리 저장소. blobs 와 manifests 는 digest 를 키로 한다."""
 
-    def __init__(self, user: str, password: str) -> None:
+    def __init__(self, user: str, password: str, repository: str = REPO) -> None:
+        # 왜 저장소를 가린다: 다른 경로로 가면 404(NAME_UNKNOWN)여야 경로가 어긋난 결함이 드러난다
+        self.repository = repository
         self.expected = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
         self.blobs: dict[str, bytes] = {}
         self.manifests: dict[str, tuple[bytes, str]] = {}
@@ -30,6 +34,9 @@ class FakeRegistry:
             self.requests.append((request.method, rest))
             if self.expected and request.headers.get("authorization") != self.expected:
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="registry"'})
+            named = re.match(r"(?P<name>.+?)/(?:blobs|manifests|tags)/", rest)
+            if named and named["name"] != self.repository:
+                return Response(status_code=404, content=b'{"errors":[{"code":"NAME_UNKNOWN"}]}')
             return await self._route(request, rest)
 
         return app

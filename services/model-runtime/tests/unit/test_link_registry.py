@@ -6,7 +6,7 @@ import pytest
 
 from fakes.pki import make_pki
 from fakes.registry import FakeRegistry
-from fakes.servers import run_server
+from fakes.servers import connect_tunnel, run_server
 from model_runtime.link.publish_registry import OciPackagePublisher, PublishError
 from model_runtime.link.registry import OciPackageSource
 from model_runtime.types import PackageNotFoundError, RegistryUnavailableError
@@ -72,3 +72,38 @@ def test_publish_with_wrong_credentials_fails_without_leaking_them(tmp_path: Pat
         finally:
             publisher.close()
     assert "leaky-password-123" not in str(info.value)
+
+
+# ---- 레지스트리 이름의 모양과 저장소 경로(게시·받기·목록이 같은 경로) -----------------------------
+
+
+@pytest.mark.parametrize("registry_name", ["registry", "registry:443", "registry.openit.test"])
+async def test_publish_fetch_and_list_use_the_same_repository_path_for_any_registry_name(
+    tmp_path: Path, registry_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """레지스트리 이름이 기본 설치 값 `registry`(점·콜론 없음), `registry:443`, 점이 있는 이름이어도 세 호출이 모두
+    `/v2/<저장소>/…` 로 간다. ORAS 는 첫 조각에 점·콜론이 없으면 저장소 경로로 읽는다(oci_reference.py)."""
+    pki = make_pki(tmp_path / "pki")
+    registry = FakeRegistry(REGISTRY_USER, REGISTRY_PASSWORD)
+    package = built(tmp_path)
+    with run_server(registry.app(), pki) as running, connect_tunnel(int(running.url.rsplit(":", 1)[1])) as tunnel:
+        url = f"https://{registry_name}"
+        credentials = (REGISTRY_USER, REGISTRY_PASSWORD)
+        # 게시 도구는 터널 인자가 없다(관리 노드에서 직접 나간다). requests 의 표준 환경 변수로 같은 터널을 쓴다
+        monkeypatch.setenv("HTTPS_PROXY", tunnel.url)
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        publisher = OciPackagePublisher(url, REPO, credentials, pki.root)
+        source = OciPackageSource(url, REPO, credentials, pki.root, tunnel.url)
+        try:
+            assert publisher.publish(package) == package.digest
+            assert (await source.fetch_manifest(package.digest)).content == package.manifest
+            target = tmp_path / "pulled.bin"
+            await source.download_blob(package.layers[0].digest, target)
+            assert sha(target.read_bytes()) == package.layers[0].digest
+            assert [raw.digest for raw in await source.list_manifests()] == [package.digest]
+        finally:
+            publisher.close()
+            source.close()
+    assert set(tunnel.targets) == {f"{registry_name if ':' in registry_name else registry_name + ':443'}"}
+    assert registry.requests, "레지스트리에 닿았다"
+    assert all(path.startswith(f"{REPO}/") or path in ("", "/") for _, path in registry.requests)

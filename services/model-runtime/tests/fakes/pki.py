@@ -78,6 +78,7 @@ def make_pki(folder: Path) -> Pki:
     hosts: list[x509.GeneralName] = [
         x509.DNSName("localhost"),
         x509.DNSName("registry.openit.test"),  # 이름 표 시험이 가짜 이름을 127.0.0.1 로 풀어 접속한다
+        x509.DNSName("registry"),  # 점·콜론 없는 한 낱말 이름(기본 설치 값)은 CONNECT 터널 시험이 접속한다
         x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
     ]
     server, server_key = _issue(ca_key, ca_name, "localhost", ExtendedKeyUsageOID.SERVER_AUTH, hosts)

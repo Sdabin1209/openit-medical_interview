@@ -16,9 +16,11 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urljoin, urlsplit
 
+import oras.container
 import oras.provider
 import requests
 
+from model_runtime.link.oci_reference import oci_container
 from model_runtime.types import PackageNotFoundError, RawManifest, RegistryUnavailableError
 
 # 왜 이 Accept: OCI Image Spec 1.1 의 이미지 매니페스트 미디어 유형. 모델 패키지도 이 매니페스트 형식이다(계약
@@ -87,11 +89,12 @@ class OciPackageSource:
         """레지스트리와의 연결을 닫는다(서버가 TLS 종료를 기다리지 않게)."""
         self._client.session.close()
 
-    def _reference(self, digest: str) -> str:
-        return f"{self._hostname}/{self._repository}@{digest}"
+    def _container(self, *, digest: str | None = None, tag: str | None = None) -> oras.container.Container:
+        # 왜 한 곳: 받기·목록이 게시(publish_registry)와 같은 저장소 경로를 써야 한다(oci_reference.py)
+        return oci_container(self._hostname, self._repository, digest=digest, tag=tag)
 
     def _fetch_manifest_sync(self, digest: str) -> RawManifest:
-        container = self._client.get_container(self._reference(digest))
+        container = self._container(digest=digest)
         try:
             response = self._client.do_request(
                 f"{self._client.prefix}://{container.manifest_url()}", "GET", headers={"Accept": _MANIFEST_ACCEPT}
@@ -110,7 +113,7 @@ class OciPackageSource:
 
     def _download_sync(self, digest: str, destination: Path) -> None:
         try:
-            with self._client.get_blob(self._reference(digest), digest, stream=True) as response:
+            with self._client.get_blob(self._container(digest=digest), digest, stream=True) as response:
                 if response.status_code == requests.codes.not_found:
                     raise PackageNotFoundError("레지스트리에 그 digest 의 파일이 없다")
                 if response.status_code != requests.codes.ok:
@@ -127,8 +130,9 @@ class OciPackageSource:
         await asyncio.to_thread(self._download_sync, digest, destination)
 
     def _list_manifests_sync(self) -> list[RawManifest]:
+        container = self._container()
         base = f"{self._client.prefix}://{self._hostname}"
-        url: str | None = f"{base}/v2/{self._repository}/tags/list?n={self._tags_page}"
+        url: str | None = f"{self._client.prefix}://{container.tags_url(N=self._tags_page)}"
         tags: list[str] = []
         try:
             while url:
@@ -144,7 +148,9 @@ class OciPackageSource:
             found: dict[str, RawManifest] = {}
             for tag in tags:
                 reply = self._client.do_request(
-                    f"{base}/v2/{self._repository}/manifests/{tag}", "GET", headers={"Accept": _MANIFEST_ACCEPT}
+                    f"{self._client.prefix}://{container.manifest_url(tag)}",
+                    "GET",
+                    headers={"Accept": _MANIFEST_ACCEPT},
                 )
                 if reply.status_code != requests.codes.ok:
                     continue  # 왜 건너뜀: 목록을 받는 사이 지워진 태그다

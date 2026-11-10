@@ -15,6 +15,7 @@ import oras.provider
 import requests
 
 from model_runtime.components.package_publish import BuiltPackage
+from model_runtime.link.oci_reference import oci_container
 
 _MANIFEST_TYPE = "application/vnd.oci.image.manifest.v1+json"
 
@@ -52,7 +53,7 @@ class OciPackagePublisher:
 
     def publish(self, package: BuiltPackage) -> str:
         """파일(config, layer 넷)과 매니페스트를 올리고 레지스트리가 확인한 매니페스트 digest 를 돌려준다."""
-        container = self._client.get_container(f"{self._hostname}/{self._repository}@{package.digest}")
+        container = oci_container(self._hostname, self._repository, digest=package.digest)
         try:
             for blob in (package.config, *package.layers):
                 response = self._client.upload_blob(str(blob.path), container, blob.descriptor())
@@ -67,7 +68,7 @@ class OciPackagePublisher:
             # 왜 같은 바이트를 태그로도 올리나: 레지스트리는 태그 없이는 목록을 주지 않는다(OCI Distribution
             # `tags/list`).
             # 태그는 digest 에서 정해져 어떤 매니페스트도 가리키지 못하게 바뀌지 않는다
-            tagged = self._client.get_container(f"{self._hostname}/{self._repository}:{package_tag(package.digest)}")
+            tagged = oci_container(self._hostname, self._repository, tag=package_tag(package.digest))
             tag_reply = self._client.do_request(
                 f"{self._client.prefix}://{tagged.manifest_url()}",
                 "PUT",
