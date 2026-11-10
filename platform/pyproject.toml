@@ -21,6 +21,7 @@ dev = [
   "rfc3339-validator",  # jsonschema 의 format 단언(date-time)에 필요하다(MIT)
   "rfc3986-validator",  # jsonschema 의 format 단언(uri)에 필요하다(MIT)
   "urllib3",  # 시험이 게시된 포트로 TLS 요청을 보낸다(MIT)
+  "import-linter>=2.16",
 ]
 
 # 계약에서 타입을 만드는 설정(ADR 0020). 다시 만들기: 리포 루트에서 `uv run --project tools/checks openit-gen-contract platform`
@@ -62,3 +63,34 @@ include = ["src", "tests"]
 exclude = ["src/openit_platform/contract"]
 typeCheckingMode = "standard"
 pythonVersion = "3.12"
+
+# 왜: ADR 0003 은 모든 Python 영역에 import-linter 로 경계를 강제한다. platform 은 컴포넌트 대신
+# 기성품 설정 생성기 묶음이라(docs/design.md 2절), 생성기의 층 순서와 영역 밖 코드 금지를 건다
+[tool.importlinter]
+root_package = "openit_platform"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "계약 생성 타입은 platform 의 다른 모듈을 모른다"
+type = "forbidden"
+source_modules = ["openit_platform.contract"]
+forbidden_modules = ["openit_platform.gateway", "openit_platform.identity", "openit_platform.monitoring", "openit_platform.area_gateway", "openit_platform.ingress", "openit_platform.pki", "openit_platform.settings", "openit_platform.generate"]
+
+[[tool.importlinter.contracts]]
+name = "설정 생성기의 층 순서(아래층은 위층을 모른다)"
+type = "layers"
+layers = [
+  "openit_platform.generate",
+  "openit_platform.monitoring",
+  "openit_platform.area_gateway",
+  "openit_platform.ingress | openit_platform.identity",
+  "openit_platform.gateway",
+  "openit_platform.settings",
+  "openit_platform.pki",
+]
+
+[[tool.importlinter.contracts]]
+name = "다른 영역의 코드를 가져오지 않는다"
+type = "forbidden"
+source_modules = ["openit_platform"]
+forbidden_modules = ["survey_service", "model_runtime", "model_io"]
