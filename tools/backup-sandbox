@@ -13,6 +13,8 @@
 시험이 하는 것(제품 구성에 시험용 줄을 더하지 않는다. 시험이 더하는 것은 설치 입력(.env, layout.json, 비밀 파일, 서버 밖 대상의 루트)뿐이다):
 - 서버 밖 대상은 같은 restic REST 서버 이미지를 TLS 로 따로 띄운 것이다(시험이 만든 사용 후 버릴 CA 를 신뢰 목록에 더한다).
 - 데이터: survey-service DB 에 시험 표(200줄)와 Keycloak DB 의 realm·client·user 를 표마다 내용 지문(건수와 md5)으로 비교한다.
+  model-runtime 의 활성화·롤백 기록(승인자·시각·사유가 든 release-log.jsonl)은 제품 코드(ReleaseLogFile)로 컨테이너 안에서 덧붙이고, 지운 뒤 복구해 기록(사건 목록)과
+  파일 내용(SHA-256)과 소유자·모드가 같은지 본다. 받은 패키지(캐시)는 백업 대상이 아니라 복구가 건드리지 않는지도 본다.
 - 각 단계의 종료 코드를 보고 한 줄 JSON(JobRunResult)을 읽는다. 끝줄 'OK' 같은 글은 증거로 쓰지 않는다.
 - 기기별 문진표 배치(device_placements): 배치 설정의 값이 survey-service 컨테이너 안에서 제품 코드(survey_service.main._placements)로 읽히고, 배치를 바꾸고 `up` 하면 다시 만들어져 반영된다.
 - 시간은 통제 가능한 것만: 기다림은 모두 조건이 되면 끝나고 상한이 있다(고정 대기 없음).
@@ -46,6 +48,42 @@ Failure = LS.Failure
 PROJECT = LS.PROJECT
 PLACEMENTS = [{"device_id": "kiosk-01", "questionnaire_id": "national-health"}, {"device_id": "kiosk-02", "questionnaire_id": "dental"}]
 KEYCLOAK_TABLES = ("realm", "client", "user_entity", "keycloak_role")  # 실행 중에도 바뀌지 않는 표(세션 표는 뺀다)
+STATE_DIR = "/var/lib/openit/model-runtime/cache/model-runtime"  # model-runtime 의 상태 폴더(OPENIT_MODEL_CACHE_DIR 아래). 기록 파일과 받은 패키지가 같은 폴더에 있다
+RELEASE_LOG = f"{STATE_DIR}/release-log.jsonl"
+CACHE_MARKER = f"{STATE_DIR}/packages/sandbox-cache-marker"  # 받은 패키지 흉내. 백업 대상이 아니므로 복구가 지우지도 되돌리지도 않는다(복구 뒤에도 그대로여야 한다)
+RELEASE_SEED = (
+    "import asyncio, json\n"
+    "from datetime import UTC, datetime\n"
+    "from pathlib import Path\n"
+    "from model_runtime.store.release_log import ReleaseLogFile\n"
+    "from model_runtime.types import ReleaseEvent, ReleaseEventKind as K\n"
+    "log = ReleaseLogFile(Path('%s'))\n"
+    "t = lambda n: datetime(2026, 11, 11, 9, n, tzinfo=UTC)\n"
+    "d1, d2 = 'sha256:' + '1' * 64, 'sha256:' + '2' * 64\n"
+    "events = [\n"
+    "    ReleaseEvent(K.ACTIVATE_REQUESTED, d1, t(0), actor='approver-a', reason='첫 활성화: 평가 보고서 확인'),\n"
+    "    ReleaseEvent(K.LOADED, d1, t(1), summary='question-bank 3, model-io 3'),\n"
+    "    ReleaseEvent(K.ACTIVATE_REQUESTED, d2, t(10), actor='approver-b', reason='의미 위반율이 낮은 새 패키지'),\n"
+    "    ReleaseEvent(K.LOADED, d2, t(11), summary='question-bank 4, model-io 3'),\n"
+    "    ReleaseEvent(K.ROLLBACK_REQUESTED, d1, t(20), actor='approver-a', reason='새 패키지에서 되묻기 증가'),\n"
+    "    ReleaseEvent(K.LOADED, d1, t(21), summary='question-bank 3, model-io 3'),\n"
+    "]\n"
+    "async def main():\n"
+    "    for event in events:\n"
+    "        await log.append(event)\n"
+    "asyncio.run(main())\n"
+) % STATE_DIR
+RELEASE_READ = (
+    "import asyncio, hashlib, json, os, sys\n"
+    "from pathlib import Path\n"
+    "from model_runtime.store.release_log import ReleaseLogFile\n"
+    "path = Path('%s')\n"
+    "limit = int(sys.argv[1]) if len(sys.argv) > 1 else None\n"
+    "data = path.read_bytes()\n"
+    "stat = path.stat()\n"
+    "events = [[e.kind.value, e.package_digest, e.at.isoformat(), e.actor, e.reason, e.summary] for e in asyncio.run(ReleaseLogFile(path.parent).read_all())]\n"
+    "print(json.dumps({'size': len(data), 'sha256': hashlib.sha256(data[:limit]).hexdigest(), 'events': events, 'owner': f'{stat.st_uid}:{stat.st_gid}:{oct(stat.st_mode & 0o777)}'}, ensure_ascii=False))\n"
+) % RELEASE_LOG
 OFFSITE_NAME = f"{PROJECT}-offsite"
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 RESULT_KEYS = {"job", "exit_code", "started_at", "finished_at", "processed_count", "snapshot_id"}
@@ -145,6 +183,11 @@ class Scenario:
                             "--set", "ON_ERROR_STOP=1", "--command", query], context=server)
         return result.stdout.strip()
 
+    def python_in(self, service: str, code: str, *args: str) -> str:
+        """영역 컨테이너 안에서 제품 코드로 파이썬을 실행한다(표준 입력의 프로그램). 영역 사용자(uid 10001)로 돈다."""
+        server = self.server_of(service)
+        return LS.docker(["exec", "-i", self.container(server, service), "python", "-", *args], context=server, input=code).stdout.strip()
+
     def deploy(self, *args: str, log: str, check: bool = True):  # type: ignore[no-untyped-def]
         return LS.deploy(self.root, *args, log=f"{self.log}-{log}", check=check)
 
@@ -154,6 +197,18 @@ class Scenario:
         self.sql(survey, "survey-db", "survey", "survey", "create table backup_probe(id int primary key, note text, payload jsonb)")
         self.sql(survey, "survey-db", "survey", "survey",
                  "insert into backup_probe select g, 'row-' || g, jsonb_build_object('n', g, 'text', repeat('가', 5)) from generate_series(1, 200) g")
+        self.seed_release_log()
+
+    def seed_release_log(self) -> None:
+        """활성화·롤백 기록 6줄(승인자·시각·사유 포함)과 받은 패키지 흉내를 model-runtime 의 상태 폴더에 만든다(제품의 ReleaseLogFile 로 덧붙인다)."""
+        if self.python_in("model-runtime", "import os\nprint(os.path.exists('%s'))\n" % RELEASE_LOG) != "False":
+            raise Failure("백업 전에 활성화 기록이 이미 있다(시험 전제가 다르다)")
+        self.python_in("model-runtime", RELEASE_SEED)
+        self.python_in("model-runtime", "import os\nos.makedirs(os.path.dirname('%s'), exist_ok=True)\nopen('%s', 'w').write('cache')\n" % (CACHE_MARKER, CACHE_MARKER))
+
+    def release_state(self, limit: int | None = None) -> dict[str, object]:
+        out = self.python_in("model-runtime", RELEASE_READ, *([str(limit)] if limit is not None else []))
+        return json.loads(out)  # type: ignore[no-any-return]
 
     def fingerprint(self) -> dict[str, str]:
         survey, platform = self.server_of("survey-service"), self.server_of("platform")
@@ -171,11 +226,30 @@ class Scenario:
             raise Failure(f"시험 데이터가 기대와 다르다: {found}")
         return found
 
+    def check_release_log(self, expected: dict[str, object], label: str) -> str:
+        """복구한 활성화·롤백 기록이 백업 전과 같다: 사건 목록(승인자·시각·사유), 파일 내용(SHA-256), 소유자·모드.
+
+        복구 뒤 model-runtime 이 다시 떠서 기록을 덧붙일 수는 있으므로(시작할 때 적재 실패 등) 백업 때의 크기까지의 앞부분을 비교한다.
+        """
+        after = self.release_state(int(expected["size"]))  # type: ignore[call-overload]
+        events = expected["events"]
+        if after["events"][: len(events)] != events or after["sha256"] != expected["sha256"] or after["owner"] != expected["owner"]:  # type: ignore[index, arg-type]
+            raise Failure(f"{label}: 활성화 기록이 백업 전과 다르다\n전 {expected}\n후 {after}")
+        if after["owner"] != "10001:10001:0o600":
+            raise Failure(f"{label}: 활성화 기록의 소유자·모드가 영역 사용자(10001) 0600 이 아니다: {after['owner']}")
+        marker = self.python_in("model-runtime", "import os\nprint(open('%s').read() if os.path.exists('%s') else 'MISSING')\n" % (CACHE_MARKER, CACHE_MARKER))
+        if marker != "cache":
+            raise Failure(f"{label}: 백업 대상이 아닌 받은 패키지(캐시)가 복구로 바뀌었다: {marker!r}")
+        return f"{label}: 활성화·롤백 기록 {len(events)}건(승인자·시각·사유)과 파일 SHA-256·소유자·모드가 같고 받은 패키지는 그대로"
+
     def wipe(self) -> None:
         """두 DB 를 지운다(실제 사고처럼 DB 를 쓰는 서비스를 멈추지 않는다)."""
         survey, platform = self.server_of("survey-service"), self.server_of("platform")
         self.sql(survey, "survey-db", "survey", "template1", 'DROP DATABASE "survey" WITH (FORCE)')
         self.sql(platform, "postgres", "postgres", "template1", 'DROP DATABASE "keycloak" WITH (FORCE)')
+        self.python_in("model-runtime", "import os\nos.remove('%s')\n" % RELEASE_LOG)  # 활성화 기록 파일을 지운다(받은 패키지는 두어 복구가 건드리지 않는지 본다)
+        if self.python_in("model-runtime", "import os\nprint(os.path.exists('%s'))\n" % RELEASE_LOG) != "False":
+            raise Failure("지웠는데 활성화 기록 파일이 남았다")
         left = self.sql(survey, "survey-db", "survey", "template1", "select datname from pg_database where datname = 'survey'")
         left += self.sql(platform, "postgres", "postgres", "template1", "select datname from pg_database where datname = 'keycloak'")
         if left:
@@ -267,12 +341,15 @@ class Scenario:
             self.seed()
             before = self.fingerprint()
             state["before"] = before
+            state["release"] = self.release_state()
             result = self.deploy("backup", log="backup", check=False)
             expect_rc(result, 0, "backup")
             line = result_line(result.stdout)
             if line["job"] != "BACKUP" or line["exit_code"] != 0 or not SNAPSHOT_ID.fullmatch(str(line.get("snapshot_id"))) or line.get("processed_count", 0) < 3:
                 raise Failure(f"BACKUP 결과가 기대와 다르다: {line}")
             state["snapshot"] = line["snapshot_id"]
+            if "상태 볼륨 1개의 파일 1개" not in result.stdout:
+                raise Failure(f"backup 이 model-runtime 의 활성화 기록(파일 1개)을 받았다고 말하지 않았다: {result.stdout[-400:]}")
             # 평문 덤프와 자격이 든 저장소 주소 파일은 끝난 뒤 남지 않는다(0700 임시 폴더를 지운다)
             stages = [path.name for path in (self.root / "deploy" / "backups").iterdir()] if (self.root / "deploy" / "backups").is_dir() else []
             metas = [path.name for path in (self.root / "deploy" / ".build-meta").glob("backup-*")]
@@ -320,7 +397,8 @@ class Scenario:
             if after != state["before"]:
                 diff = {k: (state["before"][k], after.get(k)) for k in state["before"] if state["before"][k] != after.get(k)}  # type: ignore[index]
                 raise Failure(f"복구한 데이터가 백업 전과 다르다: {diff}")
-            return f"{' '.join(args)} rc=0, 지운 뒤 복구해 표 {len(after)}개의 건수·내용 지문이 같다, 복구 뒤 status rc=0"
+            released = self.check_release_log(state["release"], "복구한 뒤")  # type: ignore[arg-type]
+            return f"{' '.join(args)} rc=0, 지운 뒤 복구해 표 {len(after)}개의 건수·내용 지문이 같다, 복구 뒤 status rc=0. {released}"
 
         def restore_tests() -> str:
             notes = []
@@ -328,8 +406,8 @@ class Scenario:
                 result = self.deploy("restore-test", *flag, log="restore-test" + ("-offsite" if flag else ""), check=False)
                 expect_rc(result, 0, f"restore-test {' '.join(flag)}")
                 line = result_line(result.stdout)
-                if line["job"] != "RESTORE_TEST" or line.get("processed_count", 0) < 3:
-                    raise Failure(f"RESTORE_TEST 결과가 기대와 다르다: {line}")
+                if line["job"] != "RESTORE_TEST" or line.get("processed_count", 0) < 3 or "상태 볼륨 1개의 파일" not in result.stdout:
+                    raise Failure(f"RESTORE_TEST 결과가 기대와 다르다(상태 볼륨 확인 포함): {line} {result.stdout[-300:]}")
                 notes.append(f"restore-test {' '.join(flag)}".strip() + f" rc=0 데이터베이스 {line['processed_count']}개")
             leftover = LS.docker(["ps", "-a", "--filter", f"name={PROJECT}-restore-test", "-q"]).stdout.split()
             if leftover:

@@ -538,6 +538,13 @@ services:
   model-runtime:
     labels:
       io.openit.service: model-runtime # 배치(deploy/layout.py)가 서비스를 서버에 나누는 기준이다
+      # ./deploy backup 이 받는 영역 상태 파일(deploy/backup.py, ADR 0027): 이 서비스가 쓰는 볼륨 model-runtime-data 안의 활성화·롤백 기록 한 파일이다
+      # (활성 패키지 포인터는 기록에서 구한다, model-runtime ADR 0002). 받은 패키지는 레지스트리에서 digest 로 다시 받으므로 받지 않는다.
+      # 경로는 model-runtime 의 상태 폴더(OPENIT_MODEL_CACHE_DIR 아래 model-runtime)와 기록 파일 이름이다. 시험이 영역 소스와 같은지 본다(tools/checks)
+      # 왜 볼륨이 아니라 서비스에 라벨: 이미 있는 볼륨의 설정을 바꾸면 compose 가 볼륨을 다시 만들지 묻는다(데이터를 잃는다)
+      io.openit.backup: files
+      io.openit.backup.volume: model-runtime-data
+      io.openit.backup.paths: cache/model-runtime/release-log.jsonl
     image: ${OPENIT_IMAGE_MODEL_RUNTIME}
     pull_policy: never
     restart: unless-stopped

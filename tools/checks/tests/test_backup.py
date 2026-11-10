@@ -101,15 +101,99 @@ def test_table_count_ignores_table_data_lines(bk: ModuleType) -> None:
 
 
 def test_manifest_round_trips_and_rejects_unsafe_database_names(bk: ModuleType) -> None:
-    targets = [bk.Target("survey-service", "survey-db", "survey", "db", (("survey", 12),)), bk.Target("platform", "postgres", "postgres", "svc", (("keycloak", 95), ("postgres", 0)))]
-    text = bk.manifest_json("2026-11-11T00:00:00Z", "openit", "16", targets)
-    assert bk.parse_manifest(text) == targets
+    targets = (bk.Target("survey-service", "survey-db", "survey", "db", (("survey", 12),)), bk.Target("platform", "postgres", "postgres", "svc", (("keycloak", 95), ("postgres", 0))))
+    volumes = (bk.VolumeTarget("model-runtime", "model-runtime-data", "gpu", ("cache/model-runtime/release-log.jsonl",), (bk.FileEntry("cache/model-runtime/release-log.jsonl", 12, "a" * 64),)),)
+    text = bk.manifest_json("2026-11-11T00:00:00Z", "openit", "16", targets, volumes)
+    assert bk.parse_manifest(text) == bk.Manifest(targets, volumes)
+    assert volumes[0].archive == "/stage/model-runtime/model-runtime-data.tar"
     document = json.loads(text)
     document["targets"][0]["databases"][0]["name"] = 'x"; drop'
     with pytest.raises(bk.BackupConfigError, match="데이터베이스 이름"):
         bk.parse_manifest(json.dumps(document))
+    document = json.loads(text)
+    document["volumes"][0]["paths"] = ["../etc"]  # 복구가 지우는 경로라 manifest 가 바뀌었어도 이탈을 받지 않는다
+    with pytest.raises(bk.BackupConfigError, match="상대 경로"):
+        bk.parse_manifest(json.dumps(document))
     with pytest.raises(bk.BackupConfigError):
-        bk.parse_manifest('{"format": 2, "targets": []}')
+        bk.parse_manifest('{"format": 3, "targets": []}')
+
+
+def test_manifest_format_1_without_volumes_is_still_readable(bk: ModuleType) -> None:
+    """이전 판이 만든 백업(데이터베이스만)도 복구·시험할 수 있다."""
+    old = {"format": 1, "created_at": "2026-11-11T00:00:00Z", "project": "openit", "postgres_major": "16",
+           "targets": [{"owner": "platform", "service": "postgres", "user": "postgres", "server": "svc", "databases": [{"name": "keycloak", "tables": 95}]}]}
+    manifest = bk.parse_manifest(json.dumps(old))
+    assert manifest.volumes == () and manifest.targets[0].databases == (("keycloak", 95),)
+
+
+def test_volume_paths_are_relative_and_without_dot_elements(bk: ModuleType) -> None:
+    assert bk.volume_paths("cache/model-runtime/release-log.jsonl state") == ("cache/model-runtime/release-log.jsonl", "state")
+    for bad in ("", "/abs", "../x", "a/../b", "./a", "a//b", "a b/..", "a/.hidden", "a;rm"):
+        with pytest.raises(bk.BackupConfigError):
+            bk.volume_paths(bad)
+
+
+def test_files_are_found_by_the_service_label_and_must_be_mounted_by_that_service(bk: ModuleType) -> None:
+    model = {
+        "volumes": {"data": {"name": "openit_data"}, "other": {"name": "openit_other"}},
+        "services": {
+            "app": {"labels": {"io.openit.service": "model-runtime", "io.openit.backup": "files", "io.openit.backup.volume": "data", "io.openit.backup.paths": "a/state.jsonl"},
+                    "volumes": [{"type": "volume", "source": "data", "target": "/x"}]},
+            "db": {"labels": {"io.openit.service": "platform", "io.openit.backup": "postgres"}},
+            "plain": {"volumes": [{"type": "volume", "source": "data", "target": "/y"}]},
+        },
+    }
+    assert bk.files_in(model) == [("model-runtime", "app", "data", "openit_data", ("a/state.jsonl",))]
+    assert bk.services_using(model, "data") == ["app", "plain"]
+    assert bk.targets_in(model, {}) == [("platform", "db", "postgres")]  # 같은 라벨 키의 postgres 값만 데이터베이스다
+    model["services"]["app"]["labels"]["io.openit.backup.volume"] = "other"  # 그 서비스가 쓰지 않는 볼륨
+    with pytest.raises(bk.BackupConfigError, match="쓰는 compose 볼륨"):
+        bk.files_in(model)
+
+
+def test_archive_entries_lists_regular_files_with_size_and_sha256(bk: ModuleType) -> None:
+    import hashlib
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        folder = tarfile.TarInfo("cache")
+        folder.type = tarfile.DIRTYPE
+        archive.addfile(folder)
+        for name, data in (("cache/b.jsonl", b"second\n"), ("cache/a.jsonl", b"first\n")):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    entries = bk.archive_entries(io.BytesIO(buffer.getvalue()))
+    assert [(e.path, e.size, e.sha256) for e in entries] == [
+        ("cache/a.jsonl", 6, hashlib.sha256(b"first\n").hexdigest()),
+        ("cache/b.jsonl", 7, hashlib.sha256(b"second\n").hexdigest()),
+    ]
+    empty = io.BytesIO()
+    with tarfile.open(fileobj=empty, mode="w"):
+        pass
+    assert bk.archive_entries(io.BytesIO(empty.getvalue())) == []  # 빈 tar 는 파일이 없다는 뜻이다
+    for broken in (b"", b"not a tar file" * 100):  # 0 바이트(잘린 스트림)와 tar 가 아닌 것은 오류다
+        with pytest.raises(bk.BackupConfigError):
+            bk.archive_entries(io.BytesIO(broken))
+
+
+def test_model_runtime_state_label_matches_the_area_source_and_the_cache_is_not_backed_up(bk: ModuleType) -> None:
+    """model-runtime 의 활성화·롤백 기록이 백업 대상이고(영역 소스의 경로와 같다) 받은 패키지는 대상이 아니다. 두 쪽 경로가 어긋나면 백업이 빈 것을 받는다."""
+    found = {service: (owner, key, paths) for owner, service, key, _name, paths in bk.files_in(COMPOSE)}
+    assert list(found) == ["model-runtime"]
+    owner, key, paths = found["model-runtime"]
+    assert owner == "model-runtime" and key == "model-runtime-data"
+    main = (REPO / "services" / "model-runtime" / "src" / "model_runtime" / "main.py").read_text(encoding="utf-8")
+    log = (REPO / "services" / "model-runtime" / "src" / "model_runtime" / "store" / "release_log.py").read_text(encoding="utf-8")
+    state_folder = re.search(r'^_STATE_FOLDER = "([^"]+)"', main, re.M).group(1)  # type: ignore[union-attr]
+    log_name = re.search(r'folder / "([^"]+)"', log).group(1)  # type: ignore[union-attr]
+    env = COMPOSE["services"]["model-runtime"]["environment"]["OPENIT_MODEL_CACHE_DIR"]
+    mount = next(v for v in COMPOSE["services"]["model-runtime"]["volumes"] if v.startswith("model-runtime-data:")).split(":")[1]
+    assert env.startswith(mount + "/")  # 캐시 폴더는 볼륨 안이다
+    assert paths == (f"{env.removeprefix(mount + '/')}/{state_folder}/{log_name}",)
+    assert "packages" not in paths[0]  # 받은 패키지(<상태 폴더>/packages)는 레지스트리에서 다시 받는다
 
 
 def test_job_result_line_is_the_contract_job_run_result(bk: ModuleType) -> None:

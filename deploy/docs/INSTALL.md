@@ -218,20 +218,20 @@ git checkout <이전 커밋> -- deploy/images.lock
 백업 설정은 5절의 `backup` 칸이다(배치 설정 파일이 없으면 백업을 시작하지 않는다). 결정과 근거는 [ADR 0027](../../docs/adr/0027-백업과-복구.md) 이다.
 
 ```
-./deploy backup                       # 모든 영역 데이터베이스 -> 백업 저장소(스냅샷 하나), 14일 지난 스냅샷 정리
+./deploy backup                       # 모든 영역 데이터베이스와 상태 파일 -> 백업 저장소(스냅샷 하나), 14일 지난 스냅샷 정리
 ./deploy offsite-sync                 # 백업 저장소의 스냅샷 -> 서버 밖 저장소
-./deploy restore-test                 # 일회용 PostgreSQL 에 복구해 되는지 시험(운영 DB 는 건드리지 않는다)
+./deploy restore-test                 # 일회용 PostgreSQL 에 복구하고 상태 파일 tar 의 SHA-256 을 대조해 되는지 시험(운영 DB·볼륨은 건드리지 않는다)
 ./deploy restore-test --offsite       # 서버 밖 사본으로 같은 시험
 ./deploy restore latest --yes         # 가장 최근 스냅샷으로 운영 DB 를 덮어쓴다
 ./deploy restore <스냅샷 ID> --yes
 ./deploy restore latest --yes --offsite   # 백업 저장소를 잃었을 때 서버 밖 사본에서(ID 는 서버 밖 저장소의 것)
 ```
 
-- **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두, 각 DB 가 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm)와 survey-service 의 `survey-db`(문진 결과)다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프 크기만큼의 임시 디스크가 필요하다(끝나면 지운다).
-- **무엇을 백업하지 않나:** step-ca·레지스트리·감시의 볼륨(다시 받거나 다시 올린다), model-runtime 의 `model-runtime-data`(활성화 기록과 받은 패키지), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
+- **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두와 `io.openit.backup: files` 인 서비스의 상태 파일, 각각 그것이 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm), survey-service 의 `survey-db`(문진 결과), model-runtime 의 활성화·롤백 기록(승인자·시각·사유, 활성 패키지는 이 기록에서 구한다)이다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프 크기만큼의 임시 디스크가 필요하다(끝나면 지운다).
+- **무엇을 백업하지 않나:** step-ca·레지스트리·감시의 볼륨(다시 받거나 다시 올린다), model-runtime 이 받은 패키지와 기반 모델 가중치(`model-runtime-data` 의 활성화 기록 밖: 레지스트리에서 다시 받는다. 레지스트리 볼륨도 백업하지 않으므로 서버를 통째로 잃으면 모델 패키지는 학습 쪽에서 다시 게시한다), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
 - **일정:** 각 명령은 잡 한 번이다(끝에 표준 출력으로 한 줄 JSON, 종료 코드 0 성공·75 일시적 실패(다음 실행에서 다시)·1 실패). 하루 한 번 `backup` 다음 `offsite-sync`, 정기적으로 `restore-test`(서버 밖 사본은 `--offsite`)를 돌린다. 일정은 deploy 의 스케줄러가 정하고(D39) 지금 deploy 에는 스케줄러가 없으므로 systemd timer 등 설치처의 일정 도구로 부른다.
 - **보관:** 14일(`forget --keep-within 14d`, 운영 데이터의 가장 짧은 보존 30일 이하). 서버 밖 저장소에도 같은 정리를 한다.
-- **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고, 그 DB 를 쓰는 서비스는 멈췄다가 다시 띄운다. 서버를 처음부터 다시 세웠다면 먼저 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
+- **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고(상태 파일은 백업한 경로를 비우고 되돌리고), 그것을 쓰는 서비스는 멈췄다가 다시 띄운다. model-runtime 은 복구한 기록의 마지막 활성 패키지를 레지스트리에서 받아 다시 적재한다. 서버를 처음부터 다시 세웠다면 먼저 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
 - `./deploy down --volumes` 는 백업 저장소의 볼륨도 지운다(서버 밖 사본은 남는다).
 
 ## 11. 장애 확인
