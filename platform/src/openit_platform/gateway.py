@@ -472,6 +472,47 @@ def _builtin_routes() -> list[dict[str, Any]]:
     ]
 
 
+def egress_resources(specs: list[EgressSpec]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """나가는 터널의 Envoy 리스너와 클러스터(영역마다 포트 하나). 입구(build_envoy)와 서버별 가장자리(edge.py)가 같은 코드를 쓴다."""
+    listeners: list[dict[str, Any]] = []
+    clusters: list[dict[str, Any]] = []
+    for spec in specs:
+        routes: list[dict[str, Any]] = []
+        for host, port in spec.targets:
+            cluster = f"egress_{_slug(spec.service)}_{_slug(host)}_{port}"
+            if all(c["name"] != cluster for c in clusters):
+                clusters.append(_cluster(cluster, host, port))
+            routes.append(
+                {
+                    "match": {"connect_matcher": {}, "headers": [{"name": ":authority", "string_match": {"exact": f"{host}:{port}"}}]},
+                    "route": {"cluster": cluster, "upgrade_configs": [{"upgrade_type": "CONNECT", "connect_config": {}}]},
+                }
+            )
+        # 왜 두 줄: CONNECT 요청은 접두어 일치에 걸리지 않아 connect_matcher 로 따로 거절한다(없으면 404 가 된다)
+        denied = {"status": 403, "body": {"inline_string": "egress target is not declared\n"}}
+        routes.append({"match": {"connect_matcher": {}}, "direct_response": denied})
+        routes.append({"match": {"prefix": "/"}, "direct_response": denied})
+        egress_hcm = _typed(
+            "filters/network/http_connection_manager/v3.HttpConnectionManager",
+            {
+                "stat_prefix": f"egress_{_slug(spec.service)}",
+                "codec_type": "HTTP1",
+                "access_log": _access_log(),
+                "upgrade_configs": [{"upgrade_type": "CONNECT"}],
+                "route_config": {"name": f"egress_{_slug(spec.service)}", "virtual_hosts": [{"name": "egress", "domains": ["*"], "routes": routes}]},
+                "http_filters": [{"name": "envoy.filters.http.router", "typed_config": _typed("filters/http/router/v3.Router", {})}],
+            },
+        )
+        listeners.append(
+            {
+                "name": f"egress_{_slug(spec.service)}",
+                "address": {"socket_address": {"address": ANY_ADDRESS, "port_value": spec.port}},
+                "filter_chains": [{"filters": [{"name": "envoy.filters.network.http_connection_manager", "typed_config": egress_hcm}]}],
+            }
+        )
+    return listeners, clusters
+
+
 def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceAllowlist, ingress_issuer_key: str, internal_issuer_key: str) -> dict[str, Any]:
     device_ca_present = settings.device_ca_file is not None
     services = sorted({spec.service for spec in gateway.routes})
@@ -591,40 +632,9 @@ def build_envoy(settings: PlatformSettings, gateway: Gateway, allowlist: DeviceA
                 tls=_tls_context(SECRET_CLIENT, upstream_validation, client=True, sni=service),
             )
         )
-    for spec in gateway.egress:
-        routes: list[dict[str, Any]] = []
-        for host, port in spec.targets:
-            cluster = f"egress_{_slug(spec.service)}_{_slug(host)}_{port}"
-            if all(c["name"] != cluster for c in clusters):
-                clusters.append(_cluster(cluster, host, port))
-            routes.append(
-                {
-                    "match": {"connect_matcher": {}, "headers": [{"name": ":authority", "string_match": {"exact": f"{host}:{port}"}}]},
-                    "route": {"cluster": cluster, "upgrade_configs": [{"upgrade_type": "CONNECT", "connect_config": {}}]},
-                }
-            )
-        # 왜 두 줄: CONNECT 요청은 접두어 일치에 걸리지 않아 connect_matcher 로 따로 거절한다(없으면 404 가 된다)
-        denied = {"status": 403, "body": {"inline_string": "egress target is not declared\n"}}
-        routes.append({"match": {"connect_matcher": {}}, "direct_response": denied})
-        routes.append({"match": {"prefix": "/"}, "direct_response": denied})
-        egress_hcm = _typed(
-            "filters/network/http_connection_manager/v3.HttpConnectionManager",
-            {
-                "stat_prefix": f"egress_{_slug(spec.service)}",
-                "codec_type": "HTTP1",
-                "access_log": _access_log(),
-                "upgrade_configs": [{"upgrade_type": "CONNECT"}],
-                "route_config": {"name": f"egress_{_slug(spec.service)}", "virtual_hosts": [{"name": "egress", "domains": ["*"], "routes": routes}]},
-                "http_filters": [{"name": "envoy.filters.http.router", "typed_config": _typed("filters/http/router/v3.Router", {})}],
-            },
-        )
-        listeners.append(
-            {
-                "name": f"egress_{_slug(spec.service)}",
-                "address": {"socket_address": {"address": ANY_ADDRESS, "port_value": spec.port}},
-                "filter_chains": [{"filters": [{"name": "envoy.filters.network.http_connection_manager", "typed_config": egress_hcm}]}],
-            }
-        )
+    egress_listeners, egress_clusters = egress_resources(gateway.egress)
+    listeners += egress_listeners
+    clusters += egress_clusters
     return {
         # 왜 node: 파일 기반 SDS 는 노드 식별자를 요구한다(Envoy 의 오류 메시지). 값은 의미가 없다
         "node": {"id": GATEWAY_NAME, "cluster": REALM},

@@ -7,7 +7,7 @@ from enum import StrEnum
 from ipaddress import IPv4Address, IPv6Address
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, RootModel
 
 
 class AccessTokenType(StrEnum):
@@ -63,6 +63,20 @@ class AlertStreamHeartbeatSeconds(RootModel[Literal[15]]):
     root: Annotated[Literal[15], Field(ge=15, le=15)]
     """
     알림 스트림이 아무 이벤트가 없을 때 heartbeat 를 보내는 간격(초)
+    """
+
+
+class BackupRepositoryUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['rest:https://platform:8000/survey-service'],
+            max_length=8000,
+            pattern='^rest:https://',
+        ),
+    ]
+    """
+    백업을 보낼 저장소 주소(restic REST 저장소)
     """
 
 
@@ -290,6 +304,13 @@ class NumericDate(RootModel[int]):
     """
 
 
+class OffsiteBackupUrl(RootModel[AnyUrl]):
+    root: Annotated[AnyUrl, Field(examples=['https://backup.example.org/openit'])]
+    """
+    서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다
+    """
+
+
 class OidcClientId(RootModel[str]):
     root: Annotated[
         str, Field(examples=['admin-console'], max_length=255, min_length=1)
@@ -320,6 +341,16 @@ class PreferredUsername(RootModel[str]):
     """
 
 
+class QuestionnaireId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(examples=['national-health'], max_length=63, pattern='^[A-Za-z0-9_-]+$'),
+    ]
+    """
+    문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다
+    """
+
+
 class RoutePathPrefix(RootModel[str]):
     root: Annotated[str, Field(examples=['/v1/results'], max_length=8000, pattern='^/')]
     """
@@ -338,6 +369,20 @@ class SecretFilePath(RootModel[str]):
     ]
     """
     비밀 값이 든 파일의 절대 경로. 값은 환경 변수나 설정에 적지 않고 이 파일에서만 읽는다
+    """
+
+
+class ServerName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['serving-01'],
+            max_length=63,
+            pattern='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$',
+        ),
+    ]
+    """
+    배치 설정에서 서버를 가리키는 이름
     """
 
 
@@ -440,6 +485,40 @@ class AccessTokenHeader(BaseModel):
     """
 
 
+class DeployBackupConfig(BaseModel):
+    """
+    운영자가 deploy 에 주는 백업 설정. 백업·복구·서버 밖 동기화·복원 시험 잡은 deploy 가 도는 잡이라 이 입력은 영역 Env 가 아니라 deploy 의 배치 설정에 둔다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    encryption_key_file: SecretFilePath
+    """
+    서버 밖으로 보내는 백업의 암호화 키 파일
+    """
+    http_credentials_file: SecretFilePath
+    """
+    백업 저장소 서버의 영역별 HTTP 인증 자격 파일. 자격은 주소에 넣지 않는다
+    """
+    offsite_credentials_file: SecretFilePath
+    """
+    서버 밖 백업 대상의 자격 파일
+    """
+    offsite_url: OffsiteBackupUrl
+    """
+    서버 밖 백업 대상 주소. 없으면 시작하지 않고 경보(CRIT)를 낸다
+    """
+    password_file: SecretFilePath
+    """
+    백업 저장소 암호 파일
+    """
+    repository_url: BackupRepositoryUrl
+    """
+    백업 저장소 주소(platform 의 restic rest-server)
+    """
+
+
 class DeviceAllowEntry(BaseModel):
     """
     공개 입구가 허용하는 키오스크 기기 인증서 하나
@@ -469,6 +548,24 @@ class DeviceAllowlist(BaseModel):
     devices: Annotated[list[DeviceAllowEntry], Field(max_length=1000)]
     """
     허용하는 기기 인증서들
+    """
+
+
+class DevicePlacement(BaseModel):
+    """
+    키오스크 기기 하나에 기본으로 배치하는 문진표
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    device_id: DeviceId
+    """
+    기본 문진표를 배치할 키오스크 기기
+    """
+    questionnaire_id: QuestionnaireId
+    """
+    그 기기의 기본 문진표
     """
 
 
@@ -669,6 +766,28 @@ class RealmAccessClaim(BaseModel):
     """
 
 
+class ServerEntry(BaseModel):
+    """
+    서버 하나와 그 서버에서 띄울 서비스들
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    address: HostAddress
+    """
+    서버의 호스트 이름 또는 주소
+    """
+    name: ServerName
+    """
+    서버 이름
+    """
+    services: Annotated[list[ServiceName], Field(max_length=5)]
+    """
+    이 서버에서 띄울 서비스들
+    """
+
+
 class UserIdentityClaims(BaseModel):
     """
     서비스가 반드시 확인하는 JWT 접근 토큰 클레임(RFC 9068 의 필수 클레임 iss, exp, aud, sub, client_id, iat, jti 와 역할). 서명은 IdP 공개 키(JWKS)로 서비스가 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다
@@ -709,6 +828,28 @@ class UserIdentityClaims(BaseModel):
     sub: UserId
     """
     사람 계정 식별자
+    """
+
+
+class DeploymentLayout(BaseModel):
+    """
+    운영자가 deploy 에 주는 배치 설정(서버, 주소, 서비스 묶음, 기기별 문진표 배치)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    backup: DeployBackupConfig
+    """
+    백업 설정
+    """
+    device_placements: Annotated[list[DevicePlacement], Field(max_length=1000)]
+    """
+    기기별 기본 문진표 배치들
+    """
+    servers: Annotated[list[ServerEntry], Field(max_length=5, min_length=1)]
+    """
+    서버들
     """
 
 

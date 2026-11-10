@@ -29,7 +29,7 @@ dev = [
 schemas = [
   "Exposure", "ExposureAudience", "DeviceAllowlist", "MachineTokenTable", "MachineRole", "UserRole",
   "IngressCertificateMode", "CaMode", "ServiceName", "ForwardedClientCertValue", "UserIdentityClaims", "AccessTokenHeader",
-  "AlertReceiverUrl", "PlatformEnv", "MachineIdentityClaims", "GatewayConnectLimitSeconds", "GatewayPatientRouteLimitSeconds", "AlertStreamHeartbeatSeconds",
+  "AlertReceiverUrl", "PlatformEnv", "DeploymentLayout", "MachineIdentityClaims", "GatewayConnectLimitSeconds", "GatewayPatientRouteLimitSeconds", "AlertStreamHeartbeatSeconds",
 ]
 
 [build-system]
