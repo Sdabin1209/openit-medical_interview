@@ -48,10 +48,10 @@ def _docker(*args: str, check: bool = True) -> str:
     return result.stdout.strip()
 
 
-def _logs(cid: str) -> str:
+def _logs(cid: str, tail: str = "40") -> str:
     """컨테이너 로그(표준 출력과 표준 오류)의 끝부분. 실패 메시지에 싣는다."""
     done = subprocess.run(  # noqa: S603
-        ["docker", "logs", "--tail", "40", cid],  # noqa: S607
+        ["docker", "logs", "--tail", tail, cid],  # noqa: S607
         env=_docker_env(),
         capture_output=True,
         text=True,
@@ -64,15 +64,16 @@ def _root_certificate() -> bytes:
     """시험용 자체 서명 루트 인증서(PEM). 서비스는 이것을 나가는 호출(이웃, 발급자)의 신뢰 앵커로 읽는다."""
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "openit-smoke-root")])
-    now = datetime.datetime.now(datetime.UTC)
     certificate = (
         x509.CertificateBuilder()
         .subject_name(name)
         .issuer_name(name)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=1))
+        .not_valid_before(
+            datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+        )  # 왜 고정: 서비스가 실제 시각으로 보므로 시험이 지금 시각에 기대지 않게 한다
+        .not_valid_after(datetime.datetime(2100, 1, 1, tzinfo=datetime.UTC))
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
     )
@@ -140,20 +141,18 @@ def container() -> Iterator[str]:
             "run", "-d", "--name", database, "--network", network, "-e", f"POSTGRES_PASSWORD={password}", "--tmpfs", "/var/lib/postgresql/data",
             POSTGRES_IMAGE,
         )  # fmt: skip
+        # 왜 로그의 준비 문구를 두 번 센다: 초기화 중 임시 서버가 먼저 준비되고 재시작한다(공식 이미지 동작). 기동 대기는 상한 안에서 상태를 본다
         deadline = time.monotonic() + 60
-        while "accepting" not in _docker(
-            "exec", database, "pg_isready", "-U", "postgres", "-h", "127.0.0.1", check=False
-        ):
+        while _logs(database, "all").count("database system is ready to accept connections") < 2:
             if time.monotonic() > deadline:
                 pytest.fail("스모크용 PostgreSQL 이 준비되지 않았다")
             time.sleep(0.5)
-        time.sleep(1.5)  # 초기화 중 임시 서버가 먼저 답하고 재시작한다
         args = ["run", "-d", "--name", name, "--network", network, "--read-only", "--cap-drop", "ALL"]
         args += ["--security-opt", "no-new-privileges", "-p", "127.0.0.1::8080", "-v", f"{folder}:/run/secrets:ro"]
         for key_name, value in env.items():
             args += ["-e", f"{key_name}={value}"]
         cid = _docker(*args, image)
-        time.sleep(3)  # 왜: 시작 직후 설정 오류로 죽으면 로그를 실패 메시지에 싣는다(진단 수단을 남긴다)
+        # 왜 기다리지 않고 바로 본다: 시작 직후 설정 오류로 죽었으면 로그를 실패 메시지에 싣는다(진단 수단을 남긴다). 그 뒤에 죽으면 아래 요청이 상한에서 실패하고 finally 가 로그를 남긴다
         if _docker("inspect", "-f", "{{.State.Running}}", cid) != "true":
             pytest.fail(f"이미지가 시작하지 못했다. 로그:\n{_logs(cid)}")
         yield cid
