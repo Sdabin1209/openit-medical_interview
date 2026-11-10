@@ -19,8 +19,6 @@ from .pki import ConfigError
 
 REALM = "openit"  # 왜 고정: 계약 OidcIssuerUrl 의 예시가 /realms/openit 이고 realm 은 platform 이 만든다(realm 파일 하나, platform ADR 0003)
 GATEWAY_NAME = "gateway"  # 영역들이 입구(게이트웨이)를 부르는 이름이다. 나가는 터널 주소와 영역 사이 mTLS 의 클라이언트 인증서 이름이 된다
-# 왜 1024: 입구와 영역 게이트웨이는 비 root 로 돌아 낮은 포트를 열지 못한다. 계약 ListenPort 의 최솟값은 1 이라 이 조건은 스키마 밖이다(change-requests/platform-004)
-MIN_UNPRIVILEGED_PORT = 1024
 # 왜 8443: 계약 OPENIT_SERVICE_PORT 는 선택 입력이다. 없으면 HTTPS 의 대체 포트로 널리 쓰는 8443(IANA 에 pcsync-https 로 등록)을 쓴다.
 # 1024 이상이라 비 root 가 연다. 측정한 값이 아니다(platform ADR 0007)
 DEFAULT_SERVICE_PORT = 8443
@@ -115,9 +113,6 @@ def platform_settings(env: dict[str, str], deploy_dir: Path) -> PlatformSettings
         raise ConfigError("OPENIT_OIDC_ISSUER_URL 의 호스트는 OPENIT_PUBLIC_NAMES 안에 있어야 한다(입구가 그 이름의 인증서를 낸다)")
     service_port = _port(env, "OPENIT_SERVICE_PORT", DEFAULT_SERVICE_PORT)
     listen_port = _port(env, "OPENIT_LISTEN_PORT", None)
-    for key, port in (("OPENIT_LISTEN_PORT", listen_port), ("OPENIT_SERVICE_PORT", service_port)):
-        if not MIN_UNPRIVILEGED_PORT <= port <= 65535:
-            raise ConfigError(f"{key} 는 {MIN_UNPRIVILEGED_PORT}~65535 여야 한다(비 root 로 돈다)")
     acme = env.get("OPENIT_ACME_DIRECTORY_URL", "").strip()
     if mode == "acme-public":
         if not acme.startswith("https://"):
@@ -149,12 +144,9 @@ def platform_settings(env: dict[str, str], deploy_dir: Path) -> PlatformSettings
     smarthost = _given(env, "OPENIT_ALERT_SMTP_SMARTHOST")
     if smarthost:
         _contract("OPENIT_ALERT_SMTP_SMARTHOST", smarthost)
-    if receiver:
-        scheme = urlsplit(receiver).scheme
-        if scheme not in ("https", "mailto"):
-            raise ConfigError("OPENIT_ALERT_RECEIVER_URL 은 https 웹훅 또는 mailto 여야 한다(계약 AlertReceiverUrl)")
-        if scheme == "mailto" and not smarthost:
-            raise ConfigError("mailto 수신처는 OPENIT_ALERT_SMTP_SMARTHOST(<호스트>:<포트>)가 있어야 한다")
+    # 왜 이 조건은 코드에 남나: 계약 설명(OPENIT_ALERT_SMTP_SMARTHOST 는 mailto 일 때 필수)에 있고 스키마의 조건부 필수로는 적히지 않았다
+    if receiver and urlsplit(receiver).scheme == "mailto" and not smarthost:
+        raise ConfigError("mailto 수신처는 OPENIT_ALERT_SMTP_SMARTHOST(<호스트>:<포트>)가 있어야 한다")
     heartbeat = _given(env, "OPENIT_ALERT_HEARTBEAT_INTERVAL")
     if heartbeat:
         _contract("OPENIT_ALERT_HEARTBEAT_INTERVAL", heartbeat)

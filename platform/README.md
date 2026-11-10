@@ -21,7 +21,7 @@
 | 받는다 | `Exposure`(이미지 라벨 `io.openit.exposure`), `DeviceAllowlist`, `MachineTokenTable`(칸 `client_secret_file`), `PlatformEnv`(설치 설정, 선택 입력 여섯 포함), 계약 OpenAPI 의 작업 `security` | 영역·deploy |
 | 낸다 | `X-Forwarded-Client-Cert`(`ForwardedClientCertValue`), 사람·기계 접근 토큰(`AccessTokenHeader`, `UserIdentityClaims`, `MachineIdentityClaims`), 서비스 인증서(`OPENIT_TLS_*`, 이 영역은 CA 만 맡고 발급 방식은 ACME), `OPENIT_EGRESS_PROXY` 값(`deploy/generated/gateway/egress-proxies.json`) | 흐름 N12, N13 |
 
-변경 요청 platform-001~003 은 계약 9.0.0 이 답했다([계약 README 9.0.0](../contracts/README.md)). 그 뒤에 본 것은 [platform-004](../docs/change-requests/platform-004.md) 에 있다.
+변경 요청 platform-001~004 는 계약 9.0.0 이 답했다([계약 README 9.0.0](../contracts/README.md)).
 
 ## 3. 컴포넌트(생성기 모듈)
 
@@ -53,7 +53,9 @@ uv run pytest -m sandbox tests/scenario   # 샌드박스 종단 시험(docker, 1
 
 시험 개수·결과를 이 문서에 복사하지 않는다(문서마다 시점이 어긋난다). 이 영역의 마지막 검증 결과는 아래 한 곳에 둔다.
 
-2026-11-10, 이 작업 트리(브랜치 candidate-v7-platform)에서 확인했다. 단위 시험·ruff·pyright 와 샌드박스 종단 시험(기기 인증서, XFCC, 사람 OIDC 와 계약 역할만 담은 토큰, 기계 토큰 역할별 허용·거부, 나가는 터널, 영역 지표·Watchdog, 폐기 반영, 인증서 갱신과 Envoy 재적재, 루트 교체, `identity sync`)이 통과했다. 확인하지 못한 것: `acme-public` 과 `organization` 입구 인증서의 종단 간 시험, 경보 수신처로의 실제 전송, 루트 교체 2단계가 이전 루트 서명 인증서를 보고 거절하는 경우의 자동 시험(수명 5분 설치에서는 경주가 된다). 변경 요청 platform-001~003 은 헤드의 답을 기다린다.
+2026-11-11, 이 작업 트리(브랜치 candidate-v7-integration)에서 확인했다. 단위 시험·ruff check·ruff format --check·pyright 와 샌드박스 종단 시험(`uv run pytest -m sandbox tests/scenario`, 종료 코드 0)이 통과했다. 샌드박스는 실제 영역 게이트웨이(앞에 가짜 평문 상류)로 입구→게이트웨이→상류, XFCC 위조 거절, 클라이언트 인증서 없는 호출 거절, 평문 감시 포트, 발급자로 나가는 터널(디스커버리·토큰 엔드포인트·JWKS), 기계 토큰의 `MachineIdentityClaims`, `/oauth2/userinfo` 의 groups 를 본다.
+
+확인하지 못한 것: 실제 영역 서비스 이미지와의 종단(E2E 의 몫), `acme-public` 과 `organization` 입구 인증서의 종단 간 시험, 경보 수신처로의 실제 전송, 루트 교체 2단계가 이전 루트 서명 인증서를 보고 거절하는 경우의 자동 시험(수명 5분 설치에서는 경주가 된다), `/area-certs` 를 서비스가 같은 uid 로 읽는 구성(deploy 의 compose 가 만든 뒤에 확인된다).
 
 ## 6. ADR
 

@@ -14,3 +14,4 @@ deploy/pki/
 deploy/generated/
 .trivy-cache/
 .pytest-tmp/
+platform/.logs/

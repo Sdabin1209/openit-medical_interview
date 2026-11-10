@@ -183,6 +183,10 @@ class Sandbox:
         contracts.mkdir()
         shutil.copy2(REPO / "contracts" / "components.yaml", contracts / "components.yaml")
         shutil.copytree(REPO / "contracts" / "openapi", contracts / "openapi")
+        # 왜 사본에서만 바꾸나: oauth2-proxy 의 제공자는 `--provider=oidc` 여야 groups 가 UserRole 뿐이다(platform ADR 0004). 제품 compose 의 반영은 헤드가 한다.
+        # 반영된 뒤에는 아래 치환이 아무것도 바꾸지 않는다
+        compose = self.deploy_dir / "compose.yaml"
+        compose.write_text(compose.read_text(encoding="utf-8").replace("--provider=keycloak-oidc", "--provider=oidc"), encoding="utf-8")
         self.state.mkdir()
         (self.state / "exposures").mkdir()
         for service, exposure in EXPOSURES.items():

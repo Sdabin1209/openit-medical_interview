@@ -30,7 +30,7 @@ def test_defaults_are_valid(repo: Path) -> None:
         ({"OPENIT_PUBLIC_NAMES": "openit.example", "OPENIT_OIDC_ISSUER_URL": "https://openit.example/realms/openit"}, "OPENIT_CA_ALLOWED_DNS"),
         ({"OPENIT_LISTEN_PORT": "443"}, "1024"),
         ({"OPENIT_CA_ALLOWED_DNS": "registry,step-ca,openit.internal"}, "gateway"),
-        ({"OPENIT_ALERT_RECEIVER_URL": "http://hook.example/x"}, "https 웹훅 또는 mailto"),
+        ({"OPENIT_ALERT_RECEIVER_URL": "http://hook.example/x"}, "OPENIT_ALERT_RECEIVER_URL"),
         ({"OPENIT_ALERT_RECEIVER_URL": "mailto:ops@example.org"}, "OPENIT_ALERT_SMTP_SMARTHOST"),
     ],
 )
@@ -74,6 +74,7 @@ def test_optional_inputs_have_the_contract_names_and_defaults(repo: Path) -> Non
         ({"OPENIT_ALERT_HEARTBEAT_INTERVAL": "0m"}, "OPENIT_ALERT_HEARTBEAT_INTERVAL"),
         ({"OPENIT_ALERT_RECEIVER_URL": "mailto:ops@example.org", "OPENIT_ALERT_SMTP_SMARTHOST": "no-port"}, "OPENIT_ALERT_SMTP_SMARTHOST"),
         ({"OPENIT_SERVICE_PORT": "70000"}, "OPENIT_SERVICE_PORT"),
+        ({"OPENIT_SERVICE_PORT": "443"}, "1024"),  # 계약 UnprivilegedListenPort
         ({"OPENIT_SERVICE_PORT": "https"}, "정수"),
         ({"OPENIT_PUBLIC_NAMES": "openit.internal,openit.internal"}, "같은 이름"),
     ],

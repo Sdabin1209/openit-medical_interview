@@ -152,10 +152,8 @@ def test_userinfo_groups_carry_only_the_users_contract_roles(box: Sandbox) -> No
         response = session.get("/oauth2/userinfo")
         assert response.status == 200, response.body[:200]
         info = json.loads(response.body)
-        # 왜 role: 접두어를 따로 보나: keycloak-oidc 제공자는 realm_access.roles 를 `role:<이름>` 으로 groups 에 더 붙인다(확인한 동작). 화면은 UserRole 값만 남긴다
-        bare = [group for group in info["groups"] if not group.startswith("role:")]
-        assert bare == [role] and set(bare) <= allowed, info  # offline_access·default-roles-openit 같은 Keycloak 기본 역할이 없다
-        assert set(info["groups"]) <= {role, f"role:{role}"}, info
+        # --provider=oidc 는 groups 클레임을 그대로 준다(keycloak-oidc 제공자는 `role:<이름>` 항목을 더 붙여서 바꿨다, platform ADR 0004)
+        assert info["groups"] == [role] and set(info["groups"]) <= allowed, info  # offline_access·default-roles-openit 같은 Keycloak 기본 역할이 없다
         assert info["preferredUsername"] == user
     assert client(box).get("/oauth2/userinfo").status == 401  # 세션이 없으면 열리지 않는다
 
