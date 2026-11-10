@@ -1,0 +1,36 @@
+# promtool test rules 입력(ADR 0014). 만료 임박과 접속 실패가 경보가 되고 정상은 조용한지 본다.
+rule_files:
+  - rules.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      # 시험 시각 t 초에 남은 시간 = 만료 시각 - t. 만료 시각이 t=0 에서 2 시간 뒤인 시리즈와 30 시간 뒤인 시리즈
+      - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="soon:443",renewal="acme"}'
+        values: "7200+0x400"
+      - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="fine:443",renewal="acme"}'
+        values: "108000+0x400"
+      # step-ca 처럼 스스로 갱신하는 서버: 남은 시간이 짧아도 경보가 아니다
+      - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="ca:9000",renewal="ca-self"}'
+        values: "7200+0x400"
+      - series: 'probe_success{job="openit-tls",instance="soon:443"}'
+        values: "1+0x400"
+      - series: 'probe_success{job="openit-tls",instance="fine:443"}'
+        values: "1+0x400"
+      - series: 'probe_success{job="openit-tls",instance="down:443"}'
+        values: "0+0x400"
+    alert_rule_test:
+      # 값은 만료의 절대 시각(초)이고 시험의 time() 은 0 에서 시작한다. soon 은 남은 시간이 2시간 미만이라 5분 뒤부터 경보다
+      - eval_time: 10m
+        alertname: OpenitCertificateExpiresSoon
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-tls, instance: "soon:443", renewal: acme }
+            exp_annotations:
+              summary: "soon:443 의 인증서가 24시간 안에 만료된다(자동 갱신 실패)"
+      - eval_time: 10m
+        alertname: OpenitTlsProbeFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-tls, instance: "down:443" }
+            exp_annotations:
+              summary: "down:443 에 TLS 로 접속하거나 인증서를 검증하지 못한다"
+      # 정상 시리즈(fine)는 어느 규칙에서도 경보가 없다: 위 두 시험의 exp_alerts 에 fine 이 없다

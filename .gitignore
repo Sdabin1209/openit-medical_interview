@@ -10,3 +10,5 @@ deploy/.env
 deploy/secrets/
 deploy/backups/
 deploy/.build-meta/
+deploy/pki/
+deploy/generated/

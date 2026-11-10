@@ -1,0 +1,11 @@
+# blackbox_exporter 모듈(ADR 0014). TCP 로 접속해 TLS 를 협상하고 인증서를 신뢰 목록으로 검증한다(검증을 끄지 않는다).
+# 측정값 probe_ssl_earliest_cert_expiry 는 서버가 내놓은 인증서 사슬에서 가장 이른 만료 시각이다(리프와 중간 CA).
+modules:
+  tls_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      tls: true
+      tls_config:
+        ca_file: /etc/openit/trust-bundle.pem

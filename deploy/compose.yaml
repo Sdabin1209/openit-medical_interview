@@ -96,23 +96,141 @@ services:
     networks: [backend, edge]
     # healthcheck 없음: 이미지가 셸·HTTP 클라이언트 없는 distroless 라 컨테이너 안에서 점검할 수단이 없다(ADR 0008)
 
+  # 사설 CA(ADR 0014). 루트·중간 CA 파일과 ca.json 은 `./deploy bootstrap` 이 deploy/pki/ 에 만든다. 루트 개인 키는 이 컨테이너에 주지 않는다.
   step-ca:
     image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
     restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    # 왜 NET_BIND_SERVICE: step-ca 실행 파일에 이 파일 권한(setcap)이 붙어 있어, 허용 집합에 없으면 exec 가 거부된다(시험에서 확인). 9000 포트에는 필요 없지만 이 하나만 남긴다
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
     environment:
-      DOCKER_STEPCA_INIT_NAME: ${OPENIT_CA_NAME}
-      DOCKER_STEPCA_INIT_DNS_NAMES: ${OPENIT_CA_DNS_NAMES}
-      DOCKER_STEPCA_INIT_PASSWORD_FILE: /run/secrets/step_ca_password
-    secrets: [step_ca_password]
+      PWDPATH: /run/secrets/step_ca_password # 이미지의 기본 진입 명령이 --password-file 로 읽는다
+    secrets: [step_ca_password, step_ca_intermediate_key]
     volumes:
+      - ./pki/ca/ca.json:/home/step/config/ca.json:ro
+      - ./pki/ca/root_ca.crt:/home/step/certs/root_ca.crt:ro
+      - ./pki/ca/intermediate_ca.crt:/home/step/certs/intermediate_ca.crt:ro
+      # 왜 /home/step 전체: 새 볼륨은 마운트 위치에 이미지가 가진 내용과 소유자를 물려받는다. /home/step 은 step 사용자(uid 1000) 소유라 db 를 쓸 수 있다(/home/step/db 만 마운트하면 root 소유가 된다, 시험에서 확인)
       - step-ca-data:/home/step
     networks: [backend]
     healthcheck:
-      test: ["CMD", "step", "ca", "health"]
+      test: ["CMD", "step", "ca", "health", "--ca-url", "https://localhost:9000", "--root", "/home/step/certs/root_ca.crt"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 15s
+
+  # 이미지 레지스트리(ADR 0013). 저장소는 distribution/registry(Apache-2.0), TLS 는 앞단 Caddy 가 ACME 로 step-ca 에서 받는다(ADR 0014).
+  registry-store:
+    profiles: [local-registry] # OPENIT_REGISTRY_MODE=local 일 때만(./deploy 가 --profile 을 준다)
+    image: registry:3.1.2@sha256:38907510915c3f1604c7e83d6ab602ab3020d092f73bdaed8696773693ff768c
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # 왜 root: 이미지의 /var/lib/registry 가 root 소유라 이름 있는 볼륨도 root 소유로 만들어진다. 비root 로는 쓸 수 없다(시험에서 확인, ADR 0013)
+    # 그래서 위 cap_drop 으로 권한을 모두 버린다. root 라도 DAC 우회(CAP_DAC_OVERRIDE) 없이 자기 소유 볼륨만 쓴다
+    volumes:
+      - registry-data:/var/lib/registry
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5000/v2/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  registry:
+    profiles: [local-registry]
+    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    # 왜 NET_BIND_SERVICE: ACME http-01 검증은 80 번, 서비스는 443 번이다. 비root 로 낮은 포트를 열려면 이 권한 하나만 필요하다
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    # 왜 tmpfs: Caddy 의 /data 는 이미지에서 root 소유라 비root 가 쓰지 못한다. 상태(ACME 계정, 인증서)를 두지 않고 시작할 때마다 새로 발급받는다
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+      - /config:uid=10001,gid=10001,mode=0700
+    depends_on:
+      step-ca: { condition: service_healthy }
+      registry-store: { condition: service_healthy }
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+    environment:
+      OPENIT_REGISTRY_NAMES: ${OPENIT_REGISTRY_NAMES}
+      OPENIT_ACME_DIRECTORY_URL: ${OPENIT_INTERNAL_ACME_DIRECTORY_URL}
+    ports:
+      - "${OPENIT_BIND_ADDRESS}::443" # 호스트 포트는 Docker 가 배정한다(고정 포트 없음)
+    networks: [edge, backend]
+    healthcheck:
+      # 왜 파일 확인: 인증서를 받았고 뒤의 저장소가 응답하는지 본다. 인증서 검증을 끄고 HTTPS 를 두드리지 않는다. 검증은 `./deploy ca status` 와 감시(blackbox)가 신뢰 목록으로 한다
+      test: ["CMD-SHELL", "find /data/caddy/certificates -name '*.crt' | grep -q . && wget -q -O /dev/null http://registry-store:5000/v2/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # 레지스트리 클라이언트(ADR 0013). `./deploy` 가 push·pull·존재 확인에만 일회용으로 돌린다(`compose run`). 상시 서비스가 아니다.
+  registry-client:
+    profiles: [tools]
+    image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      SSL_CERT_FILE: /etc/openit/trust-bundle.pem # Go 가 읽는 신뢰 저장소 지정. 신뢰 목록의 루트만 믿는다
+    volumes:
+      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+    networks: [backend]
+
+  # 감시(ADR 0014). blackbox_exporter 가 TLS 로 접속해 인증서 만료 시각(probe_ssl_earliest_cert_expiry)을 재고, Prometheus 가 규칙으로 경보를 판정한다.
+  blackbox:
+    image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: ["--config.file=/etc/blackbox_exporter/config.yml"]
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+      - ${OPENIT_TRUST_BUNDLE_PATH}:/etc/openit/trust-bundle.pem:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9115/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      blackbox: { condition: service_healthy }
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d # Prometheus 의 기본값. 측정해서 정한 값이 아니다(ADR 0014)
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml:ro
+      - ./generated/tls-targets.yml:/etc/prometheus/tls-targets.yml:ro # ./deploy bootstrap 이 설정에서 만든다
+      - prometheus-data:/prometheus
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 networks:
   edge: {}
@@ -126,7 +244,10 @@ secrets:
   oauth2_proxy_client_secret: { file: ./secrets/oauth2_proxy_client_secret }
   oauth2_proxy_cookie_secret: { file: ./secrets/oauth2_proxy_cookie_secret }
   step_ca_password: { file: ./secrets/step_ca_password }
+  step_ca_intermediate_key: { file: ./pki/ca/intermediate_ca.key }
 
 volumes:
   postgres-data: {}
   step-ca-data: {}
+  registry-data: {}
+  prometheus-data: {}

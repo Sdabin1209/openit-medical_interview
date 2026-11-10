@@ -1,9 +1,12 @@
 #!/usr/bin/env -S uv run --script --quiet
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer"]
+# dependencies = [
+#     "cryptography",
+#     "typer",
+# ]
 # ///
-"""openit 배포 명령(ADR 0002, 0004). 표준 도구(docker buildx bake, docker compose)를 부르는 얇은 층이다.
+"""openit 배포 명령(ADR 0002, 0004, 0013, 0014). 표준 도구(docker buildx bake, docker compose, step)를 부르는 얇은 층이다.
 
 종료 코드: 0 성공, 1 실패, 2 사용법 오류(Typer), 3 대상 없음(할 대상이 아직 없다. 성공이 아니다).
 비밀 값은 출력하지 않는다. docker 호출은 dockerenv.run_docker 만 지난다(사용자 ~/.docker 를 쓰지 않는다).
@@ -12,13 +15,17 @@
 from __future__ import annotations
 
 import gzip
+import http.client
 import json
+import os
 import re
 import secrets as pysecrets
 import shutil
+import ssl
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -26,6 +33,7 @@ import typer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dockerenv  # noqa: E402
+import pki  # noqa: E402
 
 ROOT = dockerenv.REPO_ROOT
 DEPLOY = ROOT / "deploy"
@@ -34,7 +42,11 @@ SECRETS_DIR = DEPLOY / "secrets"
 LOCK_FILE = DEPLOY / "images.lock"
 META_DIR = DEPLOY / ".build-meta"
 BACKUP_DIR = DEPLOY / "backups"
-PROJECT = "openit"
+PKI_DIR = DEPLOY / "pki"
+CA_DIR = PKI_DIR / "ca"
+PENDING_DIR = PKI_DIR / "pending"
+ARCHIVE_DIR = PKI_DIR / "archive"
+STEP_IMAGE_SERVICE = "step-ca"  # 인증서 만들기에 쓰는 step CLI 는 step-ca 이미지(같은 digest)에 들어 있다
 EXIT_FAIL = 1
 EXIT_NO_TARGET = 3
 
@@ -45,12 +57,15 @@ SECRET_NAMES: dict[str, int] = {
     "keycloak_db_password": 32,
     "oauth2_proxy_client_secret": 32,
     "oauth2_proxy_cookie_secret": 16,
-    "step_ca_password": 32,
+    "step_ca_password": 32,  # 중간 CA 개인 키의 암호
+    "step_ca_root_password": 32,  # 루트 CA 개인 키의 암호(self 방식만 쓴다)
 }
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 secrets_app = typer.Typer(add_completion=False, no_args_is_help=True, help="비밀 파일 관리")
+ca_app = typer.Typer(add_completion=False, no_args_is_help=True, help="사설 CA: 상태, 교체, 신뢰 목록(ADR 0014, 0015)")
 app.add_typer(secrets_app, name="secrets")
+app.add_typer(ca_app, name="ca")
 
 
 def fail(message: str, code: int = EXIT_FAIL) -> NoReturn:
@@ -69,9 +84,22 @@ def docker(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str
         fail(f"docker 환경을 정하지 못했다: {error}")
 
 
+def env_values() -> dict[str, str]:
+    try:
+        return pki.load_env(DEPLOY)
+    except (pki.ConfigError, OSError) as error:
+        fail(f"설정을 읽지 못했다: {error}")
+
+
+def project_name() -> str:
+    return env_values()["OPENIT_PROJECT_NAME"]
+
+
 def compose_args() -> list[str]:
-    args = ["compose", "--project-name", PROJECT, "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
+    args = ["compose", "--project-name", project_name(), "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
             "--env-file", str(DEPLOY / "env.example")]
+    if env_values()["OPENIT_REGISTRY_MODE"] == "local":
+        args += ["--profile", "local-registry"]  # 왜: external 이면 레지스트리 서비스를 띄우지 않는다(ADR 0013)
     if (DEPLOY / ".env").exists():
         args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
     return args
@@ -99,6 +127,21 @@ def area_targets() -> dict[str, str]:
                     name = child.name if kind == "service" else prefix + child.name.lstrip("_")
                     targets[name] = kind
     return targets
+
+
+def read_lock() -> dict[str, str]:
+    lock: dict[str, str] = {}
+    if LOCK_FILE.exists():
+        for line in LOCK_FILE.read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#"):
+                key, _, value = line.partition(" ")
+                lock[key] = value
+    return lock
+
+
+def write_lock(lock: dict[str, str]) -> None:
+    header = "# `deploy/deploy build` 와 `deploy/deploy bootstrap` 이 쓴다. 한 줄 = <대상> <이미지 digest>. 직접 고치지 않는다.\n"
+    LOCK_FILE.write_text(header + "".join(f"{k} {v}\n" for k, v in sorted(lock.items())), encoding="utf-8")
 
 
 @app.command()
@@ -141,6 +184,18 @@ def doctor() -> None:
         check("고정 호스트 포트 없음", not fixed, ", ".join(fixed))
         unpinned = [n for n, s in model.get("services", {}).items() if "@sha256:" not in s.get("image", "")]
         check("compose 이미지 digest 고정", not unpinned, ", ".join(unpinned))
+    monitoring = docker(
+        ["run", "--rm", "--network", "none", "--entrypoint", "sh", "-v", f"{DEPLOY / 'monitoring'}:/etc/prometheus:ro", prometheus_image(),
+         "-c", "cd /etc/prometheus && promtool check config --lint=none prometheus.yml && promtool test rules rules.test.yml"],
+        capture_output=True,
+    )
+    check("감시 설정·경보 규칙 검증(promtool)", monitoring.returncode == 0, (monitoring.stdout + monitoring.stderr).strip()[-300:])
+    try:
+        pki.ca_settings(env_values())
+        pki.registry_settings(env_values())
+        check("인증서·레지스트리 설정 검증", True)
+    except pki.ConfigError as error:
+        check("인증서·레지스트리 설정 검증", False, str(error))
     if problems:
         fail(f"doctor 실패: {len(problems)}건", EXIT_FAIL)
     typer.echo("doctor 통과")
@@ -197,20 +252,14 @@ def build(
         typer.echo("Dockerfile 검사 통과")
         return
     built = json.loads(meta.read_text(encoding="utf-8"))
-    lock: dict[str, str] = {}
-    if LOCK_FILE.exists():
-        for line in LOCK_FILE.read_text(encoding="utf-8").splitlines():
-            if line and not line.startswith("#"):
-                key, _, value = line.partition(" ")
-                lock[key] = value
+    lock = read_lock()
     for name in names:
         info = built.get(name, {})
         digest = info.get("containerimage.digest") or info.get("containerimage.config.digest")
         if not digest:
             fail(f"{name}: 빌드 결과에서 digest 를 찾지 못했다")
         lock[name] = digest
-    header = "# `deploy/deploy build` 가 쓴다. 한 줄 = <대상> <이미지 digest>. 직접 고치지 않는다.\n"
-    LOCK_FILE.write_text(header + "".join(f"{k} {v}\n" for k, v in sorted(lock.items())), encoding="utf-8")
+    write_lock(lock)
     for name in names:
         typer.echo(f"빌드됨: {name} {lock[name]}")
 
@@ -218,8 +267,8 @@ def build(
 @app.command()
 def up() -> None:
     """compose 로 띄운다(health 가 될 때까지 기다린다)."""
-    if not (SECRETS_DIR / next(iter(SECRET_NAMES))).is_file():
-        fail("비밀 파일이 없다. 먼저 ./deploy secrets init", EXIT_FAIL)
+    if not (SECRETS_DIR / next(iter(SECRET_NAMES))).is_file() or not (CA_DIR / "ca.json").is_file():
+        fail("비밀 파일이나 CA 파일이 없다. 먼저 ./deploy bootstrap", EXIT_FAIL)
     result = compose(["up", "-d", "--wait"])
     if result.returncode != 0:
         fail(f"up 실패(rc={result.returncode}). 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status", EXIT_FAIL)
@@ -337,6 +386,518 @@ def restore(
         if result.returncode != 0:
             fail(f"{name} 복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
     typer.echo("복원 완료. 멈춘 서비스는 ./deploy up 으로 다시 띄운다")
+
+
+# ---------------------------------------------------------------- 신뢰의 뿌리: 사설 CA(ADR 0014, 0015)
+
+
+def ca_cfg() -> pki.CaSettings:
+    try:
+        return pki.ca_settings(env_values())
+    except pki.ConfigError as error:
+        fail(f"인증서 설정이 틀렸다: {error}")
+
+
+def reg_cfg() -> pki.RegistrySettings:
+    try:
+        return pki.registry_settings(env_values())
+    except pki.ConfigError as error:
+        fail(f"레지스트리 설정이 틀렸다: {error}")
+
+
+def bundle_path() -> Path:
+    return pki.resolve_path(DEPLOY, env_values()["OPENIT_TRUST_BUNDLE_PATH"])
+
+
+def extra_trust_dir() -> Path:
+    return pki.resolve_path(DEPLOY, env_values()["OPENIT_TRUST_EXTRA_DIR"])
+
+
+def service_image(name: str) -> str:
+    config = compose(["config", "--format", "json"], capture_output=True)
+    if config.returncode != 0:
+        fail(f"compose config 실패: {config.stderr.strip()[-300:]}")
+    return json.loads(config.stdout)["services"][name]["image"]
+
+
+def prometheus_image() -> str:
+    return service_image("prometheus")
+
+
+def private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
+
+
+def step_cli(args: list[str], *, rw: dict[Path, str] | None = None, ro: dict[Path, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """step CLI 를 일회용 컨테이너에서 돌린다(네트워크 없음, 읽기 전용 루트, 호출자 uid). 인증서 만들기는 CA 도구가 맡는다."""
+    command = ["run", "--rm", "--network", "none", "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL",
+               "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp", "-e", "STEPPATH=/tmp/.step", "--entrypoint", "step"]
+    for host, inside in (rw or {}).items():
+        command += ["-v", f"{host}:{inside}"]
+    for host, inside in (ro or {}).items():
+        command += ["-v", f"{host}:{inside}:ro"]
+    return docker([*command, service_image(STEP_IMAGE_SERVICE), *args], capture_output=True)
+
+
+def step_or_fail(what: str, result: subprocess.CompletedProcess[str]) -> None:
+    if result.returncode != 0:
+        fail(f"{what} 실패(rc={result.returncode}): {(result.stderr or result.stdout).strip()[-400:]}")
+
+
+def read_password(name: str) -> bytes:
+    return (SECRETS_DIR / name).read_text(encoding="utf-8").strip().encode()
+
+
+def bounded_hours(configured: int, root_cert: object) -> int:
+    """중간 CA 수명(시간). 설정 값이되 루트의 남은 수명을 넘지 않는다(RFC 5280 6.1.3: 하위는 상위보다 오래 살 수 없다)."""
+    left = int(pki.remaining(root_cert).total_seconds() // 3600) - 1  # type: ignore[arg-type]
+    if left < 2 * ca_cfg().leaf_hours:
+        fail("루트 CA 의 남은 수명이 리프 수명의 두 배보다 짧아 중간 CA 를 만들 수 없다. 루트 교체가 먼저다(docs/CA.md 의 '루트 교체')")
+    return min(configured, left)
+
+
+def create_root(cfg: pki.CaSettings) -> None:
+    result = step_cli(
+        ["certificate", "create", f"{cfg.name} Root CA", "/pki/root_ca.crt", "/pki/root_ca.key", "--profile", "root-ca",
+         "--not-after", f"{cfg.root_hours}h", "--password-file", "/run/pw/root"],
+        rw={PKI_DIR: "/pki"}, ro={SECRETS_DIR / "step_ca_root_password": "/run/pw/root"},
+    )
+    step_or_fail("루트 CA 생성", result)
+    (PKI_DIR / "root_ca.key").chmod(0o600)
+
+
+def create_intermediate(cfg: pki.CaSettings) -> None:
+    """self 방식: 루트가 서명한 새 중간 CA 를 pending/ 에 만든다."""
+    root = pki.load_cert(PKI_DIR / "root_ca.crt")
+    private_dir(PENDING_DIR)
+    for leftover in ("intermediate_ca.crt", "intermediate_ca.key"):
+        (PENDING_DIR / leftover).unlink(missing_ok=True)
+    result = step_cli(
+        ["certificate", "create", f"{cfg.name} Intermediate CA", "/out/intermediate_ca.crt", "/out/intermediate_ca.key",
+         "--profile", "intermediate-ca", "--ca", "/pki/root_ca.crt", "--ca-key", "/pki/root_ca.key", "--ca-password-file", "/run/pw/root",
+         "--password-file", "/run/pw/ca", "--not-after", f"{bounded_hours(cfg.intermediate_hours, root)}h"],
+        rw={PENDING_DIR: "/out"},
+        ro={PKI_DIR / "root_ca.crt": "/pki/root_ca.crt", PKI_DIR / "root_ca.key": "/pki/root_ca.key",
+            SECRETS_DIR / "step_ca_root_password": "/run/pw/root", SECRETS_DIR / "step_ca_password": "/run/pw/ca"},
+    )
+    step_or_fail("중간 CA 생성", result)
+
+
+def create_csr(cfg: pki.CaSettings) -> Path:
+    """institution 방식: 중간 CA 키와 서명 요청(CSR)을 pending/ 에 만든다. 기관 CA 가 서명한다."""
+    private_dir(PENDING_DIR)
+    for leftover in ("intermediate.csr", "intermediate_ca.key", "intermediate_ca.crt"):
+        (PENDING_DIR / leftover).unlink(missing_ok=True)
+    result = step_cli(
+        ["certificate", "create", f"{cfg.name} Intermediate CA", "/out/intermediate.csr", "/out/intermediate_ca.key", "--csr",
+         "--password-file", "/run/pw/ca"],
+        rw={PENDING_DIR: "/out"}, ro={SECRETS_DIR / "step_ca_password": "/run/pw/ca"},
+    )
+    step_or_fail("CSR 생성", result)
+    return PENDING_DIR / "intermediate.csr"
+
+
+def archive_current_ca() -> Path | None:
+    files = [p for p in (CA_DIR / "intermediate_ca.crt", CA_DIR / "intermediate_ca.key", CA_DIR / "root_ca.crt") if p.is_file()]
+    if not files:
+        return None
+    target = ARCHIVE_DIR / time.strftime("%Y%m%dT%H%M%S")
+    private_dir(ARCHIVE_DIR)
+    private_dir(target)
+    for path in files:
+        shutil.copy2(path, target / path.name)
+    return target
+
+
+def install_intermediate(cert_file: Path, key_file: Path, root_file: Path) -> None:
+    """검증한 뒤 ca/ 에 설치한다. 검증: 사슬(각 인증서가 위의 것이 서명했고 CA 로 쓸 수 있다), 개인 키 일치, 유효 기간."""
+    chain = pki.load_certs(cert_file)
+    root = pki.load_cert(root_file)
+    problems: list[str] = []
+    for index, cert in enumerate(chain):
+        issuer = chain[index + 1] if index + 1 < len(chain) else root
+        problems += [f"{pki.subject_text(cert)}: {item}" for item in pki.check_intermediate(cert, issuer)]
+    try:
+        if not pki.key_matches_cert(key_file, read_password("step_ca_password"), chain[0]):
+            problems.append("개인 키가 첫 인증서와 짝이 아니다")
+    except (ValueError, TypeError) as error:
+        problems.append(f"개인 키를 열지 못했다(암호가 다르거나 키가 아니다): {error}")
+    if problems:
+        fail("설치할 수 없다:\n  " + "\n  ".join(problems))
+    archived = archive_current_ca()
+    private_dir(CA_DIR)
+    # 왜 파일을 덮어 쓴다(rename 아님): 컨테이너 마운트는 파일 단위라 새 inode 가 되면 보이지 않는다. 어차피 step-ca 는 다시 만든다
+    (CA_DIR / "intermediate_ca.crt").write_text(pki.pem_text(chain), encoding="ascii")
+    shutil.copyfile(key_file, CA_DIR / "intermediate_ca.key")
+    (CA_DIR / "root_ca.crt").write_text(pki.pem_text([root]), encoding="ascii")
+    # 왜 0644: 키는 암호로 잠겨 있고, 컨테이너 사용자가 읽으려면 읽기 가능해야 한다. 호스트 쪽 접근은 0700 폴더가 막는다(ADR 0008)
+    for name in ("intermediate_ca.crt", "intermediate_ca.key", "root_ca.crt"):
+        (CA_DIR / name).chmod(0o644)
+    for leftover in PENDING_DIR.glob("*") if PENDING_DIR.is_dir() else []:
+        leftover.unlink()
+    typer.echo(f"설치함: 중간 CA {pki.subject_text(chain[0])}" + (f" (이전 파일 보관: {archived.relative_to(ROOT)})" if archived else ""))
+
+
+def write_if_changed(path: Path, text: str, mode: int = 0o644) -> bool:
+    if path.is_file() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(mode)
+    return True
+
+
+def write_bundle() -> bool:
+    text = pki.build_bundle([CA_DIR / "root_ca.crt"], extra_trust_dir())
+    return write_if_changed(bundle_path(), text)
+
+
+def write_tls_targets(reg: pki.RegistrySettings) -> bool:
+    # 왜 renewal 라벨: ACME 로 받는 리프는 만료 24시간 전 경보를 건다. step-ca 자신의 서버 인증서는 step-ca 가 24시간 수명으로 스스로 갱신해
+    # 남은 시간이 늘 24시간 아래라 같은 규칙을 걸면 항상 경보다(시험에서 확인). 그것은 접속·검증 성공(probe_success)만 본다
+    text = "- targets: ['step-ca:9000']\n  labels: {renewal: ca-self}\n"
+    if reg.mode == "local":
+        text += "- targets: ['registry:443']\n  labels: {renewal: acme}\n"
+    return write_if_changed(DEPLOY / "generated" / "tls-targets.yml", text)
+
+
+def ensure_pki(cfg: pki.CaSettings, reg: pki.RegistrySettings) -> bool:
+    """신뢰의 뿌리를 갖춘다. 이미 있는 것은 건드리지 않는다(멱등). step-ca 가 읽는 파일이 바뀌었으면 True."""
+    secrets_init()
+    private_dir(PKI_DIR)
+    private_dir(CA_DIR)
+    extra_trust_dir().mkdir(parents=True, exist_ok=True)
+    changed = False
+    if cfg.mode == "self":
+        if (PKI_DIR / "root_ca.crt").is_file() != (PKI_DIR / "root_ca.key").is_file():
+            fail("deploy/pki/ 에 루트 인증서와 키 중 하나만 있다. 직접 확인하고 보관본에서 복구한다(자동으로 덮어쓰지 않는다)")
+        if not (PKI_DIR / "root_ca.crt").is_file():
+            create_root(cfg)
+            typer.echo("만듦: 루트 CA(개인 키는 deploy/pki/root_ca.key, 이 관리 노드에만 둔다)")
+        if not (CA_DIR / "intermediate_ca.crt").is_file():
+            create_intermediate(cfg)
+            install_intermediate(PENDING_DIR / "intermediate_ca.crt", PENDING_DIR / "intermediate_ca.key", PKI_DIR / "root_ca.crt")
+            changed = True
+        else:
+            typer.echo("있음: 중간 CA")
+    elif not (CA_DIR / "intermediate_ca.crt").is_file():
+        csr = PENDING_DIR / "intermediate.csr"
+        if not csr.is_file():
+            create_csr(cfg)
+        fail(
+            f"기관 CA 가 서명한 중간 CA 가 아직 없다. 서명 요청: {csr.relative_to(ROOT)}\n"
+            "  기관 CA 에 이 요청을 서명받은 뒤(CA 인증서, pathlen 0 이상, 기간은 리프 수명 이상):\n"
+            "  ./deploy ca install --cert <서명된 인증서(사슬 포함 가능)> --root <기관 루트 인증서>  그리고 ./deploy bootstrap 을 다시 실행한다"
+        )
+    changed |= write_if_changed(CA_DIR / "ca.json", pki.render_ca_json_text(cfg))
+    changed |= write_bundle()
+    write_tls_targets(reg)
+    return changed
+
+
+# ---------------------------------------------------------------- 레지스트리(ADR 0013)
+
+
+def published_endpoint(service: str, port: int) -> tuple[str, int] | None:
+    result = compose(["port", service, str(port)], capture_output=True)
+    text = result.stdout.strip()
+    if result.returncode != 0 or ":" not in text:
+        return None
+    host, _, number = text.rpartition(":")
+    return ("127.0.0.1" if host in ("", "0.0.0.0", "::", "[::]") else host.strip("[]")), int(number)
+
+
+def engine_host() -> str:
+    """docker 엔진이 있는 호스트. 원격 엔진(docker context, SSH)이면 게시된 포트는 그 호스트에 있다."""
+    env = dockerenv.docker_env()
+    endpoint = env.get("DOCKER_HOST", "")
+    if endpoint.startswith(("ssh://", "tcp://")):
+        return endpoint.split("://", 1)[1].rpartition("@")[2].split(":")[0]
+    return "127.0.0.1"
+
+
+class Registry:
+    """이미지를 올리고 내려받을 레지스트리. local 은 compose 안쪽 이름(registry:443), external 은 설정의 주소."""
+
+    def __init__(self, prefix: str, local: bool) -> None:
+        self.prefix = prefix  # 이미지 이름 앞부분
+        self.local = local
+
+
+def registry_target(reg: pki.RegistrySettings) -> Registry:
+    if reg.mode == "external":
+        return Registry(reg.address, False)
+    return Registry(f"{reg.names[0]}:443", True)
+
+
+def crane(args: list[str], stage: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """레지스트리 클라이언트(crane, 일회용 컨테이너)를 compose 안쪽 네트워크에서 돌린다. 인증서는 신뢰 목록으로 검증한다.
+
+    왜 데몬의 push 가 아닌가: 데몬이 게시된 포트에 닿는지는 설치 환경에 달렸다(Docker Desktop 에서는 닿지 않는 것을 확인했다). 안쪽 네트워크의 이름으로 접속하면
+    어느 환경에서나 같고, 데몬에 루트 인증서를 설치(certs.d)하지 않아도 TLS 를 완전히 검증한다(ADR 0013).
+    """
+    command = [*compose_args(), "--profile", "tools", "run", "--rm", "--no-deps", "-T", "--user", f"{os.getuid()}:{os.getgid()}"]
+    if stage is not None:
+        command += ["-v", f"{stage}:/w"]
+    return docker([*command, "registry-client", *args], capture_output=True)
+
+
+def registry_has(target: Registry, repo: str, digest: str) -> bool:
+    """레지스트리에 그 digest 의 매니페스트가 있는가. 확인하지 못하면 False(올리기는 멱등이다)."""
+    reference = f"{target.prefix}/{repo}@{digest}"
+    if target.local:
+        return crane(["manifest", reference]).returncode == 0
+    return docker(["buildx", "imagetools", "inspect", reference], capture_output=True).returncode == 0
+
+
+def verify_registry_tls(reg: pki.RegistrySettings) -> None:
+    """레지스트리의 인증서를 신뢰 목록으로 검증하고(예외 없이) 유효 기간을 보인다."""
+    endpoint = published_endpoint("registry", 443)
+    if endpoint is None:
+        fail("레지스트리가 떠 있지 않다(./deploy bootstrap)")
+    try:
+        leaf = pki.fetch_leaf(engine_host(), endpoint[1], reg.names[0], bundle_path())
+    except (OSError, ssl.SSLError) as error:
+        fail(f"레지스트리 TLS 검증 실패(신뢰 목록으로 이름 '{reg.names[0]}' 을 검증): {error}")
+    typer.echo(f"레지스트리 TLS 검증 통과: {reg.names[0]} 남은 {pki.remaining(leaf).total_seconds() / 3600:.1f}시간")
+
+
+def local_image(name: str) -> str:
+    return f"openit/{name.lstrip('_')}"
+
+
+def push_images(reg: pki.RegistrySettings) -> None:
+    targets = area_targets()
+    if not targets:
+        typer.echo("올릴 이미지 없음(services/·web/ 에 Dockerfile 이 있는 영역이 없다)")
+        return
+    target = registry_target(reg)
+    lock = read_lock()
+    for name in targets:
+        repo = local_image(name)
+        if name in lock and registry_has(target, repo, lock[name]):
+            typer.echo(f"레지스트리에 있음: {name} {lock[name]}")
+            continue
+        if docker(["image", "inspect", f"{repo}:local"], capture_output=True).returncode != 0:
+            build(name, False)  # 왜 여기서 빌드: 로컬에 이미지가 없으면 올릴 것이 없다. 빌드는 lock 도 갱신한다
+        remote = f"{target.prefix}/{repo}:local"
+        if target.local:
+            stage = META_DIR / "push"
+            stage.mkdir(parents=True, exist_ok=True)
+            archive = stage / f"{name}.tar"
+            if (saved := docker(["save", f"{repo}:local", "-o", str(archive)], capture_output=True)).returncode != 0:
+                fail(f"{name} 저장 실패: {saved.stderr.strip()[-300:]}")
+            pushed = crane(["push", f"/w/{archive.name}", remote], stage)
+            archive.unlink(missing_ok=True)
+        else:
+            if (tag := docker(["tag", f"{repo}:local", remote], capture_output=True)).returncode != 0:
+                fail(f"{name} 태그 실패: {tag.stderr.strip()[-300:]}")
+            pushed = docker(["push", remote], capture_output=True)
+        if pushed.returncode != 0:
+            fail(f"{name} push 실패(rc={pushed.returncode}): {(pushed.stderr or pushed.stdout).strip()[-400:]}")
+        found = re.search(r"(sha256:[0-9a-f]{64})", pushed.stdout if target.local else pushed.stdout + pushed.stderr)
+        if not found:
+            fail(f"{name}: push 결과에서 digest 를 찾지 못했다")
+        lock = read_lock()
+        lock[name] = found.group(1)  # 왜 push 가 준 digest: 내려받을 때 쓰는 값은 레지스트리의 매니페스트 digest 다
+        write_lock(lock)
+        typer.echo(f"올림: {name} {found.group(1)}")
+
+
+@app.command()
+def pull(service: Annotated[str | None, typer.Argument(help="내려받을 대상(없으면 lock 의 전부)")] = None) -> None:
+    """images.lock 의 digest 로 레지스트리에서 이미지를 내려받는다(태그가 아니라 digest 로). local 은 안쪽 네트워크에서 받아 docker load 한다."""
+    reg = reg_cfg()
+    target = registry_target(reg)
+    lock = read_lock()
+    names = [service] if service else list(lock)
+    if not names:
+        no_target("images.lock 이 비어 있다")
+    stage = META_DIR / "pull"
+    stage.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        if name not in lock:
+            fail(f"images.lock 에 '{name}' 이 없다", 2)
+        reference = f"{target.prefix}/{local_image(name)}@{lock[name]}"
+        if target.local:
+            archive = stage / f"{name}.tar"
+            result = crane(["pull", reference, f"/w/{archive.name}"], stage)
+            if result.returncode == 0:
+                result = docker(["load", "--input", str(archive)], capture_output=True)
+            archive.unlink(missing_ok=True)
+        else:
+            result = docker(["pull", "--quiet", reference], capture_output=True)
+        if result.returncode != 0:
+            fail(f"{name} pull 실패(rc={result.returncode}): {(result.stderr or result.stdout).strip()[-400:]}")
+        typer.echo(f"받음: {reference}")
+
+
+@app.command()
+def bootstrap() -> None:
+    """관리 노드에서 처음부터 설치한다: 신뢰의 뿌리 -> 레지스트리 -> 이미지 push·digest 기록 -> 서비스 기동. 이미 된 단계는 건너뛴다(멱등)."""
+    cfg, reg = ca_cfg(), reg_cfg()
+    typer.echo("[1/4] 신뢰의 뿌리")
+    changed = ensure_pki(cfg, reg)
+    typer.echo(f"      CA 방식 {cfg.mode}, 신뢰 목록 {bundle_path()}")
+    typer.echo("[2/4] 레지스트리")
+    if reg.mode == "external":
+        typer.echo(f"      외부 레지스트리 {reg.address} 를 쓴다(레지스트리 단계를 건너뛴다)")
+    else:
+        running = compose(["ps", "--quiet", "step-ca"], capture_output=True).stdout.strip()
+        if changed and running:
+            # 왜 다시 만든다: step-ca 가 읽는 파일이 바뀌었다(중간 CA 교체, 설정 변경). 컨테이너는 시작할 때 읽는다
+            if compose(["up", "-d", "--wait", "--force-recreate", "--no-deps", "step-ca"]).returncode != 0:
+                fail("step-ca 를 다시 만들지 못했다. ./deploy status 와 로그를 본다")
+        if compose(["up", "-d", "--wait", "step-ca", "registry-store", "registry"]).returncode != 0:
+            fail("레지스트리를 띄우지 못했다. 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status")
+        verify_registry_tls(reg)
+    typer.echo("[3/4] 이미지 올리기와 digest 기록")
+    push_images(reg)
+    typer.echo("[4/4] 서비스 기동")
+    up()
+    typer.echo("인증서 상태")
+    ca_status()
+    typer.echo("bootstrap 완료")
+
+
+# ---------------------------------------------------------------- ca 하위 명령
+
+
+@ca_app.command("status")
+def ca_status() -> None:
+    """루트·중간·리프 인증서의 만료까지 남은 기간을 보인다. 기준 미만이거나 검증이 실패하면 rc=1."""
+    cfg, reg = ca_cfg(), reg_cfg()
+    if not (CA_DIR / "intermediate_ca.crt").is_file():
+        no_target("deploy/pki/ca/ 가 없다(./deploy bootstrap)")
+    problems = 0
+
+    def line(label: str, cert: object, warn_hours: int, extra: str = "") -> None:
+        nonlocal problems
+        left = pki.remaining(cert)  # type: ignore[arg-type]
+        hours = left.total_seconds() / 3600
+        ok = hours >= warn_hours
+        problems += not ok
+        shown = f"{left.days}일" if hours >= 48 else f"{hours:.1f}시간"
+        typer.echo(f"[{'OK' if ok else 'FAIL'}] {label}: 남은 {shown} (기준 {warn_hours}시간) {extra}".rstrip())
+
+    root = pki.load_cert(CA_DIR / "root_ca.crt")
+    chain = pki.load_certs(CA_DIR / "intermediate_ca.crt")
+    line(f"루트 CA {pki.subject_text(root)}", root, cfg.warn_root_hours)
+    line(f"중간 CA {pki.subject_text(chain[0])}", chain[0], cfg.warn_intermediate_hours)
+    issues = pki.check_intermediate(chain[0], chain[1] if len(chain) > 1 else root)
+    try:
+        if not pki.key_matches_cert(CA_DIR / "intermediate_ca.key", read_password("step_ca_password"), chain[0]):
+            issues.append("중간 CA 개인 키가 인증서와 짝이 아니다")
+    except (ValueError, TypeError, OSError) as error:
+        issues.append(f"중간 CA 개인 키를 열지 못했다: {error}")
+    if (CA_DIR / "ca.json").read_text(encoding="utf-8") != pki.render_ca_json_text(cfg):
+        issues.append("ca.json 이 설정과 다르다(./deploy bootstrap 으로 맞춘다)")
+    bundle = bundle_path()
+    if not bundle.is_file() or pki.build_bundle([CA_DIR / "root_ca.crt"], extra_trust_dir()) != bundle.read_text(encoding="utf-8"):
+        issues.append("신뢰 목록이 현재 루트와 다르다(./deploy ca bundle)")
+    for issue in issues:
+        typer.echo(f"[FAIL] {issue}")
+    problems += len(issues)
+    if not issues:
+        typer.echo("[OK] 사슬: 루트 -> 중간 CA 서명·CA 확장·키 짝·ca.json·신뢰 목록이 맞다")
+    for extra in sorted(p for p in extra_trust_dir().glob("*") if p.suffix in {".crt", ".pem"}) if extra_trust_dir().is_dir() else []:
+        for cert in pki.load_certs(extra):
+            line(f"추가 신뢰 루트 {extra.name} {pki.subject_text(cert)}", cert, cfg.warn_root_hours)
+    kiosk = env_values()["OPENIT_KIOSK_CLIENT_CA_FILE"]
+    if kiosk:
+        kiosk_path = pki.resolve_path(DEPLOY, kiosk)
+        if not kiosk_path.is_file():
+            typer.echo(f"[FAIL] OPENIT_KIOSK_CLIENT_CA_FILE 파일이 없다: {kiosk_path}")
+            problems += 1
+        else:
+            for cert in pki.load_certs(kiosk_path):
+                line(f"키오스크 클라이언트 CA {pki.subject_text(cert)}", cert, cfg.warn_root_hours)
+    if reg.mode == "local":
+        endpoint = published_endpoint("registry", 443)
+        if endpoint is None:
+            typer.echo("[FAIL] 레지스트리 리프: 레지스트리가 떠 있지 않아 읽지 못했다")
+            problems += 1
+        else:
+            try:
+                leaf = pki.fetch_leaf(engine_host(), endpoint[1], reg.names[0], bundle)
+            except (OSError, ssl.SSLError) as error:
+                typer.echo(f"[FAIL] 레지스트리 리프: 신뢰 목록으로 검증하지 못했다: {error}")
+                problems += 1
+            else:
+                line(f"리프 {reg.names[0]}", leaf, cfg.warn_leaf_hours,
+                     f"serial={format(leaf.serial_number, 'x')[:12]} 발급={leaf.not_valid_before_utc:%Y-%m-%dT%H:%M:%SZ}")
+    else:
+        typer.echo(f"[--] 리프: 외부 레지스트리 {reg.address} 의 인증서는 그 운영처가 관리한다")
+    if problems:
+        fail(f"인증서 점검 실패 {problems}건", EXIT_FAIL)
+    typer.echo("인증서 점검 통과")
+
+
+@ca_app.command("bundle")
+def ca_bundle() -> None:
+    """신뢰 목록을 다시 만든다(이 설치의 루트 + OPENIT_TRUST_EXTRA_DIR 의 루트). 바뀌었으면 쓰는 서비스를 다시 만들라고 알린다."""
+    ca_cfg()
+    if not (CA_DIR / "root_ca.crt").is_file():
+        no_target("deploy/pki/ca/root_ca.crt 가 없다(./deploy bootstrap)")
+    if write_bundle():
+        typer.echo(f"신뢰 목록 갱신: {bundle_path()}\n서비스가 새 목록을 읽게 하려면 ./deploy up 후 해당 서비스를 다시 만든다(docker compose up -d --force-recreate)")
+    else:
+        typer.echo(f"신뢰 목록 그대로: {bundle_path()}")
+
+
+@ca_app.command("csr")
+def ca_csr() -> None:
+    """institution 방식: 중간 CA 서명 요청(CSR)을 만든다. 처음 설치와 교체 모두 이 요청을 기관 CA 에 낸다."""
+    cfg = ca_cfg()
+    if cfg.mode != "institution":
+        fail("csr 은 OPENIT_CA_MODE=institution 에서만 쓴다(self 는 ./deploy ca rotate 가 알아서 서명한다)", 2)
+    private_dir(PKI_DIR)
+    typer.echo(f"서명 요청: {create_csr(cfg).relative_to(ROOT)}\n기관 CA 가 서명하면 ./deploy ca install --cert <서명된 인증서> --root <기관 루트 인증서>")
+
+
+@ca_app.command("install")
+def ca_install(
+    cert: Annotated[Path, typer.Option(help="서명된 중간 CA 인증서(PEM, 위쪽 중간 CA 가 더 있으면 이어 붙인 사슬)")],
+    root: Annotated[Path, typer.Option(help="그 사슬의 루트 인증서(PEM)")],
+) -> None:
+    """institution 방식: 기관 CA 가 서명한 중간 CA 를 검증하고 설치한다. step-ca 는 다시 만든다."""
+    cfg = ca_cfg()
+    if cfg.mode != "institution":
+        fail("install 은 OPENIT_CA_MODE=institution 에서만 쓴다", 2)
+    if not (PENDING_DIR / "intermediate_ca.key").is_file():
+        fail("pending/ 에 중간 CA 키가 없다. 먼저 ./deploy ca csr 로 요청을 만들고 그 요청을 서명받아 온다")
+    install_intermediate(cert, PENDING_DIR / "intermediate_ca.key", root)
+    finish_ca_change(cfg)
+
+
+def finish_ca_change(cfg: pki.CaSettings) -> None:
+    """설치 뒤 ca.json·신뢰 목록을 맞추고, 떠 있는 step-ca 를 다시 만든다."""
+    reg = reg_cfg()
+    write_if_changed(CA_DIR / "ca.json", pki.render_ca_json_text(cfg))
+    write_bundle()
+    write_tls_targets(reg)
+    if compose(["ps", "--quiet", "step-ca"], capture_output=True).stdout.strip():
+        if compose(["up", "-d", "--wait", "--force-recreate", "--no-deps", "step-ca"]).returncode != 0:
+            fail("step-ca 를 다시 만들지 못했다. ./deploy status 와 로그를 본다")
+        typer.echo("step-ca 를 새 중간 CA 로 다시 만들었다. 이미 나간 리프는 만료까지(또는 자동 갱신 때까지) 이전 중간 CA 사슬로 유효하다")
+    else:
+        typer.echo("step-ca 가 떠 있지 않다. ./deploy bootstrap 으로 띄우면 새 중간 CA 를 쓴다")
+
+
+@ca_app.command("rotate")
+def ca_rotate() -> None:
+    """중간 CA 를 교체한다. self: 루트로 새 중간 CA 를 만들어 검증·설치·step-ca 재생성. institution: 새 키와 CSR 을 만든다(이어서 ca install)."""
+    cfg = ca_cfg()
+    if not (CA_DIR / "intermediate_ca.crt").is_file():
+        no_target("교체할 중간 CA 가 없다(./deploy bootstrap)")
+    if cfg.mode == "institution":
+        typer.echo(f"서명 요청: {create_csr(cfg).relative_to(ROOT)}\n기관 CA 가 서명하면 ./deploy ca install --cert <서명된 인증서> --root <기관 루트 인증서>")
+        return
+    create_intermediate(cfg)
+    install_intermediate(PENDING_DIR / "intermediate_ca.crt", PENDING_DIR / "intermediate_ca.key", PKI_DIR / "root_ca.crt")
+    finish_ca_change(cfg)
+    ca_status()
 
 
 @app.command()

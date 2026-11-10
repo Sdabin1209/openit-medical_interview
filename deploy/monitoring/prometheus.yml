@@ -1,0 +1,21 @@
+# Prometheus 설정(ADR 0014). 인증서 감시만 한다. 영역 지표는 영역 계약이 정해진 뒤 더한다.
+global:
+  scrape_interval: 1m # 왜: 인증서 만료는 시간·일 단위로 변한다. 1분이면 충분하고 부하가 작다. 측정하지 않았다
+  evaluation_interval: 1m
+rule_files:
+  - /etc/prometheus/rules.yml
+scrape_configs:
+  - job_name: openit-tls
+    metrics_path: /probe
+    params:
+      module: [tls_connect]
+    file_sd_configs:
+      # 왜 파일: 감시 대상이 설정에 따라 다르다(레지스트리는 local 일 때만). ./deploy bootstrap 이 설정에서 만들고 Prometheus 가 변경을 스스로 읽는다
+      - files: [/etc/prometheus/tls-targets.yml]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

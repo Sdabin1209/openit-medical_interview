@@ -1,0 +1,27 @@
+# 레지스트리 앞단(ADR 0013, 0014). 인증서는 ACME(RFC 8555)로 step-ca 에서 받고 Caddy 가 스스로 갱신한다.
+{
+	admin off
+	# 왜 1m: 갱신 점검 주기의 기본은 10분이다. 실패한 갱신을 1분마다 다시 시도해, 수명이 짧은 인증서의 여유(수명의 1/3)를 덜 쓰게 한다. 점검은 로컬 저장소만 읽어 비용이 작다. 측정하지 않았다
+	renew_interval 1m
+	skip_install_trust
+	# 왜: IP 로 접속하면 클라이언트는 SNI 를 보내지 않는다. 없으면 localhost 블록의 인증서로 답한다(아래 '유일한 TLS 예외')
+	default_sni localhost
+}
+
+{$OPENIT_REGISTRY_NAMES} {
+	tls {
+		issuer acme {
+			dir {$OPENIT_ACME_DIRECTORY_URL}
+			# 신뢰 목록의 루트로 step-ca 의 서버 인증서를 검증한다(검증을 끄지 않는다)
+			trusted_roots /etc/openit/trust-bundle.pem
+		}
+	}
+	reverse_proxy registry-store:5000
+}
+
+# localhost 접속(같은 서버의 Docker 데몬이 push·pull 할 때)만 Caddy 내부 CA 의 인증서를 쓴다. Docker 데몬은 127.0.0.0/8 레지스트리의 TLS 검증을
+# 생략하는 것이 기본이라 이 인증서를 신뢰하지 않아도 된다. 이것이 ADR 0013 이 정한 '유일한 TLS 예외'이며, 다른 이름의 접속은 위 블록(step-ca 발급)만 받는다
+localhost, 127.0.0.1 {
+	tls internal
+	reverse_proxy registry-store:5000
+}
