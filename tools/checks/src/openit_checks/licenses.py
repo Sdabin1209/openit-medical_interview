@@ -184,7 +184,7 @@ def own_packages(folder: Path) -> list[str]:
     names: list[str] = []
     for package in lock.get("package", []):
         if set(package.get("source", {})) & {"editable", "virtual", "directory", "path"}:
-            names += [package["name"], package["name"].replace("-", "_")]  # 왜 둘: 설치 메타데이터의 이름 표기가 하이픈·밑줄 어느 쪽일 수 있다
+            names += [package["name"], package["name"].replace("-", "_")]  # 왜 둘: 설치 메타데이터의 이름이 하이픈·밑줄 어느 쪽일 수 있다
     return names
 
 

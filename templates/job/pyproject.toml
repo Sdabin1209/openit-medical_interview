@@ -39,7 +39,9 @@ packages = ["src/__PKG__"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# 왜: 스모크는 이미지와 docker 가 필요해 `tools/smoke` 가 부른다. 기본 `uv run pytest` 는 이미지 없이 도는 시험만 돈다.
+addopts = "-ra --strict-markers -m 'not smoke'"
+markers = ["smoke: 이미지를 실행해 보는 시험(ADR 0004)"]
 
 [tool.ruff]
 line-length = 120
