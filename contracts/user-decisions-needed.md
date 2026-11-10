@@ -45,9 +45,9 @@
 
 표준 조항은 이 값들의 최대를 정하지 않는다. 아래 참고 조항은 지원 하한, 상호운용 범위, 다른 클레임의 길이를 보여 줄 뿐 값을 유도하지 않으므로 프로젝트 선택이며, 사용자 결정(2026-11-10)으로 권고값 그대로 정했다. 계약 값의 `x-basis` 가 UD 번호를 가리킨다.
 
-| 번호 | 값 이름(계약의 값) | 무엇을 정해야 하는가 | 참고 조항 | 정해진 값 |
-|---|---|---|---|---|
-| UD-19 | URI·헤더·경로 문자열 최대 길이(`ProblemType`, `ProblemInstance`, `JsonPointer`, `ForwardedClientCertValue`, `RoutePathPrefix`, `AuthenticateChallenge`, 주소류 `*Url`) | 주소와 헤더 값의 최대 글자 수 | RFC 9110 4.1 은 모든 구현이 최소 8000옥텟의 URI 를 지원하라고 권고하고 5.4 는 필드 한도를 구현이 정하게 한다. 최대를 정하는 조항은 없다 | 8000 |
-| UD-20 | 시각 표기 프로파일(`Timestamp`) | 소수 초 자릿수와 최대 길이 | RFC 3339 는 소수 초 자릿수를 제한하지 않는다. 9자리까지(나노초)와 오프셋을 더하면 35자다 | 소수 9자리 이하, 35자 |
-| UD-21 | 수 값의 안전 범위(`SlotNumber`) | 수 값의 절대 한계 | RFC 7493 2.2 는 ±(2^53-1) 밖의 수를 상호운용 위험으로 본다. 칸마다의 범위는 칸 규격이 정한다 | ±(2^53-1) |
-| UD-22 | 토큰 문자열 길이(`OidcClientId`, `TokenId`, `JwsAlgorithmName`) | client_id, jti, alg 문자열의 최대 길이 | RFC 9068 과 RFC 7519 는 길이를 정하지 않는다. sub 는 OIDC Core 가 255로 정한다 | client_id 와 jti 255, alg 16 |
+| 번호 | 값 이름(계약의 값) | 무엇을 정해야 하는가 | 참고 조항 | 정해진 값 | 왜 이 값인가 |
+|---|---|---|---|---|---|
+| UD-19 | URI·헤더·경로 문자열 최대 길이(`ProblemType`, `ProblemInstance`, `JsonPointer`, `ForwardedClientCertValue`, `RoutePathPrefix`, `AuthenticateChallenge`, 주소류 `*Url`) | 주소와 헤더 값의 최대 글자 수 | RFC 9110 4.1 은 모든 구현이 최소 8000옥텟의 URI 를 지원하라고 권고하고 5.4 는 필드 한도를 구현이 정하게 한다. 최대를 정하는 조항은 없다 | 8000 | RFC 9110 이 모든 구현에 지원을 권고하는 크기와 같아 어떤 표준 구현도 받아들인다. URI 는 퍼센트 인코딩으로 ASCII 라 글자 수와 옥텟 수가 같다 |
+| UD-20 | 시각 표기 프로파일(`Timestamp`) | 소수 초 자릿수와 최대 길이 | RFC 3339 는 소수 초 자릿수를 제한하지 않는다. 9자리까지(나노초)와 오프셋을 더하면 35자다 | 소수 9자리 이하, 35자 | PostgreSQL·Python(6자리)과 Go·Java(9자리)의 출력이 자르지 않고 모두 들어간다. 9자리와 오프셋을 더하면 35자다 |
+| UD-21 | 수 값의 안전 범위(`SlotNumber`) | 수 값의 절대 한계 | RFC 7493 2.2 는 ±(2^53-1) 밖의 수를 상호운용 위험으로 본다. 칸마다의 범위는 칸 규격이 정한다 | ±(2^53-1) | 화면(JavaScript)까지 정수가 손실 없이 오가는 범위다. 정수의 정확 교환 범위이지 소수의 정밀도 보장은 아니다 |
+| UD-22 | 토큰 문자열 길이(`OidcClientId`, `TokenId`, `JwsAlgorithmName`) | client_id, jti, alg 문자열의 최대 길이 | RFC 9068 과 RFC 7519 는 길이를 정하지 않는다. sub 는 OIDC Core 가 255로 정한다 | client_id 와 jti 255, alg 16 | client_id·jti 는 같은 토큰의 sub(OIDC Core 5.1, 255 ASCII 이하)와 같은 길이다. alg 는 접근 토큰의 JWS 서명 알고리즘 이름이고 RFC 7518 3.1 표의 최장이 5자(PS512 등), 뒤에 등록된 ES256K·EdDSA 가 6자 이하라 16자면 여유가 있다(JWE 키 관리 이름은 받지 않는다) |
