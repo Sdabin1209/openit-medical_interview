@@ -1,0 +1,101 @@
+{
+ "run_as_uid": 10001,
+ "env": [
+  {
+   "name": "OPENIT_ROOT_CERTIFICATE_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_TLS_CERTIFICATE_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_TLS_PRIVATE_KEY_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_LISTEN_PORT",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_LOG_LEVEL",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "OPENIT_EGRESS_PROXY",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "OPENIT_OIDC_ISSUER_URL",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_OIDC_JWKS_URL",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "OPENIT_OIDC_AUDIENCE",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_REGISTRY_URL",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_REGISTRY_REPOSITORY",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_REGISTRY_CREDENTIALS_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MACHINE_TOKENS_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MODEL_PROFILE",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MODEL_CACHE_DIR",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_HOSTS_TABLE_FILE",
+   "kind": "FILE_PATH",
+   "required": false
+  }
+ ],
+ "writable_paths": [
+  {
+   "path": "/var/lib/openit/model-runtime",
+   "persistent": true,
+   "owner_uid": 10001
+  }
+ ],
+ "capabilities": [],
+ "sysctls": [],
+ "processes": [
+  {
+   "argv": [
+    "/app/.venv/bin/model-runtime"
+   ]
+  }
+ ]
+}

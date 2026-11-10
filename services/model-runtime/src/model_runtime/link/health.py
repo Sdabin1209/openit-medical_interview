@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable, Mapping
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
 
 from model_runtime.contract.models import HealthReport, ProblemDetails, ServiceName
 
@@ -22,8 +22,8 @@ def _report(service: ServiceName, checks: list[dict[str, str]] | None) -> Health
     return HealthReport.model_validate(body)
 
 
-def health_router(service: ServiceName, checks: Mapping[str, ReadinessCheck]) -> APIRouter:
-    """점검 이름 -> 비동기 점검 함수 목록으로 상태 라우터를 만든다."""
+def health_router(service: ServiceName, checks: Mapping[str, ReadinessCheck], registry: CollectorRegistry) -> APIRouter:
+    """점검 이름 -> 비동기 점검 함수 목록과 지표 저장소로 상태 라우터를 만든다."""
     router = APIRouter()
 
     @router.get("/healthz", response_model=HealthReport, response_model_exclude_none=True, tags=["health"])
@@ -62,6 +62,6 @@ def health_router(service: ServiceName, checks: Mapping[str, ReadinessCheck]) ->
 
     @router.get("/metrics", response_class=Response, tags=["health"])
     async def metrics() -> Response:  # pyright: ignore[reportUnusedFunction]
-        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
 
     return router

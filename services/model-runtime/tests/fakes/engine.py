@@ -1,0 +1,93 @@
+"""시험용 추론 엔진: vLLM 의 OpenAI 호환 서버 중 이 영역이 쓰는 부분(채팅 완성, 어댑터 올리기·내리기, 건강 확인)을 흉내
+낸다.
+
+GPU 가 없는 환경에서 추론 엔진 자리를 채운다. 답은 시험이 정한다(answer 함수). 받은 요청은 calls 에 남겨 글자 단위로
+대조한다.
+"""
+
+import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+
+
+@dataclass
+class Call:
+    adapter: str
+    system: str
+    user: str
+    max_tokens: int
+    temperature: float
+    response_format: dict[str, Any] | None
+
+
+@dataclass
+class FakeEngine:
+    """answer(adapter, user) 가 모델이 낸 글자를 정한다."""
+
+    answer: Callable[[str, str], str] = lambda _adapter, _user: ""
+    loaded: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    calls: list[Call] = field(default_factory=lambda: list[Call]())
+    healthy: bool = True
+    refuse_load: bool = False
+    unloaded: list[str] = field(default_factory=lambda: list[str]())
+
+    def app(self) -> FastAPI:
+        app = FastAPI()
+
+        @app.get("/health")
+        async def health() -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+            return PlainTextResponse("", status_code=200 if self.healthy else 503)
+
+        @app.post("/v1/load_lora_adapter")
+        async def load(request: Request) -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+            body = await request.json()
+            path = Path(body["lora_path"])
+            if self.refuse_load or not (path / "adapter_config.json").is_file():
+                return PlainTextResponse("cannot load", status_code=400)
+            self.loaded[body["lora_name"]] = str(path)
+            return PlainTextResponse(f"Success: LoRA adapter '{body['lora_name']}' added successfully.")
+
+        @app.post("/v1/unload_lora_adapter")
+        async def unload(request: Request) -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+            name = (await request.json())["lora_name"]
+            self.unloaded.append(name)
+            if self.loaded.pop(name, None) is None:
+                return PlainTextResponse("not found", status_code=404)
+            return PlainTextResponse("Success")
+
+        @app.post("/v1/chat/completions")
+        async def chat(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+            body = await request.json()
+            system, user = body["messages"][0]["content"], body["messages"][1]["content"]
+            if body["model"] not in self.loaded:
+                return JSONResponse(
+                    {"error": {"message": "model not found", "type": "NotFoundError", "code": 404}}, status_code=404
+                )
+            self.calls.append(
+                Call(body["model"], system, user, body["max_tokens"], body["temperature"], body.get("response_format"))
+            )
+            text = self.answer(body["model"], user)
+            return JSONResponse(
+                {
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": body["model"],
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}
+                    ],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                }
+            )
+
+        return app
+
+
+def dump(value: object) -> str:
+    """모델 출력 글자(정렬된 키, 학습 정답과 같은 모양)."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)

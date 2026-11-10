@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -16,6 +16,15 @@ from pydantic import (
     RootModel,
     StringConstraints,
 )
+
+
+class AccessTokenType(StrEnum):
+    """
+    JWT 접근 토큰의 JOSE 헤더 typ 값. 서비스는 두 표기 중 하나가 아닌 토큰을 거절한다
+    """
+
+    at_jwt = 'at+jwt'
+    application_at_jwt = 'application/at+jwt'
 
 
 class ActionReason(StrEnum):
@@ -54,6 +63,13 @@ class AdapterRole(StrEnum):
     LORA_B = 'LORA_B'
 
 
+class ArgvElement(RootModel[str]):
+    root: Annotated[str, Field(examples=['/usr/local/bin/openit-run'], max_length=4096)]
+    """
+    시작 프로세스 명령줄의 요소 하나
+    """
+
+
 class AskText(RootModel[str]):
     root: Annotated[str, Field(examples=['일주일에 며칠 하는지'], max_length=92)]
     """
@@ -89,10 +105,43 @@ class ByteSize(RootModel[int]):
     """
 
 
+class CapabilityName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['CAP_NET_BIND_SERVICE'], max_length=40, pattern='^CAP_[A-Z_]+$'
+        ),
+    ]
+    """
+    컨테이너에 더하는 Linux capability 의 이름(추가 권한). 기본은 모두 뺀 상태에서 더한다
+    """
+
+
+class ConfigFilePath(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['/etc/openit/machine-tokens.json'], max_length=4096, pattern='^/'
+        ),
+    ]
+    """
+    비밀이 아닌 설정 파일 또는 폴더의 절대 경로
+    """
+
+
 class ConstrainedDecoding(RootModel[bool]):
     root: bool
     """
     출력을 스키마에 맞게 제약하며 만드는지(참이면 제약 디코딩)
+    """
+
+
+class ContainerPath(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['/var/lib/openit/cache'], max_length=4096, pattern='^/')
+    ]
+    """
+    컨테이너 안의 절대 경로
     """
 
 
@@ -122,6 +171,35 @@ class DatasetVersionId(RootModel[UUID]):
     root: Annotated[UUID, Field(examples=['3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90'])]
     """
     게시된 데이터셋 한 버전의 식별자
+    """
+
+
+class EgressProxyUrl(RootModel[AnyUrl]):
+    root: Annotated[AnyUrl, Field(examples=['http://127.0.0.1:3128'])]
+    """
+    영역 게이트웨이의 나가는 CONNECT 터널 주소. Exposure.egress 에 선언한 상대에게만 닿는다
+    """
+
+
+class EnvKind(StrEnum):
+    """
+    환경 입력의 종류
+    """
+
+    VALUE = 'VALUE'
+    SECRET_FILE = 'SECRET_FILE'
+    FILE_PATH = 'FILE_PATH'
+
+
+class EnvVarName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['OPENIT_LISTEN_PORT'], max_length=63, pattern='^[A-Z_][A-Z0-9_]*$'
+        ),
+    ]
+    """
+    환경 변수의 이름
     """
 
 
@@ -213,10 +291,42 @@ class ImageRevision(RootModel[str]):
     """
 
 
+class IsRequired(RootModel[bool]):
+    root: bool
+    """
+    환경 입력이 없으면 서비스가 시작하지 않는지(참이면 필수 입력)
+    """
+
+
+class JobName(StrEnum):
+    """
+    deploy 의 스케줄러가 한 번 실행하는 잡의 이름
+    """
+
+    IMPORT_DATASET = 'IMPORT_DATASET'
+    PREPARE = 'PREPARE'
+    TRAIN = 'TRAIN'
+    EVALUATE = 'EVALUATE'
+    PUBLISH = 'PUBLISH'
+    DETECT_FAILURES = 'DETECT_FAILURES'
+    PURGE_EXPIRED = 'PURGE_EXPIRED'
+    BACKUP = 'BACKUP'
+    RESTORE = 'RESTORE'
+    OFFSITE_SYNC = 'OFFSITE_SYNC'
+    RESTORE_TEST = 'RESTORE_TEST'
+
+
 class JsonPointer(RootModel[str]):
     root: Annotated[str, Field(examples=['/input/user_utterance'], max_length=8000)]
     """
     요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
+    """
+
+
+class JwsAlgorithmName(RootModel[str]):
+    root: Annotated[str, Field(max_length=16)]
+    """
+    JWS 서명 알고리즘 이름(예를 들어 RS256, ES256). none 은 허용하지 않는다
     """
 
 
@@ -225,6 +335,50 @@ class KnownText(RootModel[str]):
     """
     이번 턴에 정해진 값을 사람 말로 되짚은 문장들(쉼표로 이은 글)
     """
+
+
+class ListenPort(RootModel[int]):
+    root: Annotated[int, Field(examples=[8080], ge=1, le=65535)]
+    """
+    서비스가 요청을 받는 TCP 포트 번호
+    """
+
+
+class LogLevel(StrEnum):
+    """
+    표준 출력으로 내는 로그의 최소 수준
+    """
+
+    DEBUG = 'DEBUG'
+    INFO = 'INFO'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
+    CRITICAL = 'CRITICAL'
+
+
+class MachineClientName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['survey-service'],
+            max_length=63,
+            pattern='^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$',
+        ),
+    ]
+    """
+    기계 토큰을 쓰는 호출자의 이름(서비스 이름 또는 외부 시스템 이름)
+    """
+
+
+class MachineRole(StrEnum):
+    """
+    기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다
+    """
+
+    result_reader = 'result-reader'
+    risk_detector = 'risk-detector'
+    inference_caller = 'inference-caller'
+    case_reader = 'case-reader'
 
 
 class MetricGroupName(RootModel[str]):
@@ -298,6 +452,15 @@ class ModelLoadState(StrEnum):
     FAILED = 'FAILED'
 
 
+class ModelPackageArtifactType(
+    RootModel[Literal['application/vnd.openit.model.package.v1']]
+):
+    root: Literal['application/vnd.openit.model.package.v1']
+    """
+    모델 패키지 OCI 아티팩트의 artifactType. model-runtime 은 이 값이 아닌 아티팩트를 모델 패키지로 받지 않는다
+    """
+
+
 class ModelPackageBlobMediaType(StrEnum):
     """
     모델 패키지 OCI 아티팩트 안의 파일 하나(config 와 layer)의 미디어 유형
@@ -314,10 +477,24 @@ class ModelPackageBlobMediaType(StrEnum):
     )
 
 
+class ModelProfileName(RootModel[str]):
+    root: Annotated[str, Field(examples=['rtx4090-24g'], max_length=63)]
+    """
+    추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)
+    """
+
+
 class NoValue(RootModel[None]):
     root: None
     """
     값이 없음을 뜻하는 null(모름·거절·빠짐 등 저장할 값이 없는 칸)
+    """
+
+
+class NumericDate(RootModel[int]):
+    root: Annotated[int, Field(examples=[1783684200], ge=0, le=253402300799)]
+    """
+    JWT 의 시각 클레임(1970-01-01T00:00:00Z 부터의 초)
     """
 
 
@@ -334,6 +511,64 @@ class OciDigest(RootModel[str]):
     ]
     """
     OCI 레지스트리의 내용 주소(digest). 알고리즘 이름 sha256, 콜론, 소문자 16진수 64자다. 모델 패키지(OCI 아티팩트)와 그 안의 파일을 가리킨다
+    """
+
+
+class OciImageManifestMediaType(
+    RootModel[Literal['application/vnd.oci.image.manifest.v1+json']]
+):
+    root: Literal['application/vnd.oci.image.manifest.v1+json']
+    """
+    OCI 이미지 매니페스트의 미디어 유형(모델 패키지도 이 매니페스트 형식을 쓴다)
+    """
+
+
+class OciRepositoryName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['openit/model-package'],
+            max_length=255,
+            pattern='^[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*)*$',
+        ),
+    ]
+    """
+    OCI 레지스트리의 저장소 이름(모델 패키지를 올리고 받는 곳)
+    """
+
+
+class OciSchemaVersion(RootModel[Literal[2]]):
+    root: Annotated[Literal[2], Field(ge=2, le=2)]
+    """
+    OCI 이미지 매니페스트의 schemaVersion(항상 2)
+    """
+
+
+class OidcClientId(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['admin-console'], max_length=255, min_length=1)
+    ]
+    """
+    토큰을 받은 클라이언트의 식별자(client_id 클레임)
+    """
+
+
+class OidcIssuerUrl(RootModel[AnyUrl]):
+    root: Annotated[AnyUrl, Field(examples=['https://platform/realms/openit'])]
+    """
+    사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다
+    """
+
+
+class OidcJwksUrl(RootModel[AnyUrl]):
+    root: Annotated[
+        AnyUrl,
+        Field(
+            examples=['https://platform/realms/openit/protocol/openid-connect/certs']
+        ),
+    ]
+    """
+    발급자의 JWT 서명 공개 키 집합(JWKS) 주소. 없으면 발급자의 디스커버리 문서(.well-known/openid-configuration)의 jwks_uri 를 쓴다
     """
 
 
@@ -362,6 +597,27 @@ class OutOfSchemaNote(RootModel[str]):
     root: Annotated[str, Field(examples=['손발이 저림'], max_length=70)]
     """
     문진표에 없는 건강 이야기를 요약한 짧은 말(예를 들어 손발이 저림)
+    """
+
+
+class PathPersistent(RootModel[bool]):
+    root: bool
+    """
+    쓰는 경로의 내용이 컨테이너를 다시 만들어도 남아야 하는지(참이면 유지되는 볼륨, 거짓이면 임시 저장소)
+    """
+
+
+class PeerBaseUrl(RootModel[AnyUrl]):
+    root: Annotated[AnyUrl, Field(examples=['https://model-runtime'])]
+    """
+    이웃 서비스의 기준 주소(항상 TLS)
+    """
+
+
+class PreferredUsername(RootModel[str]):
+    root: Annotated[str, Field(examples=['dr.kim'], max_length=255)]
+    """
+    사람이 읽는 계정 이름(화면 표시용). 권한 판단에는 쓰지 않는다
     """
 
 
@@ -451,6 +707,21 @@ class ProblemType(RootModel[AnyUrl]):
     root: Annotated[AnyUrl, Field(examples=['https://openit/problems/OUTPUT_INVALID'])]
     """
     오류의 종류를 가리키는 절대 URI(scheme 이 있는 URI). 기본은 about:blank 다. 이 계약의 서버는 사유가 있으면 https://openit/problems/<ProblemReason 값> 을 쓴다
+    """
+
+
+class ProcessDeclaration(BaseModel):
+    """
+    시작 프로세스 하나의 실행 규칙. 서비스의 진입점이면 job 이 없고 잡이면 그 잡의 이름이 있다. 첫 요소는 절대 경로다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    argv: list[Any] | None = None
+    job: JobName | None = None
+    """
+    이 규칙이 실행하는 잡(서비스의 진입점이면 없다)
     """
 
 
@@ -621,6 +892,13 @@ class RollbackCommand(BaseModel):
     """
 
 
+class RunAsUid(RootModel[int]):
+    root: Annotated[int, Field(examples=[10001], ge=1, le=4294967294)]
+    """
+    이미지가 실행되는 숫자 사용자 ID(root 가 아니다)
+    """
+
+
 class RuntimeContractVersion(RootModel[int]):
     root: Annotated[int, Field(examples=[1], ge=1, le=2147483647)]
     """
@@ -639,6 +917,20 @@ class SamplingTemperature(RootModel[float]):
     root: Annotated[float, Field(examples=[0], ge=0.0, le=2.0)]
     """
     응답을 만들 때 다음 글자를 고르는 무작위성의 크기. 0 이면 가장 확률 높은 것만 고르고 클수록 다양하다
+    """
+
+
+class SecretFilePath(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['/run/secrets/openit_database_password'],
+            max_length=4096,
+            pattern='^/',
+        ),
+    ]
+    """
+    비밀 값이 든 파일의 절대 경로. 값은 환경 변수나 설정에 적지 않고 이 파일에서만 읽는다
     """
 
 
@@ -761,10 +1053,59 @@ class StateStatus(StrEnum):
     UNCLEAR = 'UNCLEAR'
 
 
+class SysctlName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['net.ipv4.ip_unprivileged_port_start'],
+            max_length=255,
+            pattern='^[a-z0-9_]+(\\.[a-z0-9_]+)+$',
+        ),
+    ]
+    """
+    컨테이너에 주입하는 sysctl 의 이름(점으로 이은 소문자 키)
+    """
+
+
+class SysctlValue(RootModel[str]):
+    root: Annotated[str, Field(examples=['0'], max_length=255)]
+    """
+    sysctl 에 주는 값(글자로 쓴다)
+    """
+
+
 class Timestamp(RootModel[AwareDatetime]):
     root: Annotated[AwareDatetime, Field(examples=['2026-11-10T09:30:00+09:00'])]
     """
     일이 일어난 때. UTC 오프셋을 포함한 RFC 3339 날짜-시각
+    """
+
+
+class TokenAudienceClaim1(RootModel[list[ServiceName]]):
+    root: Annotated[list[ServiceName], Field(max_length=5, min_length=1)]
+    """
+    접근 토큰의 aud 클레임. RFC 9068 은 문자열 하나나 문자열 배열을 허용하며, 이 프로젝트는 자기 서비스 이름이 aud 에 들어 있는 토큰만 받는다(로컬 프로파일)
+    """
+
+
+class TokenAudienceClaim(RootModel[ServiceName | TokenAudienceClaim1]):
+    root: ServiceName | TokenAudienceClaim1
+    """
+    접근 토큰의 aud 클레임. RFC 9068 은 문자열 하나나 문자열 배열을 허용하며, 이 프로젝트는 자기 서비스 이름이 aud 에 들어 있는 토큰만 받는다(로컬 프로파일)
+    """
+
+
+class TokenId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['c0a8f3a2-7a41-4b86-9b5e-0d1e2f3a4b5c'],
+            max_length=255,
+            min_length=1,
+        ),
+    ]
+    """
+    토큰의 고유 식별자(jti 클레임)
     """
 
 
@@ -801,6 +1142,20 @@ class UserId(RootModel[str]):
     """
     사람 계정의 고유 식별자(OIDC 의 sub 값). 승인·검토·확인 기록에 남는다
     """
+
+
+class UserRole(StrEnum):
+    """
+    사람 계정에 부여하는 역할. Keycloak 의 realm 역할 이름과 같다
+    """
+
+    staff = 'staff'
+    clinician = 'clinician'
+    author = 'author'
+    reviewer = 'reviewer'
+    release_approver = 'release-approver'
+    operator = 'operator'
+    admin = 'admin'
 
 
 class UtteranceText(RootModel[str]):
@@ -848,10 +1203,47 @@ class ValueStatus(StrEnum):
     REJECTED = 'REJECTED'
 
 
+class WritablePath(BaseModel):
+    """
+    컨테이너가 쓰는 경로 하나(경로, 유지 여부, 쓰는 사용자). 루트 파일시스템은 읽기 전용이다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    owner_uid: RunAsUid
+    """
+    그 경로에 쓰는 사용자
+    """
+    path: ContainerPath
+    """
+    쓰는 경로
+    """
+    persistent: PathPersistent
+    """
+    유지 여부
+    """
+
+
 class YesNoAnswer(RootModel[bool]):
     root: bool
     """
     예 또는 아니오 칸의 값(예이면 참)
+    """
+
+
+class AccessTokenHeader(BaseModel):
+    """
+    서비스가 JWT 접근 토큰의 JOSE 헤더에서 확인하는 칸. 그 밖의 헤더 칸은 허용한다
+    """
+
+    alg: JwsAlgorithmName
+    """
+    서명 알고리즘. none 이면 거절한다
+    """
+    typ: AccessTokenType
+    """
+    토큰 종류. at+jwt 가 아니면 거절한다
     """
 
 
@@ -877,6 +1269,28 @@ class ConditionValue(RootModel[YesNoAnswer | SlotNumber | OptionCode]):
     root: YesNoAnswer | SlotNumber | OptionCode
     """
     건너뛰기 조건이 비교하는 값(예 또는 아니오, 수, 선택지 코드 중 하나)
+    """
+
+
+class EnvDeclaration(BaseModel):
+    """
+    이미지가 받는 환경 입력 하나의 선언
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    kind: EnvKind
+    """
+    입력의 종류
+    """
+    name: EnvVarName
+    """
+    환경 변수 이름
+    """
+    required: IsRequired
+    """
+    없으면 시작하지 않는 입력인지
     """
 
 
@@ -961,6 +1375,42 @@ class HealthReport(BaseModel):
     """
 
 
+class MachineTokenEntry(BaseModel):
+    """
+    기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    client: MachineClientName
+    """
+    호출자 이름
+    """
+    roles: Annotated[list[MachineRole], Field(max_length=4)]
+    """
+    이 호출자에게 허용한 권한들
+    """
+    token_file: SecretFilePath
+    """
+    토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)
+    """
+
+
+class MachineTokenTable(BaseModel):
+    """
+    받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    tokens: Annotated[list[MachineTokenEntry], Field(max_length=4)]
+    """
+    호출자별 권한과 토큰 파일
+    """
+
+
 class MetricName(RootModel[RequiredMetricName | ExtraMetricName]):
     root: RequiredMetricName | ExtraMetricName
     """
@@ -987,6 +1437,112 @@ class ModelPackageBlobDescriptor(BaseModel):
     size: ByteSize
     """
     파일 크기(바이트)
+    """
+
+
+class ModelPackageOciManifest(BaseModel):
+    """
+    레지스트리에 게시되는 모델 패키지의 OCI 이미지 매니페스트(OCI 아티팩트). artifactType 이 모델 패키지임을 가리키고, config 는 목록표(ModelPackageManifest), layers 는 어댑터 가중치 둘과 시스템 프롬프트 둘이다. 이 매니페스트의 digest 가 모델 패키지의 식별자다. 칸 이름은 OCI 표준 그대로다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    artifactType: ModelPackageArtifactType
+    """
+    이 아티팩트가 모델 패키지임을 가리키는 유형
+    """
+    config: ModelPackageBlobDescriptor
+    """
+    목록표(ModelPackageManifest) 파일. 미디어 유형은 config 유형이다
+    """
+    layers: Annotated[
+        list[ModelPackageBlobDescriptor], Field(max_length=4, min_length=4)
+    ]
+    """
+    어댑터 가중치와 시스템 프롬프트 파일들
+    """
+    mediaType: OciImageManifestMediaType
+    """
+    OCI 이미지 매니페스트의 미디어 유형
+    """
+    schemaVersion: OciSchemaVersion
+    """
+    OCI 매니페스트 버전
+    """
+
+
+class ModelRuntimeEnv(BaseModel):
+    """
+    deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    OPENIT_EGRESS_PROXY: EgressProxyUrl | None = None
+    """
+    나가는 호출이 지나는 게이트웨이 터널(같은 서버에 있을 때). 필요한 컴포넌트: link_registry
+    """
+    OPENIT_HOSTS_TABLE_FILE: ConfigFilePath | None = None
+    """
+    다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(다른 서버일 때만). 필요한 컴포넌트: link_registry
+    """
+    OPENIT_LISTEN_PORT: ListenPort
+    """
+    요청을 받을 포트. 필요한 컴포넌트: link_api
+    """
+    OPENIT_LOG_LEVEL: LogLevel | None = None
+    """
+    로그 수준. 필요한 컴포넌트: 모든 컴포넌트
+    """
+    OPENIT_MACHINE_TOKENS_FILE: ConfigFilePath
+    """
+    이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_api
+    """
+    OPENIT_MODEL_CACHE_DIR: ConfigFilePath
+    """
+    기반 모델 가중치를 받아 두는 유지되는 폴더(모델 허브에서 처음 시작할 때 받는다). 필요한 컴포넌트: inference
+    """
+    OPENIT_MODEL_PROFILE: ModelProfileName
+    """
+    GPU 크기별 프로파일 이름. 필요한 컴포넌트: inference
+    """
+    OPENIT_OIDC_AUDIENCE: ServiceName
+    """
+    이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api
+    """
+    OPENIT_OIDC_ISSUER_URL: OidcIssuerUrl
+    """
+    활성화 승인과 롤백을 호출하는 사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api
+    """
+    OPENIT_OIDC_JWKS_URL: OidcJwksUrl | None = None
+    """
+    발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_api
+    """
+    OPENIT_REGISTRY_CREDENTIALS_FILE: SecretFilePath
+    """
+    레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 필요한 컴포넌트: link_registry
+    """
+    OPENIT_REGISTRY_REPOSITORY: OciRepositoryName
+    """
+    모델 패키지가 올라 있는 레지스트리 저장소 이름. 필요한 컴포넌트: link_registry
+    """
+    OPENIT_REGISTRY_URL: PeerBaseUrl
+    """
+    모델 패키지를 digest 로 받을 레지스트리 주소(OCI Distribution). 필요한 컴포넌트: link_registry
+    """
+    OPENIT_ROOT_CERTIFICATE_FILE: ConfigFilePath
+    """
+    신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_api, link_registry
+    """
+    OPENIT_TLS_CERTIFICATE_FILE: ConfigFilePath
+    """
+    이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_api, link_registry
+    """
+    OPENIT_TLS_PRIVATE_KEY_FILE: SecretFilePath
+    """
+    이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_api
     """
 
 
@@ -1124,6 +1680,20 @@ class QuestionFieldSpecs(RootModel[list[QuestionFieldSpec]]):
     root: Annotated[list[QuestionFieldSpec], Field(max_length=104)]
     """
     칸 규격들
+    """
+
+
+class RealmAccessClaim(BaseModel):
+    """
+    OIDC 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    roles: Annotated[list[UserRole], Field(max_length=7)]
+    """
+    이 사람에게 부여된 역할들
     """
 
 
@@ -1268,6 +1838,24 @@ class StateEntry(BaseModel):
     """
 
 
+class Sysctl(BaseModel):
+    """
+    컨테이너에 주입하는 sysctl 하나(이름과 값)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    name: SysctlName
+    """
+    sysctl 이름
+    """
+    value: SysctlValue
+    """
+    sysctl 값
+    """
+
+
 class TrainingLineage(BaseModel):
     """
     모델 패키지의 계보(어느 데이터로 어느 기반 모델에서 학습했는가)
@@ -1287,6 +1875,49 @@ class TrainingLineage(BaseModel):
     training_run_ids: Annotated[list[TrainingRunId], Field(max_length=2)]
     """
     어댑터를 만든 학습 실행들
+    """
+
+
+class UserIdentityClaims(BaseModel):
+    """
+    서비스가 반드시 확인하는 JWT 접근 토큰 클레임(RFC 9068 의 필수 클레임 iss, exp, aud, sub, client_id, iat, jti 와 역할). 서명은 IdP 공개 키(JWKS)로 서비스가 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다
+    """
+
+    aud: TokenAudienceClaim
+    """
+    이 토큰을 받는 서비스. 자기 이름이 없으면 거절한다
+    """
+    client_id: OidcClientId
+    """
+    토큰을 받은 클라이언트
+    """
+    exp: NumericDate
+    """
+    토큰이 만료되는 때. 지난 토큰은 거절한다
+    """
+    iat: NumericDate
+    """
+    토큰을 발급한 때
+    """
+    iss: OidcIssuerUrl
+    """
+    토큰을 발급한 IdP 의 주소. 환경 입력의 발급자와 같아야 한다
+    """
+    jti: TokenId
+    """
+    토큰의 고유 식별자
+    """
+    preferred_username: PreferredUsername | None = None
+    """
+    화면 표시용 계정 이름
+    """
+    realm_access: RealmAccessClaim
+    """
+    부여된 역할
+    """
+    sub: UserId
+    """
+    사람 계정 식별자
     """
 
 
@@ -1340,6 +1971,40 @@ class CollectedState(
     ]
     """
     칸을 가리키는 키(문항.칸, 술은 문항[술코드].칸)에서 그 칸의 값과 상태로 가는 표. 항목의 순서가 의미를 가진다(모델 입력 글자는 학습 데이터와 같게 만든다)
+    """
+
+
+class ContainerInputs(BaseModel):
+    """
+    영역 밖에서 컨테이너에 주입하는 것 전체의 선언(실행 사용자, 환경 입력, 쓰는 경로, 추가 권한, sysctls, 시작 프로세스 명령줄)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    capabilities: Annotated[list[CapabilityName], Field(max_length=41)]
+    """
+    더하는 추가 권한들(기본은 없다)
+    """
+    env: Annotated[list[EnvDeclaration], Field(max_length=23)]
+    """
+    받는 환경 입력들
+    """
+    processes: Annotated[list[ProcessDeclaration], Field(max_length=12, min_length=1)]
+    """
+    시작 프로세스들(서비스의 진입점 하나와 잡마다 하나)
+    """
+    run_as_uid: RunAsUid
+    """
+    실행 사용자
+    """
+    sysctls: Annotated[list[Sysctl], Field(max_length=16)]
+    """
+    주입하는 sysctl 들
+    """
+    writable_paths: Annotated[list[WritablePath], Field(max_length=16)]
+    """
+    쓰는 경로들(루트 파일시스템은 읽기 전용이다)
     """
 
 

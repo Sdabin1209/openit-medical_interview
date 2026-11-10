@@ -31,16 +31,21 @@ LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
-      io.openit.contracts="${CONTRACTS_VERSION}"
+      io.openit.contracts="${CONTRACTS_VERSION}" \
+      io.openit.inputs='{"run_as_uid":10001,"env":[{"name":"OPENIT_ROOT_CERTIFICATE_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_TLS_CERTIFICATE_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_TLS_PRIVATE_KEY_FILE","kind":"SECRET_FILE","required":true},{"name":"OPENIT_LISTEN_PORT","kind":"VALUE","required":true},{"name":"OPENIT_LOG_LEVEL","kind":"VALUE","required":false},{"name":"OPENIT_EGRESS_PROXY","kind":"VALUE","required":false},{"name":"OPENIT_OIDC_ISSUER_URL","kind":"VALUE","required":true},{"name":"OPENIT_OIDC_JWKS_URL","kind":"VALUE","required":false},{"name":"OPENIT_OIDC_AUDIENCE","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_URL","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_REPOSITORY","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_CREDENTIALS_FILE","kind":"SECRET_FILE","required":true},{"name":"OPENIT_MACHINE_TOKENS_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_MODEL_PROFILE","kind":"VALUE","required":true},{"name":"OPENIT_MODEL_CACHE_DIR","kind":"FILE_PATH","required":true},{"name":"OPENIT_HOSTS_TABLE_FILE","kind":"FILE_PATH","required":false}],"writable_paths":[{"path":"/var/lib/openit/model-runtime","persistent":true,"owner_uid":10001}],"capabilities":[],"sysctls":[],"processes":[{"argv":["/app/.venv/bin/model-runtime"]}]}'
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
+# 왜: 유지되는 폴더(활성화 기록, 받은 패키지)는 이미지가 소유자를 정해 둔다. 볼륨을 처음 붙일 때 이 소유자를 물려받는다
+RUN mkdir -p /var/lib/openit/model-runtime && chown 10001:10001 /var/lib/openit/model-runtime
 COPY --from=build /app/.venv /app/.venv
 # 왜: 허용형 라이선스는 이미지에 저작권 표시와 라이선스 전문을 함께 주라고 요구한다. 잠금 파일에서 생성한 고지를 넣는다(ADR 0018)
 COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER 10001:10001
-EXPOSE 8080
-# 왜: slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"]
-CMD ["uvicorn", "--factory", "model_runtime.main:create_app", "--host", "0.0.0.0", "--port", "8080"]
+EXPOSE 8443
+# 왜 루프백 18081: 영역 사이 포트는 mTLS 를 요구해 인증서 없이 볼 수 없다. serve.py 가 컨테이너 안에서만 닿는 건강 확인 포트를 따로 연다.
+# slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/healthz', timeout=2).status == 200 else 1)"]
+# 왜 절대 경로: 계약 ContainerInputs.processes 의 argv 첫 요소는 절대 경로다(D134). inputs.json 이 같은 선언을 가진다
+CMD ["/app/.venv/bin/model-runtime"]
