@@ -1,0 +1,2 @@
+# `deploy/deploy build` 가 쓴다. 한 줄 = <대상> <이미지 digest>. 직접 고치지 않는다.
+_example sha256:eef2b29e3f90f32b417f0c8a1ec31aa910d14c09e6d1cf31aee6b729bf85d208

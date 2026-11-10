@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""영역 이미지 스모크(ADR 0004): 이미지를 빌드하고, 띄워서 /healthz·/readyz 를 확인한다.
+
+사용: tools/smoke <영역> [--no-build]    (영역은 services/<이름> 또는 web/<이름> 의 이름)
+docker 환경은 deploy/dockerenv.py 가 정한 격리 설정만 쓴다. 종료 코드는 시험의 종료 코드다.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "deploy"))
+import dockerenv  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("area")
+    parser.add_argument("--no-build", action="store_true", help="이미 빌드한 이미지를 쓴다")
+    args = parser.parse_args()
+    if (ROOT / "services" / args.area).is_dir():
+        folder, target, image = ROOT / "services" / args.area, args.area, f"openit/{args.area.lstrip('_')}:local"
+        command = ["uv", "run", "pytest", "-m", "smoke", "-ra"]
+    elif (ROOT / "web" / args.area).is_dir():
+        folder = ROOT / "web" / args.area
+        target, image = f"web-{args.area.lstrip('_')}", f"openit/web-{args.area.lstrip('_')}:local"
+        command = ["npm", "run", "smoke"]
+    else:
+        print(f"대상 없음: services/{args.area}, web/{args.area} 모두 없다", file=sys.stderr)
+        return 3
+    try:
+        env = dockerenv.docker_env()
+    except dockerenv.DockerEnvError as error:
+        print(f"docker 환경을 정하지 못했다: {error}", file=sys.stderr)
+        return 1
+    if not args.no_build:
+        rc = subprocess.run([str(ROOT / "deploy" / "deploy"), "build", target], check=False).returncode
+        if rc != 0:
+            return rc
+    env["OPENIT_SMOKE_IMAGE"] = image
+    return subprocess.run(command, cwd=folder, env=env, check=False).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

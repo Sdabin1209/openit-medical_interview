@@ -1,0 +1,299 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["typer"]
+# ///
+"""openit 배포 명령(ADR 0002, 0004). 표준 도구(docker buildx bake, docker compose)를 부르는 얇은 층이다.
+
+종료 코드: 0 성공, 1 실패, 2 사용법 오류(Typer), 3 대상 없음(할 대상이 아직 없다. 성공이 아니다).
+비밀 값은 출력하지 않는다. docker 호출은 dockerenv.run_docker 만 지난다(사용자 ~/.docker 를 쓰지 않는다).
+"""
+
+from __future__ import annotations
+
+import json
+import secrets as pysecrets
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Annotated, NoReturn
+
+import typer
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dockerenv  # noqa: E402
+
+ROOT = dockerenv.REPO_ROOT
+DEPLOY = ROOT / "deploy"
+COMPOSE_FILE = DEPLOY / "compose.yaml"
+SECRETS_DIR = DEPLOY / "secrets"
+LOCK_FILE = DEPLOY / "images.lock"
+META_DIR = DEPLOY / ".build-meta"
+BACKUP_DIR = DEPLOY / "backups"
+PROJECT = "openit"
+EXIT_FAIL = 1
+EXIT_NO_TARGET = 3
+
+# 비밀 이름 -> 바이트 수. oauth2-proxy 쿠키 비밀은 16/24/32 바이트여야 한다(문서: cookie_secret).
+SECRET_NAMES: dict[str, int] = {
+    "postgres_password": 32,
+    "keycloak_admin_password": 32,
+    "keycloak_db_password": 32,
+    "oauth2_proxy_client_secret": 32,
+    "oauth2_proxy_cookie_secret": 16,
+    "step_ca_password": 32,
+}
+
+app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
+secrets_app = typer.Typer(add_completion=False, no_args_is_help=True, help="비밀 파일 관리")
+app.add_typer(secrets_app, name="secrets")
+
+
+def fail(message: str, code: int = EXIT_FAIL) -> NoReturn:
+    typer.echo(message, err=True)
+    raise typer.Exit(code)
+
+
+def no_target(message: str) -> NoReturn:
+    fail(f"대상 없음: {message}", EXIT_NO_TARGET)
+
+
+def docker(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    try:
+        return dockerenv.run_docker(args, **kwargs)
+    except dockerenv.DockerEnvError as error:
+        fail(f"docker 환경을 정하지 못했다: {error}")
+
+
+def compose_args() -> list[str]:
+    args = ["compose", "--project-name", PROJECT, "--project-directory", str(DEPLOY), "-f", str(COMPOSE_FILE),
+            "--env-file", str(DEPLOY / "env.example")]
+    if (DEPLOY / ".env").exists():
+        args += ["--env-file", str(DEPLOY / ".env")]  # 뒤의 파일이 앞을 덮는다(설치처 값)
+    return args
+
+
+def compose(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    return docker([*compose_args(), *args], **kwargs)
+
+
+def git(*args: str) -> str:
+    result = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+    if result.returncode != 0:
+        fail(f"git {' '.join(args)} 실패(rc={result.returncode}): {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def area_targets() -> dict[str, str]:
+    """bake 대상 이름 -> 종류. services/·web/ 폴더가 정본이다."""
+    targets: dict[str, str] = {}
+    for kind, folder, prefix in (("service", "services", ""), ("web", "web", "web-")):
+        base = ROOT / folder
+        if base.is_dir():
+            for child in sorted(base.iterdir()):
+                if child.is_dir() and (child / "Dockerfile").is_file():
+                    name = child.name if kind == "service" else prefix + child.name.lstrip("_")
+                    targets[name] = kind
+    return targets
+
+
+@app.command()
+def doctor() -> None:
+    """필요한 도구·버전·포트·비밀 파일이 갖춰졌는지 확인한다."""
+    problems: list[str] = []
+
+    def check(label: str, ok: bool, detail: str = "") -> None:
+        typer.echo(f"[{'OK' if ok else 'FAIL'}] {label}" + (f" - {detail}" if detail and not ok else ""))
+        if not ok:
+            problems.append(label)
+
+    for tool in ("git", "uv", "docker"):
+        check(f"{tool} 설치", shutil.which(tool) is not None)
+    try:
+        env = dockerenv.docker_env()
+        check("docker 격리 설정", True)
+        typer.echo(f"      DOCKER_CONFIG={env['DOCKER_CONFIG']}")
+    except dockerenv.DockerEnvError as error:
+        check("docker 격리 설정", False, str(error))
+        fail(f"doctor 실패: {len(problems)}건", EXIT_FAIL)
+    engine = docker(["version", "--format", "{{.Server.Version}}"], capture_output=True)
+    check("docker 엔진 응답", engine.returncode == 0, "엔진에 연결하지 못했다")
+    buildx = docker(["buildx", "version"], capture_output=True)
+    check("docker buildx", buildx.returncode == 0)
+    compose_version = docker(["compose", "version"], capture_output=True)
+    check("docker compose", compose_version.returncode == 0)
+    missing = [name for name in SECRET_NAMES if not (SECRETS_DIR / name).is_file()]
+    check("비밀 파일", not missing, f"없음: {', '.join(missing)} (./deploy secrets init)")
+    config = compose(["config", "--format", "json"], capture_output=True)
+    check("compose config 검증", config.returncode == 0, config.stderr.strip()[-300:])
+    if config.returncode == 0:
+        model = json.loads(config.stdout)
+        fixed = [
+            f"{name}:{port.get('published')}"
+            for name, svc in model.get("services", {}).items()
+            for port in svc.get("ports", [])
+            if port.get("published")
+        ]
+        check("고정 호스트 포트 없음", not fixed, ", ".join(fixed))
+        unpinned = [n for n, s in model.get("services", {}).items() if "@sha256:" not in s.get("image", "")]
+        check("compose 이미지 digest 고정", not unpinned, ", ".join(unpinned))
+    if problems:
+        fail(f"doctor 실패: {len(problems)}건", EXIT_FAIL)
+    typer.echo("doctor 통과")
+
+
+@secrets_app.command("init")
+def secrets_init() -> None:
+    """비밀 파일을 만든다. 이미 있는 파일은 건드리지 않는다. 값은 출력하지 않는다."""
+    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    SECRETS_DIR.chmod(0o700)
+    for name, size in SECRET_NAMES.items():
+        path = SECRETS_DIR / name
+        if path.exists():
+            typer.echo(f"있음: {name}")
+            continue
+        # 왜 token_hex: PyPA/파이썬 문서가 비밀 생성에 권하는 secrets 모듈(CSPRNG). 16바이트면 oauth2-proxy 쿠키 비밀 길이 조건을 맞춘다
+        path.write_text(pysecrets.token_hex(size // 2 if name == "oauth2_proxy_cookie_secret" else size), encoding="utf-8")
+        path.chmod(0o600)
+        typer.echo(f"만듦: {name}")
+
+
+@app.command()
+def build(service: Annotated[str | None, typer.Argument(help="빌드할 대상(없으면 전부)")] = None) -> None:
+    """이미지를 빌드하고 images.lock 을 갱신한다."""
+    targets = area_targets()
+    if not targets:
+        no_target("services/·web/ 에 Dockerfile 이 있는 영역이 없다")
+    if service is not None and service not in targets:
+        fail(f"알 수 없는 대상 '{service}'. 가능: {', '.join(targets)}", 2)
+    names = [service] if service else list(targets)
+    revision = git("rev-parse", "HEAD")
+    contracts = git("rev-parse", "HEAD:contracts") if (ROOT / "contracts").is_dir() else ""
+    if not contracts:
+        fail("contracts/ 가 없어 계약 버전을 정할 수 없다")
+    META_DIR.mkdir(exist_ok=True)
+    meta = META_DIR / f"bake-{time.time_ns()}.json"
+    env = dockerenv.docker_env()
+    # 왜 git describe: 이미지 버전을 사람이 정한 숫자가 아니라 커밋(태그가 있으면 태그)에서 얻는다
+    env.update(VERSION=git("describe", "--tags", "--always"), REVISION=revision, CONTRACTS_VERSION=contracts, SOURCE_URL=git("remote", "get-url", "origin"))
+    result = subprocess.run(  # noqa: S603, S607
+        ["docker", "buildx", "bake", "-f", str(ROOT / "docker-bake.hcl"), "--load", "--metadata-file", str(meta), *names],
+        env=env, cwd=ROOT, text=True, check=False,
+    )
+    if result.returncode != 0:
+        fail(f"빌드 실패(rc={result.returncode})")
+    built = json.loads(meta.read_text(encoding="utf-8"))
+    lock: dict[str, str] = {}
+    if LOCK_FILE.exists():
+        for line in LOCK_FILE.read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#"):
+                key, _, value = line.partition(" ")
+                lock[key] = value
+    for name in names:
+        info = built.get(name, {})
+        digest = info.get("containerimage.digest") or info.get("containerimage.config.digest")
+        if not digest:
+            fail(f"{name}: 빌드 결과에서 digest 를 찾지 못했다")
+        lock[name] = digest
+    header = "# `deploy/deploy build` 가 쓴다. 한 줄 = <대상> <이미지 digest>. 직접 고치지 않는다.\n"
+    LOCK_FILE.write_text(header + "".join(f"{k} {v}\n" for k, v in sorted(lock.items())), encoding="utf-8")
+    for name in names:
+        typer.echo(f"빌드됨: {name} {lock[name]}")
+
+
+@app.command()
+def up() -> None:
+    """compose 로 띄운다(health 가 될 때까지 기다린다)."""
+    if not (SECRETS_DIR / next(iter(SECRET_NAMES))).is_file():
+        fail("비밀 파일이 없다. 먼저 ./deploy secrets init", EXIT_FAIL)
+    result = compose(["up", "-d", "--wait"])
+    if result.returncode != 0:
+        fail(f"up 실패(rc={result.returncode}). 진단을 위해 컨테이너와 로그를 남겨 두었다: ./deploy status", EXIT_FAIL)
+
+
+@app.command()
+def down() -> None:
+    """이 프로젝트(openit)의 컨테이너를 내린다. 볼륨은 지우지 않는다."""
+    result = compose(["down"])
+    if result.returncode != 0:
+        fail(f"down 실패(rc={result.returncode})")
+
+
+@app.command()
+def status() -> None:
+    """컨테이너 상태와 health 를 보인다."""
+    listing = compose(["ps", "--all", "--format", "json"], capture_output=True)
+    if listing.returncode != 0:
+        fail(f"status 실패(rc={listing.returncode}): {listing.stderr.strip()}")
+    rows = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
+    if not rows:
+        no_target("떠 있는 컨테이너가 없다(./deploy up)")
+    unhealthy = 0
+    for row in rows:
+        health = row.get("Health") or "-"
+        typer.echo(f"{row['Service']:<16} {row['State']:<10} health={health}")
+        if row["State"] != "running" or health not in ("healthy", "-"):
+            unhealthy += 1
+    if unhealthy:
+        fail(f"정상이 아닌 컨테이너 {unhealthy}개", EXIT_FAIL)
+
+
+@app.command()
+def job(name: Annotated[str, typer.Argument(help="잡 이름(jobs/<이름>)")]) -> None:
+    """잡을 한 번 실행한다(스케줄러가 부르는 것과 같다)."""
+    if not (ROOT / "jobs" / name).is_dir():
+        no_target(f"jobs/{name} 가 없다")
+    services = compose(["config", "--services"], capture_output=True).stdout.split()
+    if name not in services:
+        no_target(f"compose 에 잡 서비스 '{name}' 이 없다")
+    result = compose(["run", "--rm", name])
+    if result.returncode != 0:
+        fail(f"잡 {name} 실패(rc={result.returncode})", result.returncode)
+
+
+@app.command()
+def backup() -> None:
+    """PostgreSQL 전체를 deploy/backups/ 에 gzip SQL 로 저장한다."""
+    BACKUP_DIR.mkdir(exist_ok=True)
+    target = BACKUP_DIR / f"postgres-{time.strftime('%Y%m%dT%H%M%S')}.sql.gz"
+    dump = compose(["exec", "-T", "postgres", "pg_dumpall", "--username", "postgres", "--clean", "--if-exists"],
+                   capture_output=True)
+    if dump.returncode != 0:
+        fail(f"백업 실패(rc={dump.returncode}). postgres 가 떠 있는지 ./deploy status")
+    import gzip
+    with gzip.open(target, "wt", encoding="utf-8") as handle:
+        handle.write(dump.stdout)
+    typer.echo(f"백업: {target.relative_to(ROOT)}")
+
+
+@app.command()
+def restore(
+    file: Annotated[Path, typer.Argument(help="backup 이 만든 .sql.gz")],
+    yes: Annotated[bool, typer.Option("--yes", help="덮어쓰기를 확인했다")] = False,
+) -> None:
+    """백업에서 PostgreSQL 을 복원한다(기존 데이터를 덮어쓴다)."""
+    import gzip
+    if not file.is_file():
+        fail(f"백업 파일이 없다: {file}")
+    if not yes:
+        fail("복원은 기존 데이터를 덮어쓴다. 확인했으면 --yes 를 붙인다", 2)
+    sql = gzip.open(file, "rt", encoding="utf-8").read()
+    result = compose(["exec", "-T", "postgres", "psql", "--username", "postgres", "--set", "ON_ERROR_STOP=1", "--quiet"],
+                     input=sql, capture_output=True)
+    if result.returncode != 0:
+        fail(f"복원 실패(rc={result.returncode}): {result.stderr.strip()[-300:]}")
+    typer.echo("복원 완료")
+
+
+@app.command()
+def e2e() -> None:
+    """전체 시험 1회(샌드박스, 제품 구성은 건드리지 않는다)."""
+    if not (DEPLOY / "e2e").is_dir():
+        no_target("deploy/e2e/ 가 없다(전체 시험이 아직 정의되지 않았다)")
+    fail("deploy/e2e/ 실행 규약이 아직 없다", EXIT_NO_TARGET)
+
+
+if __name__ == "__main__":
+    app()
