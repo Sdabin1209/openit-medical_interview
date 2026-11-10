@@ -98,16 +98,16 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 
 대상은 `NoneCommit/audit-out/A.md`(205항목 중 53), `B.md`(202항목 중 89), `C.md`(217항목 중 108)에서 OK 가 아닌 250항목이다. 번호는 A·B·C 순서의 일련번호이고 두 번째 칸은 대조 파일과 그 파일의 행번호(C 는 개정 전 줄)와 스키마·작업 이름이다. 증거 칸은 스키마·작업 이름으로 위치를 가리킨다(줄 번호는 개정마다 바뀐다). 계약 시험은 `lint/tests/contract.test.mjs` 의 시험 이름으로 확인한다.
 
-판정 용어: **고침**은 계약의 값·패턴·설명·근거를 정본이나 표준에 맞게 바꿨거나 근거를 정본 문장으로 바로잡은 것, **지움**은 ADR 0019 로 대상이 계약에서 없어진 것, **정할 수 없음**은 정본 입력에 근거가 없어 값을 지어내지 않고 근거에 그 사실을 밝혀 둔 것(헤드 결정이 필요하다), **측정 확인 불가**는 정본이나 재측정으로 확인하지 못한 것이다.
+판정 용어: **고침**은 계약의 값·패턴·설명·근거를 정본이나 표준에 맞게 바꿨거나 근거를 정본 문장(헤드 결정 docs/design.md 4절, UD-23~25 포함)으로 바로잡은 것, **지움**은 ADR 0019 로 대상이 계약에서 없어진 것, **정할 수 없음**은 근거가 없어 값을 지어내지 않고 근거에 그 사실을 밝혀 둔 것(헤드 결정이 필요하다), **측정 확인 불가**는 정본이나 재측정으로 확인하지 못한 것이다.
 
-처리 수: 고침 116, 지움 71, 정할 수 없음 63, 측정 확인 불가 0 (합계 250). 대조의 '측정 확인 불가' 32건 중 31건은 학습 서버 final·finaltest 93,429행 재측정(`NoneCommit/measure/report.md`)으로 확인해 '고침'(근거 수치 교정)이 되었고, 1건(`ArtifactContent` 의 어댑터 크기)은 재측정하지 않았으나 파일 올리기·내려받기 작업이 없어져 스키마를 지웠다.
+처리 수: 고침 174, 지움 71, 정할 수 없음 5, 측정 확인 불가 0 (합계 250). 첫 처리에서 '정할 수 없음' 63건이었던 것은 헤드 결정(2026-11-10: docs/design.md 4절 어휘, UD-23~UD-25, 표준·모델 카드·API 명세 원문 확인, ContainerInputs 복원)을 반영해 나머지 외에는 '고침'이 되었다. 대조의 '측정 확인 불가' 32건 중 31건은 학습 서버 final·finaltest 93,429행 재측정(`NoneCommit/measure/report.md`)으로 확인해 '고침'(근거 수치 교정)이 되었고, 1건(`ArtifactContent` 의 어댑터 크기)은 재측정하지 않았으나 파일 올리기·내려받기 작업이 없어져 스키마를 지웠다.
 
 | 번호 | 대조 파일 행 이름 | 원래 판정 | 처리 | 증거 |
 |---|---|---|---|---|
 | 1 | A.md 17 `ProblemType` | 없음 | 고침 | components.yaml `ProblemType`: 패턴을 RFC 3986 3.1 의 scheme 이 있는 URI 로 맞췄다(https 전용 주장 삭제). RFC 9457 3.1.1 |
-| 2 | A.md 22 `ProblemReason` | 없음 | 정할 수 없음 | components.yaml `ProblemReason`: OUTPUT_INVALID(D75(1))와 TURN_IN_PROGRESS(D86)만 정본에 이름이 있다. 나머지 이름은 ADR 0019·design.md 의 흐름에서 정한 계약 정의이고 정본에 이름 목록이 없다. 없어진 사유(STALE_REPORT 등 8개)는 지웠다 |
-| 3 | A.md 77 `PageLimit` | 근거 없음 | 정할 수 없음 | components.yaml `PageLimit`: 1~100 과 기본 30 을 정한 정본 결정이 없다. 업계 관행을 따른 계약의 선택임을 근거에 밝혔다(UD-10 은 쪽이 아닌 목록 100 만 정함) |
-| 4 | A.md 78 `PageCursor` | 근거 없음 | 정할 수 없음 | components.yaml `PageCursor`: 커서 구성(UUID·시각·HMAC)과 길이 140 은 계산은 맞지만 정본에 구성 결정이 없다. 가정임을 근거에 밝혔다 |
+| 2 | A.md 22 `ProblemReason` | 없음 | 고침 | components.yaml `ProblemReason`: 각 코드를 쓰는 작업(파일·작업 이름)과 맡는 2절 컴포넌트를 x-enum-descriptions 에 적고 근거를 그 작업과 design.md 2절로 댔다 |
+| 3 | A.md 77 `PageLimit` | 근거 없음 | 고침 | components.yaml `PageLimit`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
+| 4 | A.md 78 `PageCursor` | 근거 없음 | 고침 | components.yaml `PageCursor`: 상한을 (Timestamp 35 + UUID 36 + 구분자 1 = 72바이트)의 base64url 길이 96 으로 계산해 바꿨다(140→96) |
 | 5 | A.md 133 `ServiceName` | 근거 없음 | 고침 | components.yaml `ServiceName`: ADR 0019 와 docs/design.md 2절의 상시 서비스 3개와 화면 2개로 다시 정의하고 근거를 ADR 0019 로 바꿨다 |
 | 6 | A.md 150 `HealthStatus` | 없음 | 고침 | components.yaml `HealthStatus`: 근거를 U101(건강 확인 본문 스키마가 없다는 빈 곳)과 D111 로 바꾸고, 이름과 모양은 만료된 초안을 참고한 계약의 선택임을 밝혔다(표준이라고 쓰지 않음) |
 | 7 | A.md 158 `HealthCheck` | 없음 | 고침 | components.yaml `HealthCheck`: 근거를 U101(건강 확인 본문 스키마가 없다는 빈 곳)과 D111 로 바꾸고, 이름과 모양은 만료된 초안을 참고한 계약의 선택임을 밝혔다(표준이라고 쓰지 않음) |
@@ -116,29 +116,29 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 10 | A.md 183 `ForwardedClientCertValue` | 근거 없음 | 고침 | components.yaml `ForwardedClientCertValue`: 근거를 Envoy XFCC 사양(입구가 Envoy: design.md 2절), D113, D136, UD-19 로 바로잡았다. D113 의 X-Openit-Device 는 Caddy 입구 시절의 전달 방식이라 design.md 의 Envoy 입구로 대체했다 |
 | 11 | A.md 184 `ReprDigestValue` | 어긋남 | 지움 | 파일 올리기·내려받기 작업이 없어져(모델 패키지는 OCI 아티팩트) 스키마 `ReprDigestValue` 를 지웠다 (커밋 a89a8eb) |
 | 12 | A.md 185 `IdempotencyKeyValue` | 근거 없음 | 고침 | components.yaml `IdempotencyKeyValue`: UUID 형식의 근거를 RFC 9562 4 로 직접 인용하고 IETF 초안은 표준이 아님을 밝혔다 |
-| 13 | A.md 187 `NumericDate` | 없음 | 정할 수 없음 | components.yaml `NumericDate`: RFC 7519 는 0 이상과 연도 9999 상한을 정하지 않는다. Timestamp(UD-20)의 끝에 맞춘 계약의 선택임을 근거에 밝혔다 |
+| 13 | A.md 187 `NumericDate` | 없음 | 고침 | components.yaml `NumericDate`: 상한 253402300799 를 9999-12-31T23:59:59Z 의 에포크 초 계산으로 근거를 댔다(계산 확인) |
 | 14 | A.md 222 `PrometheusExposition` | 어긋남 | 고침 | components.yaml `PrometheusExposition`: 8 MiB 는 바이트라 본문 계층에서 강제하고 maxLength 는 글자 수라는 구분을 설명에 적었다(UD-03) |
-| 15 | A.md 243 `MachineRole` | 없음 | 정할 수 없음 | components.yaml `MachineRole`: result-reader 만 D102 에 이름이 있다. risk-detector·inference-caller·case-reader 는 design.md 흐름에서 정한 계약 정의로 정본에 이름이 없다. 나머지 11개 권한(release-reader 등)은 영역이 없어져 지웠다 |
+| 15 | A.md 243 `MachineRole` | 없음 | 고침 | components.yaml `MachineRole`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 16 | A.md 265 `MachineClientName` | 어긋남 | 고침 | components.yaml `MachineClientName`: 패턴을 RFC 1035 2.3.1 의 label 문법(영문자 시작, 영문자·숫자 끝)으로 맞췄다 |
 | 17 | A.md 285 `MachineTokenTable.tokens` | 없음 | 고침 | components.yaml `MachineTokenTable.tokens`: tokens 상한을 기계 호출자 4개(N03·N08·N09·N14)로 바로잡고 근거에 적었다 |
 | 18 | A.md 286 `RealmAccessClaim` | 근거 없음 | 정할 수 없음 | components.yaml `RealmAccessClaim`: realm_access 는 Keycloak 제품 클레임이라 표준 근거가 없고 정본(U82)은 역할을 받는다고만 한다. 제품 클레임임을 근거에 밝혔다 |
-| 19 | A.md 295 `PreferredUsername` | 없음 | 정할 수 없음 | components.yaml `PreferredUsername`: OIDC Core 5.1 은 길이 한도를 정하지 않고 UD-22 는 client_id·jti·alg 만 정했다. sub 와 같은 255 로 맞춘 계약의 선택임을 밝혔다 |
+| 19 | A.md 295 `PreferredUsername` | 없음 | 고침 | components.yaml `PreferredUsername`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 20 | A.md 299 `TokenAudienceClaim.oneOf[1]` | 근거 없음 | 고침 | components.yaml `TokenAudienceClaim.oneOf[1]`: 해당 하위 제약(배열 최대, not const none)에 직접 x-basis 를 달았다(구조 값, RFC 9068 4) |
 | 21 | A.md 323 `JwsAlgorithmName.not` | 근거 없음 | 고침 | components.yaml `JwsAlgorithmName.not`: 해당 하위 제약(배열 최대, not const none)에 직접 x-basis 를 달았다(구조 값, RFC 9068 4) |
-| 22 | A.md 340 `DeviceId` | 없음 | 정할 수 없음 | components.yaml `DeviceId`: CN 길이 64 는 RFC 5280 이지만 글자 집합 제한은 정본에 없다. 계약의 선택임을 밝혔다 |
-| 23 | A.md 346 `QuestionnaireId` | 없음 | 정할 수 없음 | components.yaml `QuestionnaireId`: 최대 63 은 UD-14 이지만 글자 집합 제한은 정본에 없다. 계약의 선택임을 밝혔다 |
+| 22 | A.md 340 `DeviceId` | 없음 | 고침 | components.yaml `DeviceId`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
+| 23 | A.md 346 `QuestionnaireId` | 없음 | 고침 | components.yaml `QuestionnaireId`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 24 | A.md 368 `StartCodeValue` | 없음 | 고침 | components.yaml `StartCodeValue`: 정확히 6자리 숫자의 근거를 C20 과 design.md 2절(start_code: 6자리 숫자)로 바로잡았다 |
 | 25 | A.md 394 `ResponseSentence` | 측정 확인 불가 | 고침 | components.yaml `ResponseSentence`: 학습 서버 93,429행 재측정(B 응답 134, current_question 172)과 IO_SPEC.md 4.2 로 근거를 바로잡았다. 344 는 172 의 2배 |
-| 26 | A.md 396 `SessionStatus` | 없음 | 정할 수 없음 | components.yaml `SessionStatus`: D66(5)·D85(1)은 의미만 정하고 열거 이름 목록은 정본에 없다. 이름은 계약의 정의임을 근거에 밝혔다 |
-| 27 | A.md 408 `PauseReason` | 없음 | 정할 수 없음 | components.yaml `PauseReason`: L28 은 사유 필드를 두라고 할 뿐 값 이름이 없다(RISK_NOTICE·CALL_STAFF 는 고정 문장 이름). 이름은 계약의 정의임을 밝혔다 |
-| 28 | A.md 417 `TurnFailureReason` | 없음 | 정할 수 없음 | components.yaml `TurnFailureReason`: D75(1)·D125 는 실패 신호의 의미만 정한다. 세 이름은 계약의 정의임을 밝혔다 |
-| 29 | A.md 427 `StaffHelpNotice` | 없음 | 정할 수 없음 | components.yaml `StaffHelpNotice`: 설명 요청 3번 뒤 직원 도움 안내는 정본(v7-flow-resolutions)에 있으나 고정 문장을 서비스가 쓴다는 책임 문장은 정본에 없다. 인용했던 구조 규칙 11 을 근거에서 지우고 계약의 정의임을 밝혔다 |
-| 30 | A.md 503 `AlertKind` | 없음 | 정할 수 없음 | components.yaml `AlertKind`: CALL_STAFF(D95)·RESULT_READY(U92)의 뜻은 정본에 있으나 RISK 열거 이름은 정본에 없다(PAUSED_RISK 와 다르다). 계약의 정의임을 밝혔다 |
-| 31 | A.md 561 `InterventionAction` | 없음 | 정할 수 없음 | components.yaml `InterventionAction`: D58(4)는 개입 결정의 존재만 정하고 값 이름이 없다. 계약의 정의임을 밝혔다 |
+| 26 | A.md 396 `SessionStatus` | 없음 | 고침 | components.yaml `SessionStatus`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
+| 27 | A.md 408 `PauseReason` | 없음 | 고침 | components.yaml `PauseReason`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
+| 28 | A.md 417 `TurnFailureReason` | 없음 | 고침 | components.yaml `TurnFailureReason`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
+| 29 | A.md 427 `StaffHelpNotice` | 없음 | 정할 수 없음 | components.yaml `StaffHelpNotice`: 설명 요청 3번 뒤 직원 도움 안내는 v7-flow-resolutions 에 있으나 고정 문장을 서비스가 쓴다는 책임 문장은 design.md 4절에도 없다. 계약의 정의임을 근거에 밝혀 두었다 |
+| 30 | A.md 503 `AlertKind` | 없음 | 고침 | components.yaml `AlertKind`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
+| 31 | A.md 561 `InterventionAction` | 없음 | 고침 | components.yaml `InterventionAction`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 32 | A.md 620 `WebPushPayload` | 어긋남 | 고침 | components.yaml `WebPushPayload`: 4096옥텟을 RFC 8291 4 의 지원 하한(평문 3993)으로 바로잡아 전역 최대가 아님을 밝혔다 |
 | 33 | A.md 679 `QuestionText` | 측정 확인 불가 | 고침 | components.yaml `QuestionText`: SQL.md 질문 문장 최대 56 과 재측정 next.text 최대 62(93,429행)로 124 를 확인했다 |
-| 34 | A.md 702 `FlowComparison` | 없음 | 정할 수 없음 | components.yaml `FlowComparison`: D76 은 수 조건 규칙의 존재만 정하고 비교 연산 이름 목록이 없다. 계약의 정의임을 밝혔다 |
-| 35 | A.md 747 `FlowRule.branches` | 어긋남 | 정할 수 없음 | components.yaml `FlowRule.branches`: labels.py 는 한 문항 뒤 분기 수 상한을 유도하지 않는다. 14 는 계약의 선택임을 밝혔다 |
+| 34 | A.md 702 `FlowComparison` | 없음 | 고침 | components.yaml `FlowComparison`: 여섯 연산이 FHIR R4 enableWhen.operator(=, !=, >, <, >=, <=)와 같은 뜻임을 근거로 하고 설명에 FHIR 연산자를 적었다(원문 확인) |
+| 35 | A.md 747 `FlowRule.branches` | 어긋남 | 고침 | components.yaml `FlowRule.branches`: labels.py next_after 의 규칙에서 한 문항 뒤 최대 갈래 수 2(조건 1 + 기본 경로)를 세고 2배인 4 로 바꿨다(14→4) |
 | 36 | A.md 773 `ChangeClass` | 없음 | 지움 | ADR 0019 로 question-authoring 영역이 없어져 스키마 `ChangeClass` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 37 | A.md 849 `MediaType` | 어긋남 | 지움 | 파일 올리기·내려받기 작업이 없어져(모델 패키지는 OCI 아티팩트) 스키마 `MediaType` 를 지웠다 (커밋 a89a8eb) |
 | 38 | A.md 872 `DraftStatus` | 없음 | 지움 | ADR 0019 로 question-authoring 영역이 없어져 스키마 `DraftStatus` 를 계약에서 지웠다 (커밋 a89a8eb) |
@@ -147,16 +147,16 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 41 | A.md 930 `ConfusionSummary` | 없음 | 지움 | ADR 0019 로 ops-feedback 영역이 없어져 스키마 `ConfusionSummary` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 42 | A.md 989 `YesNoAnswer` | 측정 확인 불가 | 고침 | components.yaml `YesNoAnswer`: boolean 건수를 25463 에서 재측정한 15572 로 고쳤다(93,429행) |
 | 43 | A.md 990 `NoValue` | 측정 확인 불가 | 고침 | components.yaml `NoValue`: null 건수를 8820 에서 재측정한 11992 로 고쳤다(93,429행) |
-| 44 | A.md 991 `SlotText` | 없음 | 정할 수 없음 | components.yaml `SlotText`: SQL.md 의 text 칸 자료형은 있으나 값 길이 300 은 발화 상한에서 파생한 계약의 선택임을 밝혔다 |
+| 44 | A.md 991 `SlotText` | 없음 | 고침 | components.yaml `SlotText`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 45 | A.md 1019 `CollectedState` | 측정 확인 불가 | 고침 | components.yaml `CollectedState`: 재측정 state 최대 9(93,429행)로 18 을 확인했다 |
 | 46 | A.md 1028 `CurrentQuestionText` | 측정 확인 불가 | 고침 | components.yaml `CurrentQuestionText`: 재측정 current_question 최대 172(93,429행)로 344 를 확인했다 |
-| 47 | A.md 1029 `ModelIoFeature` | 없음 | 정할 수 없음 | components.yaml `ModelIoFeature`: 기능 셋의 뜻과 v3 활성 조건은 docs/v7-flow-resolutions.md 에 있으나 기능 이름 세 개는 정본에 없다. 인용했던 contracts/model-io-v3-proposal.md 는 근거에서 지우고 하위 const 에 직접 x-basis 를 달았다 |
-| 48 | A.md 1036 `MinimumModelIoVersion` | 근거 없음 | 정할 수 없음 | components.yaml `MinimumModelIoVersion`: 기능 셋의 뜻과 v3 활성 조건은 docs/v7-flow-resolutions.md 에 있으나 기능 이름 세 개는 정본에 없다. 인용했던 contracts/model-io-v3-proposal.md 는 근거에서 지우고 하위 const 에 직접 x-basis 를 달았다 |
-| 49 | A.md 1053 `ModelIoFeatureRequirements.allOf[0].contains.fea` | 근거 없음 | 정할 수 없음 | components.yaml `ModelIoFeatureRequirements.allOf[0].contains.feature`: 기능 셋의 뜻과 v3 활성 조건은 docs/v7-flow-resolutions.md 에 있으나 기능 이름 세 개는 정본에 없다. 인용했던 contracts/model-io-v3-proposal.md 는 근거에서 지우고 하위 const 에 직접 x-basis 를 달았다 |
-| 50 | A.md 1054 `ModelIoFeatureRequirements.allOf[1].contains.fea` | 근거 없음 | 정할 수 없음 | components.yaml `ModelIoFeatureRequirements.allOf[1].contains.feature`: 기능 셋의 뜻과 v3 활성 조건은 docs/v7-flow-resolutions.md 에 있으나 기능 이름 세 개는 정본에 없다. 인용했던 contracts/model-io-v3-proposal.md 는 근거에서 지우고 하위 const 에 직접 x-basis 를 달았다 |
-| 51 | A.md 1055 `ModelIoFeatureRequirements.allOf[2].contains.fea` | 근거 없음 | 정할 수 없음 | components.yaml `ModelIoFeatureRequirements.allOf[2].contains.feature`: 기능 셋의 뜻과 v3 활성 조건은 docs/v7-flow-resolutions.md 에 있으나 기능 이름 세 개는 정본에 없다. 인용했던 contracts/model-io-v3-proposal.md 는 근거에서 지우고 하위 const 에 직접 x-basis 를 달았다 |
+| 47 | A.md 1029 `ModelIoFeature` | 없음 | 고침 | components.yaml `ModelIoFeature`: 기능 이름 셋을 docs/design.md 4절로 근거를 바꿨다 |
+| 48 | A.md 1036 `MinimumModelIoVersion` | 근거 없음 | 고침 | components.yaml `MinimumModelIoVersion`: 기능 이름 셋을 docs/design.md 4절로 근거를 바꿨다 |
+| 49 | A.md 1053 `ModelIoFeatureRequirements.allOf[0].contains.fea` | 근거 없음 | 고침 | components.yaml `ModelIoFeatureRequirements.allOf[0].contains.feature`: 기능 이름 셋을 docs/design.md 4절로 근거를 바꿨다 |
+| 50 | A.md 1054 `ModelIoFeatureRequirements.allOf[1].contains.fea` | 근거 없음 | 고침 | components.yaml `ModelIoFeatureRequirements.allOf[1].contains.feature`: 기능 이름 셋을 docs/design.md 4절로 근거를 바꿨다 |
+| 51 | A.md 1055 `ModelIoFeatureRequirements.allOf[2].contains.fea` | 근거 없음 | 고침 | components.yaml `ModelIoFeatureRequirements.allOf[2].contains.feature`: 기능 이름 셋을 docs/design.md 4절로 근거를 바꿨다 |
 | 52 | A.md 1060 `ModelIoVersion` | 없음 | 고침 | components.yaml `ModelIoVersion`: v2 는 IO_SPEC.md 머리말(형식 v2 확정)로 바로잡고 v3 의 뜻은 v7-flow-resolutions 로 연결했다. 글자 표기는 계약의 정의임을 밝혔다 |
-| 53 | A.md 1079 `NextItemRuleKind` | 없음 | 정할 수 없음 | components.yaml `NextItemRuleKind`: 세 규칙의 뜻은 labels.py a_target 과 IO_SPEC.md 2.2 에 있으나 규칙 이름은 정본에 없다. 계약의 정의임을 밝혔다 |
+| 53 | A.md 1079 `NextItemRuleKind` | 없음 | 고침 | components.yaml `NextItemRuleKind`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 54 | B.md 1101 `ActionExtractionRules` | 측정 확인 불가 | 고침 | components.yaml `ActionExtractionRules`: 근거 수치를 재측정으로 바로잡았다(A 출력 48747행은 46655행). 합격 조건 칸을 코드와 일대일로 하고 현재 문항 규칙을 데이터로 넣었다 |
 | 55 | B.md 1163 `ActionReason` | 없음 | 고침 | components.yaml `ActionReason`: 열거 20개가 재측정한 reason 20종(93,429행)과 같음을 근거에 적고 IO_SPEC.md 1장을 인용했다 |
 | 56 | B.md 1170 `ValueStatus` | 없음 | 고침 | components.yaml `ValueStatus`: 열거 근거를 SQL.md 6.1 의 7개 상태로 직접 인용했다 |
@@ -198,10 +198,10 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 92 | B.md 1323 `ResponseRequest.allOf.9.then.properties.next.pro` | 근거 없음 | 고침 | components.yaml `ResponseRequest.allOf.9.then.properties.next.properties.type`: allOf 열한 개 조건과 END 조건의 if·then·else 마다 labels.py(start_b_input, b_input)와 IO_SPEC.md 4.1·5장을 직접 x-basis 로 달았다 |
 | 93 | B.md 1324 `ResponseRequest.allOf.10.if.properties.reason` | 근거 없음 | 고침 | components.yaml `ResponseRequest.allOf.10.if.properties.reason`: allOf 열한 개 조건과 END 조건의 if·then·else 마다 labels.py(start_b_input, b_input)와 IO_SPEC.md 4.1·5장을 직접 x-basis 로 달았다 |
 | 94 | B.md 1342 `ResponseResult` | 측정 확인 불가 | 고침 | components.yaml `ResponseResult`: 근거를 IO_SPEC.md 4.2 와 재측정(B 출력 최대 134)으로 바로잡았다 |
-| 95 | B.md 1353 `ModelLoadState` | 없음 | 정할 수 없음 | components.yaml `ModelLoadState`: 적재 거부 시 이전 패키지 유지는 D46 에 있으나 상태 이름 네 개는 정본에 없다. 계약의 정의임을 밝혔다 |
+| 95 | B.md 1353 `ModelLoadState` | 없음 | 고침 | components.yaml `ModelLoadState`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 96 | B.md 1376 `BlankReason` | 없음 | 고침 | components.yaml `BlankReason`: NOT_ASKED 를 정본 SQL.md resolution_status 의 UNASKED 로 바꾸고 근거를 U35·U100·U36 으로 바로잡았다 |
 | 97 | B.md 1507 `FhirMapping` | 없음 | 정할 수 없음 | components.yaml `FhirMapping`: C10 은 FHIR 조회만 정하고 내부 값에서 FHIR 로 가는 대응은 정본에 없다. FHIR R4 를 근거로 계약이 정의한 대응임을 밝혔다 |
-| 98 | B.md 1518 `RiskCategory` | 없음 | 정할 수 없음 | components.yaml `RiskCategory`: D88 U2 는 한국어 분류 목록만 있고 영문 코드는 정본에 없다. 임상 검토 전 기본값임을 근거에 유지했다 |
+| 98 | B.md 1518 `RiskCategory` | 없음 | 고침 | components.yaml `RiskCategory`: 영문 코드와 한국어 분류의 대응을 docs/design.md 4절로 근거를 바꿨다 |
 | 99 | B.md 1536 `DurationMs` | 어긋남 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `DurationMs` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 100 | B.md 1567 `BusinessEventKind` | 없음 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `BusinessEventKind` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 101 | B.md 1584 `BusinessLogEntry.allOf.0.if.properties.kind.not` | 근거 없음 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `BusinessLogEntry` 를 계약에서 지웠다 (커밋 a89a8eb) |
@@ -210,21 +210,21 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 104 | B.md 1596 `TraceDelivery` | 없음 | 지움 | 턴 기록과 업무 로그는 survey-service 영역 안의 값이라(docs/design.md 3절, ADR 0019) 스키마 `TraceDelivery` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 105 | B.md 1612 `CaseVersion` | 없음 | 고침 | components.yaml `CaseVersion`: D71(3)의 증가 규칙과 int32 범위(OpenAPI 3.1)로 근거를 나누어 적었다. 시작값 1 은 계약의 선택임을 밝혔다 |
 | 106 | B.md 1619 `FailureKind` | 없음 | 고침 | components.yaml `FailureKind`: 정본에 정의가 없는 설명(값 없는 보류·건너뛰기 포함)을 지우고 근거를 G14 의 두 이름으로 바로잡았다 |
-| 107 | B.md 1626 `ReviewStatus` | 없음 | 정할 수 없음 | components.yaml `ReviewStatus`: CONFIRMED 만 정본(D52(2), L07)에 있고 UNREVIEWED·DISMISSED 는 정본에 없다. 계약의 정의임을 밝혔다 |
+| 107 | B.md 1626 `ReviewStatus` | 없음 | 고침 | components.yaml `ReviewStatus`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 108 | B.md 1649 `FailureCase.if.properties.review_status` | 근거 없음 | 고침 | components.yaml `FailureCase.if.properties.review_status`: CONFIRMED 조건의 if·then 에 D52(2)를 직접 x-basis 로 달았다. Export 의 reviewed_input 필수는 계약의 선택임을 밝혔다 |
 | 109 | B.md 1668 `FailureCaseExport.if.properties.review_status` | 근거 없음 | 고침 | components.yaml `FailureCaseExport.if.properties.review_status`: CONFIRMED 조건의 if·then 에 D52(2)를 직접 x-basis 로 달았다. Export 의 reviewed_input 필수는 계약의 선택임을 밝혔다 |
 | 110 | B.md 1702 `CaseReview.if.properties.review_status` | 근거 없음 | 고침 | components.yaml `CaseReview.if.properties.review_status`: CONFIRMED 조건의 if·then 에 D52(2)를 직접 x-basis 로 달았다. Export 의 reviewed_input 필수는 계약의 선택임을 밝혔다 |
 | 111 | B.md 1723 `SemanticVersion` | 어긋남 | 고침 | components.yaml `SemanticVersion`: 패턴을 semver.org 공식 정규식으로 바꿨다(선행 0·빈 조각 거부). 길이 64 는 계약의 선택임을 밝혔다 |
-| 112 | B.md 1724 `BaseModelName` | 근거 없음 | 정할 수 없음 | components.yaml `BaseModelName`: 96자와 이름 형식은 Hugging Face 관행이고 정본 결정이 없다. 근거 문장에서 어댑터 설정 실측 인용을 지웠다 |
+| 112 | B.md 1724 `BaseModelName` | 근거 없음 | 고침 | components.yaml `BaseModelName`: 96자와 이름 형식을 huggingface_hub validate_repo_id 규칙으로 근거를 대고 pattern 과 금지 조건을 더했다(원문 확인, 값은 원문과 같다) |
 | 113 | B.md 1745 `ArtifactContent` | 측정 확인 불가 | 지움 | 파일 올리기·내려받기 작업이 없어져(모델 패키지는 OCI 아티팩트) 스키마 `ArtifactContent` 를 지웠다 (커밋 a89a8eb) |
-| 114 | B.md 1746 `TokenLimit` | 근거 없음 | 정할 수 없음 | components.yaml `TokenLimit`: 32768 은 Qwen3 제품 사양이고 출력 토큰 상한으로 택한다는 정본 결정이 없다. 그 사실을 근거에 밝혔다 |
-| 115 | B.md 1747 `SamplingTemperature` | 근거 없음 | 정할 수 없음 | components.yaml `SamplingTemperature`: 0~2 는 OpenAI·vLLM 제품 규격이고 정본에 범위 결정이 없다. 그 사실을 근거에 밝혔다 |
-| 116 | B.md 1787 `RequiredMetricName` | 없음 | 정할 수 없음 | components.yaml `RequiredMetricName`: 아홉 이름 중 precision_match_rate 의 이름과 분모만 정본(D96(2))에 없고 나머지는 D94·D96·D97 에 있다. 이를 근거에 구분해 적고, semantic_violation_rate 는 고쳐 쓰기 전 출력으로 센다고 설명을 더했다 |
-| 117 | B.md 1830 `MetricSliceDimension` | 없음 | 정할 수 없음 | components.yaml `MetricSliceDimension`: 여섯 기준의 뜻은 D13·D96·D97 에 있으나 키 이름 목록은 정본에 없다. 계약의 정의임을 밝혔다 |
+| 114 | B.md 1746 `TokenLimit` | 근거 없음 | 고침 | components.yaml `TokenLimit`: 32768 을 Qwen3 모델 카드의 기본 문맥 길이로 근거를 댔다(원문 확인) |
+| 115 | B.md 1747 `SamplingTemperature` | 근거 없음 | 고침 | components.yaml `SamplingTemperature`: 0~2 를 OpenAI OpenAPI 명세의 temperature 범위로 근거를 댔다(원문 확인) |
+| 116 | B.md 1787 `RequiredMetricName` | 없음 | 고침 | components.yaml `RequiredMetricName`: 시간 지표를 length_p95_seconds(초)로 바꿔 MetricUnit 과 맞췄다. precision_match_rate 는 D96(2)를 풀어 쓴 이름임을 밝혔다 |
+| 117 | B.md 1830 `MetricSliceDimension` | 없음 | 고침 | components.yaml `MetricSliceDimension`: D96·D97·D13 원문을 확인해 여섯 기준의 뜻이 모두 원문에 있음을 근거로 하고 키 이름은 그 뜻에 붙인 계약의 이름으로 밝혔다 |
 | 118 | B.md 1837 `ViolationCode` | 없음 | 고침 | components.yaml `ViolationCode`: 옛 열거(VALUE_INVALID 등)를 합격 조건 하나당 코드 하나인 열 개로 바꾸고 근거를 U24·U74·G13 과 계약 스키마 이름으로 바로잡았다 |
-| 119 | B.md 1838 `MetricSlice` | 없음 | 정할 수 없음 | components.yaml `MetricSlice`: UD-01 은 200자이고 값 64·글자 집합은 정본에 없다. 85 는 계산이 맞으나 64 가 계약의 선택임을 밝혔다 |
-| 120 | B.md 1845 `MetricUnit` | 없음 | 정할 수 없음 | components.yaml `MetricUnit`: 비율·밀리초 지표는 D96 에 있으나 단위 이름 목록은 정본에 없다. 계약의 정의임을 밝혔다 |
-| 121 | B.md 1846 `MetricValue` | 어긋남 | 정할 수 없음 | components.yaml `MetricValue`: OpenAPI int32 는 정수 형식이라 number 의 상한을 정하지 않는다. 상한 2147483647 은 계약의 선택임을 밝혔다 |
+| 119 | B.md 1838 `MetricSlice` | 없음 | 고침 | components.yaml `MetricSlice`: 값 길이를 UD-25(1~63자)로 맞췄다(pattern 64→63, maxLength 85→84) |
+| 120 | B.md 1845 `MetricUnit` | 없음 | 고침 | components.yaml `MetricUnit`: milliseconds 를 Prometheus 명명 관례(기본 단위 seconds)로 바꾸고 단위 이름의 근거를 적었다(원문 확인) |
+| 121 | B.md 1846 `MetricValue` | 어긋남 | 고침 | components.yaml `MetricValue`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 122 | B.md 1862 `EvaluationMetric.if.properties.unit` | 근거 없음 | 고침 | components.yaml `EvaluationMetric.if.properties.unit`: ratio 조건과 maximum 1 에 D96 과 비율의 정의를 직접 x-basis 로 달았다 |
 | 123 | B.md 1863 `EvaluationMetric.then.properties.value` | 근거 없음 | 고침 | components.yaml `EvaluationMetric.then.properties.value`: ratio 조건과 maximum 1 에 D96 과 비율의 정의를 직접 x-basis 로 달았다 |
 | 124 | B.md 1888 `TrainingLineage.properties.training_run_ids` | 없음 | 고침 | components.yaml `TrainingLineage.properties.training_run_ids`: training_run_ids 의 상한 2 를 design.md 2절(train 이 어댑터마다 실행)과 AdapterRole 수로 연결했다 |
@@ -235,7 +235,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 129 | B.md 1997 `DatasetSplit` | 측정 확인 불가 | 고침 | components.yaml `DatasetSplit`: 재측정(93,429행, 파일 8개)으로 최대값·종류·키·갈래·파일 수를 확인하고 근거에 적었다 |
 | 130 | B.md 2005 `DatasetFileSet` | 측정 확인 불가 | 고침 | components.yaml `DatasetFileSet`: 재측정(93,429행, 파일 8개)으로 최대값·종류·키·갈래·파일 수를 확인하고 근거에 적었다 |
 | 131 | B.md 2019 `DatasetFiles` | 측정 확인 불가 | 고침 | components.yaml `DatasetFiles`: 재측정(93,429행, 파일 8개)으로 최대값·종류·키·갈래·파일 수를 확인하고 근거에 적었다 |
-| 132 | B.md 2027 `DatasetOrigin` | 없음 | 정할 수 없음 | components.yaml `DatasetOrigin`: 가져옴과 합성 샘플의 뜻은 G02·C25 에 있으나 열거 이름은 정본에 없다. 계약의 정의임을 밝혔다 |
+| 132 | B.md 2027 `DatasetOrigin` | 없음 | 고침 | components.yaml `DatasetOrigin`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 133 | B.md 2070 `DatasetImportStatus` | 없음 | 지움 | ADR 0019 로 synthetic-data 영역이 없어져 스키마 `DatasetImportStatus` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 134 | B.md 2089 `HumanReviewMark` | 측정 확인 불가 | 고침 | components.yaml `HumanReviewMark`: 재측정(93,429행, 파일 8개)으로 최대값·종류·키·갈래·파일 수를 확인하고 근거에 적었다 |
 | 135 | B.md 2096 `ChatRole` | 측정 확인 불가 | 고침 | components.yaml `ChatRole`: 재측정(93,429행, 파일 8개)으로 최대값·종류·키·갈래·파일 수를 확인하고 근거에 적었다 |
@@ -258,59 +258,59 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 152 | C.md 2389 `RollbackRequestStatus` | 없음 | 지움 | ADR 0019 로 release-gate 영역이 없어져 스키마 `RollbackRequestStatus` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 153 | C.md 2395 `RollbackRequest` | 어긋남 | 지움 | ADR 0019 로 release-gate 영역이 없어져 스키마 `RollbackRequest` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 154 | C.md 2421 `RollbackCommand` | 어긋남 | 고침 | components.yaml `RollbackCommand`: 신원을 X-Openit-User 헤더 대신 OIDC 접근 토큰의 sub 클레임에서 얻도록 바꿨다(docs/design.md 3절 끝, ADR 0019, RFC 9068 2.2). 본문에 신원 칸이 없다 |
-| 155 | C.md 2445 `JobName` | 없음 | 정할 수 없음 | components.yaml `JobName`: backup·restore 잡과 복원 시험은 정본에 있으나 잡 식별자 목록은 정본에 없다. 계약의 정의임을 밝히고 design.md 의 잡 단계로 다시 정의했다 |
-| 156 | C.md 2446 `JobTimeoutSeconds` | 어긋남 | 정할 수 없음 | components.yaml `JobTimeoutSeconds`: D131 은 주기 계산만 정하고 실행 상한 1~86400 은 정본에 없다. 주기와 상한을 구분해 계약의 선택임을 밝혔다 |
+| 155 | C.md 2445 `JobName` | 없음 | 고침 | components.yaml `JobName`: 잡 이름 목록을 docs/design.md 4절로 근거를 바꿨다 |
+| 156 | C.md 2446 `JobTimeoutSeconds` | 어긋남 | 고침 | components.yaml `JobTimeoutSeconds`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 157 | C.md 2471 `JobRunInput` | 근거 없음 | 고침 | components.yaml `JobRunInput`: 허용 출처 밖의 RUNTIME R9.1 인용을 지우고 D39 로 바꿨다. 시각 주입은 계약의 선택임을 밝혔다 |
 | 158 | C.md 2477 `BackupSnapshotId` | 없음 | 정할 수 없음 | components.yaml `BackupSnapshotId`: ID 형식은 restic 도구 관행이고 정본은 restic 사용만 정한다. 그 사실을 근거에 밝혔다 |
 | 159 | C.md 2493 `JobRunResult` | 근거 없음 | 정할 수 없음 | components.yaml `JobRunResult`: D130 은 종료 코드만 정한다. 출력 직렬화와 칸은 계약의 정의임을 밝히고 RUNTIME R9 인용을 지웠다 |
 | 160 | C.md 2504 `SecretFilePath` | 어긋남 | 고침 | components.yaml `SecretFilePath`: POSIX PATH_MAX 가 4096 으로 고정이라는 주장을 지우고 Linux PATH_MAX 4096(바이트, NUL 포함)을 근거로 하고 글자 수와 바이트 수의 구분을 밝혔다 |
 | 161 | C.md 2505 `ConfigFilePath` | 어긋남 | 고침 | components.yaml `ConfigFilePath`: POSIX PATH_MAX 가 4096 으로 고정이라는 주장을 지우고 Linux PATH_MAX 4096(바이트, NUL 포함)을 근거로 하고 글자 수와 바이트 수의 구분을 밝혔다 |
 | 162 | C.md 2508 `EgressProxyUrl` | 없음 | 고침 | components.yaml `EgressProxyUrl`: UD-19 주소류 상한을 근거에 더했다 |
-| 163 | C.md 2515 `LogLevel` | 없음 | 정할 수 없음 | components.yaml `LogLevel`: 수준 이름 목록이 정본에 없다. Python logging 이름을 따른 계약의 선택임을 밝히고 ADR 0004 인용을 지웠다 |
+| 163 | C.md 2515 `LogLevel` | 없음 | 고침 | components.yaml `LogLevel`: Python logging 표준 수준 다섯 개(CRITICAL 추가)를 근거로 했다 |
 | 164 | C.md 2516 `DatabaseUrl` | 근거 없음 | 고침 | components.yaml `DatabaseUrl`: 근거를 D85(6)·D126·D84, PostgreSQL 접속 URI 사양, UD-19 로 바꾸고 ADR 0001 인용을 지웠다 |
 | 165 | C.md 2517 `BackupRepositoryUrl` | 없음 | 고침 | components.yaml `BackupRepositoryUrl`: TLS 강제를 C14 로, 상한을 UD-19 로 연결했다. 주소 형식은 restic 사양임을 밝혔다 |
 | 166 | C.md 2518 `OffsiteBackupUrl` | 없음 | 고침 | components.yaml `OffsiteBackupUrl`: UD-19 상한을 근거에 더했다 |
 | 167 | C.md 2521 `ReaskLimit` | 없음 | 고침 | components.yaml `ReaskLimit`: 근거를 docs/v7-flow-resolutions.md 의 2026-11-10 사용자 결정으로 바로잡았다(U36 은 2026-11-03 의 3회 결정) |
 | 168 | C.md 2547 `FhirCanonicalBaseUrl` | 어긋남 | 고침 | components.yaml `FhirCanonicalBaseUrl`: https 전용 패턴을 FHIR canonical 의 절대 URI(scheme 이 있는 URI)로 완화했다 |
-| 169 | C.md 2553 `SurveyServiceEnv` | 없음 | 정할 수 없음 | components.yaml `SurveyServiceEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
+| 169 | C.md 2553 `SurveyServiceEnv` | 없음 | 고침 | components.yaml `SurveyServiceEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
 | 170 | C.md 2591 `ReleaseGateEnv` | 없음 | 지움 | ADR 0019 로 release-gate 영역이 없어져 스키마 `ReleaseGateEnv` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 171 | C.md 2619 `QuestionAuthoringEnv` | 없음 | 지움 | ADR 0019 로 question-authoring 영역이 없어져 스키마 `QuestionAuthoringEnv` 를 계약에서 지웠다 (커밋 a89a8eb) |
 | 172 | C.md 2649 `OpsFeedbackEnv` | 없음 | 지움 | ADR 0019 로 ops-feedback 영역이 없어져 스키마 `OpsFeedbackEnv` 를 계약에서 지웠다 (커밋 a89a8eb) |
-| 173 | C.md 2677 `ModelRuntimeEnv` | 없음 | 정할 수 없음 | components.yaml `ModelRuntimeEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
-| 174 | C.md 2697 `ModelLabEnv` | 없음 | 정할 수 없음 | components.yaml `ModelLabEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
+| 173 | C.md 2677 `ModelRuntimeEnv` | 없음 | 고침 | components.yaml `ModelRuntimeEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
+| 174 | C.md 2697 `ModelLabEnv` | 없음 | 고침 | components.yaml `ModelLabEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
 | 175 | C.md 2726 `SyntheticDataEnv` | 없음 | 지움 | ADR 0019 로 synthetic-data 영역이 없어져 스키마 `SyntheticDataEnv` 를 계약에서 지웠다 (커밋 a89a8eb) |
-| 176 | C.md 2751 `KioskFrontendEnv` | 없음 | 정할 수 없음 | components.yaml `KioskFrontendEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
-| 177 | C.md 2764 `AdminConsoleEnv` | 없음 | 정할 수 없음 | components.yaml `AdminConsoleEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
-| 178 | C.md 2797 `CaMode` | 없음 | 정할 수 없음 | components.yaml `CaMode`: step-ca 와 내부 CA 기본은 정본에 있으나 방식 이름 두 개와 동작은 정본에 없다. "ADR 작성 중" 문구를 지웠다 |
-| 179 | C.md 2804 `IngressCertificateMode` | 없음 | 정할 수 없음 | components.yaml `IngressCertificateMode`: 공인·내부 CA 선택의 뜻은 U5 에 있으나 enum 이름은 정본에 없다. 계약의 정의임을 밝혔다 |
+| 176 | C.md 2751 `KioskFrontendEnv` | 없음 | 고침 | components.yaml `KioskFrontendEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
+| 177 | C.md 2764 `AdminConsoleEnv` | 없음 | 고침 | components.yaml `AdminConsoleEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
+| 178 | C.md 2797 `CaMode` | 없음 | 고침 | components.yaml `CaMode`: 근거를 ADR 0015(CA·입구 인증서 방식), ADR 0005(EnvKind)로 바꿨다 |
+| 179 | C.md 2804 `IngressCertificateMode` | 없음 | 고침 | components.yaml `IngressCertificateMode`: 근거를 ADR 0015(CA·입구 인증서 방식), ADR 0005(EnvKind)로 바꿨다 |
 | 180 | C.md 2806 `AlertReceiverUrl` | 어긋남 | 고침 | components.yaml `AlertReceiverUrl`: 수신처가 서버 밖이어야 한다는 주장을 지우고(D10 은 감시 배치의 원칙) 근거를 D10·RFC 6068·UD-19 로 바로잡았다 |
-| 181 | C.md 2812 `PlatformEnv` | 없음 | 정할 수 없음 | components.yaml `PlatformEnv`: Env 객체를 받는 쪽 계약에 두는 원칙(D133·D84·D128·D134)은 정본에 있으나 입력 이름 목록과 필수 여부는 정본에 없다. 계약의 정의임을 근거에 밝히고 release-gate 등 없어진 영역의 입력을 지웠다(model-runtime·model-lab 은 새 구조로 다시 정의) |
-| 182 | C.md 2842 `ExposureAudience` | 없음 | 정할 수 없음 | components.yaml `ExposureAudience`: D129 에 machine-token·denied 가 있으나 나머지 이름과 목록은 정본에 없다. 계약의 정의임을 밝혔다 |
+| 181 | C.md 2812 `PlatformEnv` | 없음 | 고침 | components.yaml `PlatformEnv`: 근거를 docs/design.md 4절로 바꾸고 입력마다 필요한 2절 컴포넌트를 description 에 적었다. 필요한 컴포넌트가 없는 입력(백업·서버 밖 백업 입력, 화면의 루트 인증서)은 지웠다 |
+| 182 | C.md 2842 `ExposureAudience` | 없음 | 고침 | components.yaml `ExposureAudience`: 값과 뜻을 docs/design.md 4절(헤드 결정 2026-11-10)과 같게 맞추고 근거를 4절과 관련 결정으로 바꿨다 |
 | 183 | C.md 2867 `ExternalEgressTarget` | 어긋남 | 고침 | components.yaml `ExternalEgressTarget`: 학습 서버를 egress 상대로 든 F66 근거를 지웠다(ADR 0019 로 학습 서버가 아니라 model-lab 잡이 나가는 쪽이다) |
 | 184 | C.md 2878 `EgressTarget` | 어긋남 | 고침 | components.yaml `EgressTarget`: 학습 서버를 egress 상대로 든 F66 근거를 지웠다(ADR 0019 로 학습 서버가 아니라 model-lab 잡이 나가는 쪽이다) |
 | 185 | C.md 2887 `Exposure.properties.routes` | 어긋남 | 고침 | components.yaml `Exposure.properties.routes`: routes 상한 산출을 전체 작업 수(건강 상태·지표 포함)로 바로잡았다. 현재 최대 29(survey-service) |
 | 186 | C.md 2889 `ContainerPath` | 어긋남 | 고침 | components.yaml `ContainerPath`: POSIX PATH_MAX 가 4096 으로 고정이라는 주장을 지우고 Linux PATH_MAX 4096(바이트, NUL 포함)을 근거로 하고 글자 수와 바이트 수의 구분을 밝혔다 |
 | 187 | C.md 2890 `EnvVarName` | 어긋남 | 고침 | components.yaml `EnvVarName`: 패턴을 POSIX 8.1 에 맞춰 첫 글자 밑줄을 허용하도록 고쳤다 |
-| 188 | C.md 2897 `EnvKind` | 없음 | 정할 수 없음 | components.yaml `EnvKind`: 입력 종류의 뜻은 D84·D134 에 있으나 enum 이름은 정본에 없다. 계약의 정의임을 밝혔다 |
-| 189 | C.md 2910 `RunAsUid` | 근거 없음 | 정할 수 없음 | components.yaml `RunAsUid`: 비root 실행을 정한 정본 결정이 없다(ADR 0004 인용을 지움). Linux uid 범위는 근거로 적고 root 제외는 계약의 선택임을 밝혔다 |
-| 190 | C.md 2916 `ContainerInputs` | 어긋남 | 정할 수 없음 | components.yaml `ContainerInputs`: D134 의 주입 항목 중 추가 권한·sysctls·argv·쓰기 경로 유지 여부는 이 계약에 정의가 없고 축소를 정한 결정도 없다. 그 사실을 근거에 밝히고 헤드 결정 사항으로 남긴다 |
+| 188 | C.md 2897 `EnvKind` | 없음 | 고침 | components.yaml `EnvKind`: 근거를 ADR 0015(CA·입구 인증서 방식), ADR 0005(EnvKind)로 바꿨다 |
+| 189 | C.md 2910 `RunAsUid` | 근거 없음 | 고침 | components.yaml `RunAsUid`: root 제외를 ADR 0004 와 CIS Docker Benchmark 4.1 로, 상한을 Linux uid_t 32비트에서 -1 제외로 근거를 댔다 |
+| 190 | C.md 2916 `ContainerInputs` | 어긋남 | 고침 | components.yaml `ContainerInputs`: D134 원문의 항목(쓰기 경로의 유지 여부와 쓰는 사용자, 추가 권한, sysctls, 절대 경로 argv 를 역할·잡별로)을 모두 복원했다 |
 | 191 | C.md 2922 `DatabaseEngine` | 근거 없음 | 고침 | components.yaml `DatabaseEngine`: 근거를 D85(6)과 D133 으로 바꾸고 ADR 0001 인용을 지웠다 |
-| 192 | C.md 2923 `DatabaseMajorVersion` | 근거 없음 | 정할 수 없음 | components.yaml `DatabaseMajorVersion`: PostgreSQL 은 D85(6)에 있으나 주 버전 16 고정은 정본에 없다. ADR 0001 인용을 지우고 계약의 선택임을 밝혔다 |
+| 192 | C.md 2923 `DatabaseMajorVersion` | 근거 없음 | 고침 | components.yaml `DatabaseMajorVersion`: 헤드가 정한 표준·사용자 결정(UD-21~UD-24, OIDC Core, RFC 5280, RFC 3986, ADR 0001)을 근거로 바꾸고 값을 맞췄다(JobTimeoutSeconds 86400→259200, MetricValue 상한 2147483647→2^53-1) |
 | 193 | C.md 2934 `ContractsVersionLabel` | 어긋남 | 고침 | components.yaml `ContractsVersionLabel`: 패턴에서 선행 0 을 거부하도록 SemVer 2 에 맞췄다. 메이저 7 은 info.version 에서, 길이 64 는 계약의 선택임을 밝혔다 |
-| 194 | C.md 2956 `ImageLabelSet` | 어긋남 | 정할 수 없음 | components.yaml `ImageLabelSet`: D50 의 옛 라벨 키를 대체한 정본 결정이 없다. 정본에 있는 키와 계약이 정의한 키를 구분해 근거에 밝혔다 |
+| 194 | C.md 2956 `ImageLabelSet` | 어긋남 | 고침 | components.yaml `ImageLabelSet`: 라벨 키 목록을 docs/design.md 4절(OCI 표준 주석 + io.openit.contracts 하나)로 근거를 바꿨다 |
 | 195 | C.md 2966 `ServerName` | 어긋남 | 고침 | components.yaml `ServerName`: 패턴을 RFC 1123 2.1 의 label 문법(하이픈으로 끝나지 않음)으로 맞췄다 |
 | 196 | C.md 18 `listCandidateModelPackages` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `listCandidateModelPackages` 를 지웠다 (커밋 a89a8eb) |
-| 197 | C.md 37 `getModelPackage` | 없음 | 정할 수 없음 | openapi/model-runtime.yaml `getModelPackage`: candidate-reader 기계 역할은 없앴고 이 작업은 사람(operator, release-approver)이 평가 보고서를 보는 작업이다. N07 에 열거된 작업(적재 상태, 활성화, 롤백) 밖의 읽기 작업이라 헤드 확인이 필요하다 |
+| 197 | C.md 37 `getModelPackage` | 없음 | 고침 | openapi/model-runtime.yaml `getModelPackage`: N07 에 넣었다(docs/design.md 3절: 모델 패키지 조회, 헤드 결정). candidate-reader 기계 역할은 없앴고 사람(operator, release-approver)이 평가 보고서를 보는 작업이다 |
 | 198 | C.md 54 `downloadModelPackageArtifact` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `downloadModelPackageArtifact` 를 지웠다 (커밋 a89a8eb) |
 | 199 | C.md 68 `listTrainingRequests` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `listTrainingRequests` 를 지웠다 (커밋 a89a8eb) |
 | 200 | C.md 88 `downloadTrainingInputFile` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `downloadTrainingInputFile` 를 지웠다 (커밋 a89a8eb) |
 | 201 | C.md 102 `publishTrainingRunResult` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `publishTrainingRunResult` 를 지웠다 (커밋 a89a8eb) |
 | 202 | C.md 122 `uploadTrainingArtifact` | 없음 | 지움 | ADR 0019 로 model-lab 영역 문서가 없어져 작업 `uploadTrainingArtifact` 를 지웠다 (커밋 a89a8eb) |
-| 203 | C.md 18 `extractAction` | 없음 | 정할 수 없음 | openapi/model-runtime.yaml `extractAction`: inference-caller 와 case-reader 권한 이름은 정본에 없다(MachineRole 의 근거 참조). 업무 교환의 방향은 docs/design.md N03·N04·N09 와 일치한다. MODEL_NOT_LOADED 와 QUESTION_BANK_VERSION_MISMATCH 이름은 계약의 정의이고 RELEASE_MISMATCH 는 지웠다(OUTPUT_INVALID 는 D75(1)) |
-| 204 | C.md 36 `generateResponse` | 없음 | 정할 수 없음 | openapi/model-runtime.yaml `generateResponse`: inference-caller 와 case-reader 권한 이름은 정본에 없다(MachineRole 의 근거 참조). 업무 교환의 방향은 docs/design.md N03·N04·N09 와 일치한다. MODEL_NOT_LOADED 와 QUESTION_BANK_VERSION_MISMATCH 이름은 계약의 정의이고 RELEASE_MISMATCH 는 지웠다(OUTPUT_INVALID 는 D75(1)) |
-| 205 | C.md 54 `getModelStatus` | 없음 | 정할 수 없음 | openapi/model-runtime.yaml `getModelStatus`: inference-caller 와 case-reader 권한 이름은 정본에 없다(MachineRole 의 근거 참조). 업무 교환의 방향은 docs/design.md N03·N04·N09 와 일치한다. MODEL_NOT_LOADED 와 QUESTION_BANK_VERSION_MISMATCH 이름은 계약의 정의이고 RELEASE_MISMATCH 는 지웠다(OUTPUT_INVALID 는 D75(1)) |
+| 203 | C.md 18 `extractAction` | 없음 | 고침 | openapi/model-runtime.yaml `extractAction`: inference-caller 권한 이름은 docs/design.md 4절(MachineRole)이 정본이고 MODEL_NOT_LOADED·QUESTION_BANK_VERSION_MISMATCH 는 ProblemReason 이 작업 이름과 model-runtime 의 package_loader 로 근거를 댄다(RELEASE_MISMATCH 는 지웠다) |
+| 204 | C.md 36 `generateResponse` | 없음 | 고침 | openapi/model-runtime.yaml `generateResponse`: inference-caller 권한 이름은 docs/design.md 4절(MachineRole)이 정본이고 MODEL_NOT_LOADED·QUESTION_BANK_VERSION_MISMATCH 는 ProblemReason 이 작업 이름과 model-runtime 의 package_loader 로 근거를 댄다(RELEASE_MISMATCH 는 지웠다) |
+| 205 | C.md 54 `getModelStatus` | 없음 | 고침 | openapi/model-runtime.yaml `getModelStatus`: inference-caller 권한 이름은 docs/design.md 4절(MachineRole)이 정본이고 MODEL_NOT_LOADED·QUESTION_BANK_VERSION_MISMATCH 는 ProblemReason 이 작업 이름과 model-runtime 의 package_loader 로 근거를 댄다(RELEASE_MISMATCH 는 지웠다) |
 | 206 | C.md 19 `receiveTraceDelivery` | 없음 | 지움 | ADR 0019 로 ops-feedback 영역 문서가 없어져 작업 `receiveTraceDelivery` 를 지웠다 (커밋 a89a8eb) |
-| 207 | C.md 55 `listFailureCaseExports` | 없음 | 정할 수 없음 | openapi/survey-service.yaml `listFailureCaseExports`: inference-caller 와 case-reader 권한 이름은 정본에 없다(MachineRole 의 근거 참조). 업무 교환의 방향은 docs/design.md N03·N04·N09 와 일치한다 |
+| 207 | C.md 55 `listFailureCaseExports` | 없음 | 고침 | openapi/survey-service.yaml `listFailureCaseExports`: case-reader 권한 이름은 docs/design.md 4절(MachineRole)이 정본이다 |
 | 208 | C.md 92 `reviewFailureCase` | 어긋남 | 고침 | openapi/survey-service.yaml `reviewFailureCase`: 409 응답을 추가했다(CASE_VERSION_MISMATCH). 검토자 신원은 OIDC 접근 토큰의 sub 로 기록한다(design.md 3절) |
 | 209 | C.md 127 `listFailureSignals` | 없음 | 지움 | ADR 0019 로 ops-feedback 영역 문서가 없어져 작업 `listFailureSignals` 를 지웠다 (커밋 a89a8eb) |
 | 210 | C.md 19 `uploadMaterial` | 없음 | 지움 | ADR 0019 로 question-authoring 영역 문서가 없어져 작업 `uploadMaterial` 를 지웠다 (커밋 a89a8eb) |
@@ -338,7 +338,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 232 | C.md 303 `createRollbackRequest` | 어긋남 | 지움 | ADR 0019 로 release-gate 영역 문서가 없어져 작업 `createRollbackRequest` 를 지웠다 (커밋 a89a8eb) |
 | 233 | C.md 322 `listRollbackRequests` | 없음 | 지움 | ADR 0019 로 release-gate 영역 문서가 없어져 작업 `listRollbackRequests` 를 지웠다 (커밋 a89a8eb) |
 | 234 | C.md 23 `listActiveQuestionnaires` | 어긋남 | 고침 | openapi/survey-service.yaml `listActiveQuestionnaires`: 기기 신원 전달을 D113 의 X-Openit-Device 에서 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 바꾼 근거를 docs/design.md 2절(platform 의 gateway 는 Envoy, 기기 인증서 mTLS)로 연결했다. 되묻기 한도 도달 시 서비스가 고정 안내를 쓰는 동작과 직원 호출 계기는 docs/v7-flow-resolutions.md 2026-11-10 결정(되묻기 1회+2회 뒤 건너뜀, 설명 요청 3번 뒤 직원 도움)을 따른다. 활성 문진표의 근거는 릴리스가 아니라 활성 문항 세트로 바꿨다 |
-| 235 | C.md 57 `startSession` | 어긋남 | 정할 수 없음 | openapi/survey-service.yaml `startSession`: 기기 신원 전달을 D113 의 X-Openit-Device 에서 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 바꾼 근거를 docs/design.md 2절(platform 의 gateway 는 Envoy, 기기 인증서 mTLS)로 연결했다. START_CODE_INVALID·EXPIRED·USED 이름과 코드·요청·배치의 선택 우선순위는 정본에 없다(C20 은 일회용 코드만 정함). 계약의 정의임을 밝혔다 |
+| 235 | C.md 57 `startSession` | 어긋남 | 고침 | openapi/survey-service.yaml `startSession`: START_CODE_INVALID·EXPIRED·USED 는 ProblemReason 이 작업(startSession)과 start_code 컴포넌트로 근거를 댄다. 기기 신원 헤더는 design.md 2절의 Envoy 입구로 바꿨다 |
 | 236 | C.md 81 `submitTurn` | 어긋남 | 고침 | openapi/survey-service.yaml `submitTurn`: 기기 신원 전달을 D113 의 X-Openit-Device 에서 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 바꾼 근거를 docs/design.md 2절(platform 의 gateway 는 Envoy, 기기 인증서 mTLS)로 연결했다. 되묻기 한도 도달 시 서비스가 고정 안내를 쓰는 동작과 직원 호출 계기는 docs/v7-flow-resolutions.md 2026-11-10 결정(되묻기 1회+2회 뒤 건너뜀, 설명 요청 3번 뒤 직원 도움)을 따른다. 활성 문진표의 근거는 릴리스가 아니라 활성 문항 세트로 바꿨다 |
 | 237 | C.md 103 `endSession` | 어긋남 | 고침 | openapi/survey-service.yaml `endSession`: 기기 신원 전달을 D113 의 X-Openit-Device 에서 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 바꾼 근거를 docs/design.md 2절(platform 의 gateway 는 Envoy, 기기 인증서 mTLS)로 연결했다. 되묻기 한도 도달 시 서비스가 고정 안내를 쓰는 동작과 직원 호출 계기는 docs/v7-flow-resolutions.md 2026-11-10 결정(되묻기 1회+2회 뒤 건너뜀, 설명 요청 3번 뒤 직원 도움)을 따른다. 활성 문진표의 근거는 릴리스가 아니라 활성 문항 세트로 바꿨다 |
 | 238 | C.md 120 `getSessionState` | 어긋남 | 고침 | openapi/survey-service.yaml `getSessionState`: 기기 신원 전달을 D113 의 X-Openit-Device 에서 Envoy 표준 헤더 X-Forwarded-Client-Cert 로 바꾼 근거를 docs/design.md 2절(platform 의 gateway 는 Envoy, 기기 인증서 mTLS)로 연결했다. 되묻기 한도 도달 시 서비스가 고정 안내를 쓰는 동작과 직원 호출 계기는 docs/v7-flow-resolutions.md 2026-11-10 결정(되묻기 1회+2회 뒤 건너뜀, 설명 요청 3번 뒤 직원 도움)을 따른다. 활성 문진표의 근거는 릴리스가 아니라 활성 문항 세트로 바꿨다 |
@@ -346,7 +346,7 @@ ADR 0019 개정으로 대상 일부가 없어짐: 아래 85건의 검토가 다�
 | 240 | C.md 156 `decideIntervention` | 어긋남 | 고침 | openapi/survey-service.yaml `decideIntervention`: 경로를 D58(4)의 단수 경로 /v1/sessions/{id}/intervention 으로 되돌렸다 |
 | 241 | C.md 192 `streamStaffAlerts` | 어긋남 | 고침 | openapi/survey-service.yaml `streamStaffAlerts`: text/event-stream 본문을 문자열 스트림(ServerSentEventStream)으로 하고 이벤트 data 스키마는 x-event-data-schema 로 따로 두었다. heartbeat·resync 에 id 가 없다는 D87 을 설명에 적었다 |
 | 242 | C.md 258 `getResult` | 없음 | 고침 | openapi/survey-service.yaml `getResult`: 접근 기록 종류 이름(RESULT_PULLED·RESULT_VIEWED)을 계약에서 지웠다(영역 안의 값). 읽은 사람(OIDC sub 또는 호출자)과 때를 영역 안 접근 기록에 남긴다고만 적었다 |
-| 243 | C.md 304 `receiveRiskSignal` | 없음 | 정할 수 없음 | openapi/survey-service.yaml `receiveRiskSignal`: risk-detector 역할, RISK_DETECTION_DISABLED·SESSION_NOT_ACTIVE 이름, 세션·분류·시각 멱등 키는 정본에 없다(위험 감지 기본 꺼짐은 L11·UD-18 에 있다). 계약의 정의임을 밝혔다 |
+| 243 | C.md 304 `receiveRiskSignal` | 없음 | 고침 | openapi/survey-service.yaml `receiveRiskSignal`: risk-detector 권한 이름은 docs/design.md 4절(MachineRole)이 정본이고 RISK_DETECTION_DISABLED·SESSION_NOT_ACTIVE 는 ProblemReason 이 작업과 link_risk_in·session 컴포넌트로 근거를 댄다. 위험 감지는 기본 꺼짐(L11, UD-18) |
 | 244 | C.md 18 `listDatasetVersions` | 없음 | 지움 | ADR 0019 로 synthetic-data 영역 문서가 없어져 작업 `listDatasetVersions` 를 지웠다 (커밋 a89a8eb) |
 | 245 | C.md 37 `getDatasetVersion` | 없음 | 지움 | ADR 0019 로 synthetic-data 영역 문서가 없어져 작업 `getDatasetVersion` 를 지웠다 (커밋 a89a8eb) |
 | 246 | C.md 54 `downloadDatasetFile` | 없음 | 지움 | ADR 0019 로 synthetic-data 영역 문서가 없어져 작업 `downloadDatasetFile` 를 지웠다 (커밋 a89a8eb) |

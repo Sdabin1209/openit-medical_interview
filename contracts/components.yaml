@@ -23,22 +23,22 @@ components:
       type: string
       enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH, DEADLINE_EXCEEDED, CASE_VERSION_MISMATCH, PACKAGE_INVALID, ROLLBACK_TARGET_INVALID, RISK_DETECTION_DISABLED]
       x-enum-descriptions:
-        OUTPUT_INVALID: "LoRA-A 출력이 끝내 합격 조건(ActionExtractionRules)을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다(extractAction)"
-        TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(submitTurn 409, Retry-After 를 따른다)"
-        START_CODE_INVALID: "시작 코드가 발급된 적 없는 값이다(startSession 422)"
-        START_CODE_EXPIRED: "시작 코드의 유효 기간이 지났다(startSession 409)"
-        START_CODE_USED: "시작 코드는 일회용이라 다른 기기가 이미 썼다(startSession 409)"
-        SESSION_NOT_ACTIVE: "세션이 끝났거나 멈춰 이 작업을 받을 수 없다(submitTurn, requestStaffCall, receiveRiskSignal 409)"
-        MODEL_NOT_LOADED: "추론 서버가 활성 모델 패키지를 아직 적재하지 못했다(extractAction, generateResponse 503)"
-        QUESTION_BANK_VERSION_MISMATCH: "요청이 보낸 문항 은행 버전(runtime_contract_version)이 적재한 모델 패키지가 학습한 버전과 다르다(extractAction, generateResponse 409)"
-        DEADLINE_EXCEEDED: "서버가 정한 요청 전체 마감을 넘겼다. 변경은 되돌렸다(모든 작업의 503, 재시도 가능)"
-        CASE_VERSION_MISMATCH: "검토 요청이 가리킨 사례 버전이 최신이 아니다(reviewFailureCase 409)"
-        PACKAGE_INVALID: "레지스트리에서 받은 모델 패키지가 계약과 다르다(artifactType 이나 목록표가 틀렸거나 파일의 digest 가 목록표와 다르거나 모델 입출력 버전을 적재할 수 없다)(getModelPackage, activateModelPackage 422)"
-        ROLLBACK_TARGET_INVALID: "되돌아갈 모델 패키지가 이전에 활성이었던 패키지가 아니다(rollbackModelPackage 409)"
-        RISK_DETECTION_DISABLED: "위험 감지가 꺼져 있어 위험 신호를 받지 않는다(receiveRiskSignal 403)"
+        OUTPUT_INVALID: "LoRA-A 출력이 끝내 합격 조건(ActionExtractionRules)을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다(openapi/model-runtime.yaml extractAction. model-runtime 의 output_guard)"
+        TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(openapi/survey-service.yaml submitTurn 409, Retry-After 를 따른다. survey-service 의 turn)"
+        START_CODE_INVALID: "시작 코드가 발급된 적 없는 값이다(openapi/survey-service.yaml startSession 422. start_code)"
+        START_CODE_EXPIRED: "시작 코드의 유효 기간이 지났다(openapi/survey-service.yaml startSession 409. start_code)"
+        START_CODE_USED: "시작 코드는 일회용이라 다른 기기가 이미 썼다(openapi/survey-service.yaml startSession 409. start_code)"
+        SESSION_NOT_ACTIVE: "세션이 끝났거나 멈춰 이 작업을 받을 수 없다(openapi/survey-service.yaml submitTurn, requestStaffCall, receiveRiskSignal 409. session)"
+        MODEL_NOT_LOADED: "추론 서버가 활성 모델 패키지를 아직 적재하지 못했다(openapi/model-runtime.yaml extractAction, generateResponse 503. package_loader)"
+        QUESTION_BANK_VERSION_MISMATCH: "요청이 보낸 문항 은행 버전(runtime_contract_version)이 적재한 모델 패키지가 학습한 버전과 다르다(openapi/model-runtime.yaml extractAction, generateResponse 409. package_loader 가 적재한 패키지와 비교한다)"
+        DEADLINE_EXCEEDED: "서버가 정한 요청 전체 마감을 넘겼다. 변경은 되돌렸다(두 영역의 모든 작업의 503, 재시도 가능)"
+        CASE_VERSION_MISMATCH: "검토 요청이 가리킨 사례 버전이 최신이 아니다(openapi/survey-service.yaml reviewFailureCase 409. failure_case)"
+        PACKAGE_INVALID: "레지스트리에서 받은 모델 패키지가 계약과 다르다(artifactType 이나 목록표가 틀렸거나 파일의 digest 가 목록표와 다르거나 모델 입출력 버전을 적재할 수 없다)(openapi/model-runtime.yaml getModelPackage, activateModelPackage 422. package_loader)"
+        ROLLBACK_TARGET_INVALID: "되돌아갈 모델 패키지가 이전에 활성이었던 패키지가 아니다(openapi/model-runtime.yaml rollbackModelPackage 409. release)"
+        RISK_DETECTION_DISABLED: "위험 감지가 꺼져 있어 위험 신호를 받지 않는다(openapi/survey-service.yaml receiveRiskSignal 403. link_risk_in)"
       description: "오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다"
       x-owner: head
-      x-basis: "RFC 9457 3.2(확장 멤버), D75(1)(OUTPUT_INVALID), D86(TURN_IN_PROGRESS), 사용자 결정 2026-11-10 C20(시작 코드는 일회용, docs/v7-flow-resolutions.md), 나머지 값은 ADR 0019 와 docs/design.md 3절의 흐름(N03 문항 은행 버전 거부, N07 활성화·롤백, N10 패키지)에서 나온 이 계약의 정의이고 정본 입력에 이름 목록은 없다"
+      x-basis: "RFC 9457 3.2(확장 멤버로 상태 코드만으로 가를 수 없는 사유를 낸다). 각 코드는 x-enum-descriptions 에 적은 작업이 쓰고, 그 작업을 맡는 docs/design.md 2절 컴포넌트(output_guard, package_loader, release, session, turn, start_code, failure_case, link_risk_in)가 낸다. 정본에 이름이 있는 코드는 OUTPUT_INVALID(D75(1))와 TURN_IN_PROGRESS(D86)이고 START_CODE_* 의 뜻은 docs/v7-flow-resolutions.md C20(일회용 시작 코드)이다"
     JsonPointer: { type: string, format: json-pointer, maxLength: 8000, examples: [ "/input/user_utterance" ], description: "요청 본문 안에서 잘못된 값의 위치(JSON 포인터)", x-owner: head, x-basis: "RFC 6901 5(JSON 문자열 표기), RFC 9457 4.1(확장 멤버 예시), 최대 길이는 사용자 결정 2026-11-10(UD-19)" }
     ProblemFieldError:
       type: object
@@ -67,8 +67,8 @@ components:
         reason: { $ref: "#/components/schemas/ProblemReason", description: "상태 코드만으로 가를 수 없는 세부 사유" }
         errors: { $ref: "#/components/schemas/ProblemFieldErrors", description: "요청 본문에서 어긋난 칸들(검증 실패일 때만)" }
     RetryAfterSeconds: { type: integer, minimum: 0, maximum: 120, examples: [ 5 ], description: "클라이언트가 같은 요청을 다시 보내기 전에 기다릴 초", x-owner: head, x-basis: "RFC 9110 10.2.3(Retry-After 의 delay-seconds), 상한은 D125 의 키오스크 재시도 예산 120초(다시 보내는 데 쓸 수 있는 총 시간보다 길게 기다리게 하지 않는다)" }
-    PageLimit: { type: integer, minimum: 1, maximum: 100, default: 30, examples: [ 30 ], description: "한 번에 받을 항목의 최대 개수", x-owner: head, x-basis: "쪽 크기 1~100 과 기본 30 은 업계 관행(GitHub REST per_page 기본 30 최대 100, Stripe limit 최대 100)과 Google AIP-158 을 따른 이 계약의 선택이다. 정본에는 쪽 나누기 규칙이 없고 UD-10 은 쪽이 아닌 목록의 최대 100 만 정했다" }
-    PageCursor: { type: string, maxLength: 140, examples: [ "eyJrIjoiM2YyYjhjMWUiLCJzIjoiYWJjIn0" ], description: "다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다", x-owner: head, x-basis: "커서는 서버가 만들고 클라이언트는 해석하지 않는 불투명 값이다(Google AIP-158 page_token). 길이 140 은 커서 안에 UUID 36 + 시각 35 + HMAC-SHA256 32옥텟 + 구분자 2 = 105 바이트를 base64url(RFC 4648 5, 패딩 없음)로 쓴 값을 가정한 계산이다. 커서의 구성과 HMAC 사용은 이 계약의 선택이고 정본에 없다" }
+    PageLimit: { type: integer, minimum: 1, maximum: 100, default: 30, examples: [ 30 ], description: "한 번에 받을 항목의 최대 개수", x-owner: head, x-basis: "사용자 결정 2026-11-10(UD-23: 목록 한 쪽의 최대 100), 기본 30 은 업계 관행(GitHub REST per_page 기본 30). Google AIP-158 은 최대 쪽 크기를 구현이 정하게 한다" }
+    PageCursor: { type: string, maxLength: 96, examples: [ "eyJrIjoiM2YyYjhjMWUiLCJzIjoiYWJjIn0" ], description: "다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다", x-owner: head, x-basis: "커서는 서버가 만들고 클라이언트는 해석하지 않는 불투명 값이다(Google AIP-158 page_token). 내용은 Timestamp 35자 + UUID 36자 + 구분자 1자 = 72바이트이고 base64url(RFC 4648 5, 패딩 없음)로 쓰면 4 곱하기 올림(72/3) = 96자다" }
 
     # ---- 시간 상한(영역 사이 약속, D125) ----
     KioskRequestLimitSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)", x-owner: head, x-basis: "D125(키오스크 60초 > 게이트웨이 > survey 턴)" }
@@ -129,7 +129,7 @@ components:
         admin-console: "업무 화면 이미지"
       description: "deploy 가 실행하는 영역 이미지의 이름. 상시 서비스(ServiceName)와 잡만 있는 model-lab 을 모두 담는다"
       x-owner: deploy
-      x-basis: "ADR 0019(model-lab 은 잡, 상시 서비스 아님), F60(이미지 선언), D134(영역 이미지마다 선언)"
+      x-basis: "ADR 0019(model-lab 은 잡, 상시 서비스 아님), N13(이미지 선언), D134(영역 이미지마다 선언)"
     HealthStatus:
       type: string
       enum: [pass, warn, fail]
@@ -166,7 +166,7 @@ components:
     ForwardedClientCertValue: { type: string, maxLength: 8000, examples: [ "Hash=468ed33be74eee6556d90c0149c1309e9ba61d6425303443c0748a02dd8de688;Subject=\"CN=kiosk-01\"" ], description: "Envoy 의 X-Forwarded-Client-Cert 헤더 값(By, Hash, Subject, URI 같은 요소를 세미콜론으로 이은 글). 기기 ID 는 Subject 의 CN 이다", x-owner: platform, x-basis: "Envoy 의 x-forwarded-client-cert 헤더 사양(영역 입구는 Envoy, docs/design.md 2절 platform 의 gateway), D113(기기 ID 는 인증서 주체 CN 으로 서비스에 전달), D136(기기 인증은 mTLS 하나), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다. RFC 8705 는 이 프록시 헤더를 정의하지 않는다(상호 TLS 인증 자체의 표준이다)" }
     IdempotencyKeyValue: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "쓰기 요청의 재전송을 가리는 멱등 키(클라이언트가 만든 UUID)", x-owner: head, x-basis: "draft-ietf-httpapi-idempotency-key-header(키는 클라이언트가 만든 고유 값, UUID 를 권장한다. IETF 초안이라 표준 아님), RFC 9562 4(UUID 문법: 8-4-4-4-12 의 16진수), RFC 9110 9.2.2(POST 는 멱등이 아님), D39(멱등)" }
     AuthenticateChallenge: { type: string, maxLength: 8000, examples: [ "Bearer realm=\"openit\"" ], description: "WWW-Authenticate 헤더 값(예를 들어 Bearer realm 과 error 를 담은 도전)", x-owner: head, x-basis: "RFC 9110 11.6.1, RFC 6750 3, 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 5.4 는 필드 길이 한도를 구현이 정하게 하므로 URI 와 같은 값을 쓴다" }
-    NumericDate: { type: integer, minimum: 0, maximum: 253402300799, examples: [ 1783684200 ], description: "JWT 의 시각 클레임(1970-01-01T00:00:00Z 부터의 초)", x-owner: platform, x-basis: "RFC 7519 2(NumericDate: 1970-01-01T00:00:00Z 부터의 초). 이 계약은 정수만 받고 0 이상으로 한다. 상한 253402300799 는 Timestamp 가 받는 RFC 3339 연도 네 자리의 끝(9999-12-31T23:59:59Z, UD-20)에 맞춘 이 계약의 선택이고 RFC 7519 는 상한을 정하지 않는다" }
+    NumericDate: { type: integer, minimum: 0, maximum: 253402300799, examples: [ 1783684200 ], description: "JWT 의 시각 클레임(1970-01-01T00:00:00Z 부터의 초)", x-owner: platform, x-basis: "RFC 7519 2(NumericDate: 1970-01-01T00:00:00Z 부터의 초). 이 계약은 정수만 받고 0 이상으로 한다. 상한은 RFC 3339 의 네 자리 연도 끝 9999-12-31T23:59:59Z 를 에포크 초로 계산한 253402300799 다(UD-20 의 시각 범위와 같다)" }
     FhirIssueSeverity:
       type: string
       enum: [fatal, error, warning, information]
@@ -225,13 +225,13 @@ components:
       type: string
       enum: [result-reader, risk-detector, inference-caller, case-reader]
       x-enum-descriptions:
-        result-reader: "설치처의 의료 정보 시스템. 문진 결과와 FHIR 결과를 당겨 간다(N08)"
+        result-reader: "병원 시스템. 문진 결과와 FHIR 결과를 당겨 간다(N08)"
         risk-detector: "외부 위험 감지기. 위험 신호를 보낸다(N14)"
         inference-caller: "survey-service. 추출과 응답 생성을 부르고 모델 적재 상태를 읽는다(N03, N04)"
-        case-reader: "model-lab. 확정된 비식별 실패 사례(검토된 문장과 기대 출력, 발화 원문 없음)를 당겨 간다(N09)"
+        case-reader: "model-lab. 확정된 비식별 실패 사례를 당겨 간다(N09)"
       description: "기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다"
       x-owner: platform
-      x-basis: "D58(2)(401 은 토큰 없음·틀림, 403 은 권한 없음), D102(result-reader 는 문진 결과 읽기 역할), docs/v7-flow-resolutions.md C10(병원 시스템은 당겨 가기만), ADR 0019 와 docs/design.md 3절 흐름 N03·N04(survey-service 가 model-runtime 호출), N08, N09(model-lab 이 survey-service 에서 실패 사례를 당겨 감), N14(위험 신호). result-reader 외 세 이름은 이 계약의 정의이고 정본 입력에 이름 목록은 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D58(2)(401 은 토큰 없음·틀림, 403 은 권한 없음), D102(result-reader), D122(기계 토큰 경로는 읽을 것만 연다). 사람이 아닌 호출자마다 역할 하나(최소 권한)"
     MachineClientName: { type: string, pattern: "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", maxLength: 63, examples: [ "survey-service" ], description: "기계 토큰을 쓰는 호출자의 이름(서비스 이름 또는 외부 시스템 이름)", x-owner: platform, x-basis: "RFC 1035 2.3.1(label 은 영문자로 시작하고 영문자나 숫자로 끝나며 사이에 하이픈을 허용), 소문자만 쓰는 것은 이 계약의 선택, 최대 길이 63 은 RFC 1035 2.3.4(label 63옥텟)" }
     MachineTokenEntry:
       type: object
@@ -242,17 +242,17 @@ components:
       required: [client, roles, token_file]
       properties:
         client: { $ref: "#/components/schemas/MachineClientName", description: "호출자 이름" }
-        roles: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들" , x-basis: "MachineRole 값의 수 4" }
+        roles: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineRole" }, description: "이 호출자에게 허용한 권한들", x-basis: "MachineRole 값의 수 4" }
         token_file: { $ref: "#/components/schemas/SecretFilePath", description: "토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)" }
     MachineTokenTable:
       type: object
       additionalProperties: false
       description: "받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)"
       x-owner: platform
-      x-basis: "D84, D122, F54"
+      x-basis: "D84, D122, N13"
       required: [tokens]
       properties:
-        tokens: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineTokenEntry" }, description: "호출자별 권한과 토큰 파일" , x-basis: "호출자 수: 기계 호출자 4(survey-service 가 model-runtime 을 부름, 설치처의 의료 정보 시스템, 위험 감지기, model-lab 이 survey-service 에서 실패 사례를 당겨 감, N03·N08·N09·N14)" }
+        tokens: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/MachineTokenEntry" }, description: "호출자별 권한과 토큰 파일", x-basis: "호출자 수: 기계 호출자 4(survey-service 가 model-runtime 을 부름, 설치처의 의료 정보 시스템, 위험 감지기, model-lab 이 survey-service 에서 실패 사례를 당겨 감, N03·N08·N09·N14)" }
     RealmAccessClaim:
       type: object
       additionalProperties: false
@@ -261,8 +261,8 @@ components:
       x-basis: "Keycloak 접근 토큰의 기본 클레임 realm_access.roles(제품 고유 클레임이며 표준이 아니다. RFC 9068 2.2.3.1 은 groups·roles·entitlements 클레임을 SCIM(RFC 7643 4.1.2)의 속성으로 쓸 수 있다고 하지만 realm_access 라는 이름은 정하지 않는다), U82(표준 IdP 에서 역할을 받는다), docs/design.md 3절(사람 신원과 역할은 OIDC 토큰 클레임), ADR 0019"
       required: [roles]
       properties:
-        roles: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/UserRole" }, description: "이 사람에게 부여된 역할들" , x-basis: "UserRole 값의 수 7" }
-    PreferredUsername: { type: string, maxLength: 255, examples: [ "dr.kim" ], description: "사람이 읽는 계정 이름(화면 표시용). 권한 판단에는 쓰지 않는다", x-owner: platform, x-basis: "OpenID Connect Core 1.0 5.1(preferred_username 은 화면 표시용 이름, 길이 한도를 정하지 않는다), 최대 255 는 같은 토큰의 sub(OIDC Core 2: 최대 255 ASCII)와 같게 맞춘 이 계약의 선택이다" }
+        roles: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/UserRole" }, description: "이 사람에게 부여된 역할들", x-basis: "UserRole 값의 수 7" }
+    PreferredUsername: { type: string, maxLength: 255, examples: [ "dr.kim" ], description: "사람이 읽는 계정 이름(화면 표시용). 권한 판단에는 쓰지 않는다", x-owner: platform, x-basis: "OpenID Connect Core 1.0 5.1(preferred_username 은 화면 표시용 이름이고 길이를 정하지 않는다). 최대 255 는 같은 토큰의 sub(OIDC Core 2: 255 ASCII 이하)와 같게 맞춘 값이며 UD-22 와 같은 방식이다" }
     TokenAudienceClaim:
       oneOf:
         - { $ref: "#/components/schemas/ServiceName" }
@@ -306,21 +306,21 @@ components:
         realm_access: { $ref: "#/components/schemas/RealmAccessClaim", description: "부여된 역할" }
       description: "서비스가 반드시 확인하는 JWT 접근 토큰 클레임(RFC 9068 의 필수 클레임 iss, exp, aud, sub, client_id, iat, jti 와 역할). 서명은 IdP 공개 키(JWKS)로 서비스가 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다"
       x-owner: platform
-      x-basis: "RFC 9068 2.2 와 4, RFC 7519, OpenID Connect Core 1.0, F52, D69, D88 U7"
-    DeviceId: { type: string, pattern: "^[A-Za-z0-9._-]+$", maxLength: 64, examples: [ "kiosk-01" ], description: "키오스크 기기의 식별자. 기기 인증서 주체의 CN 값이다", x-owner: platform, x-basis: "D136(허용 목록은 기기 ID 와 일련번호), D113(기기 ID 는 인증서 주체 CN), RFC 5280 부록 A(ub-common-name 은 64). 글자를 영숫자와 . _ - 로 제한하는 것은 이 계약의 선택이고 정본에 없다" }
+      x-basis: "RFC 9068 2.2 와 4, RFC 7519, OpenID Connect Core 1.0, N12, D69, D88 U7"
+    DeviceId: { type: string, pattern: "^[A-Za-z0-9._-]+$", maxLength: 64, examples: [ "kiosk-01" ], description: "키오스크 기기의 식별자. 기기 인증서 주체의 CN 값이다", x-owner: platform, x-basis: "D136(허용 목록은 기기 ID 와 일련번호), D113(기기 ID 는 인증서 주체 CN), RFC 5280 부록 A(ub-common-name 은 64). 글자는 RFC 3986 2.3 의 unreserved 중 영숫자와 . _ - 이다" }
     DeviceSerialNumber: { type: string, pattern: "^[0-9a-f]{1,40}$", maxLength: 40, examples: [ "1a2b3c4d" ], description: "기기 인증서의 일련번호(소문자 16진수)", x-owner: platform, x-basis: "RFC 5280 4.1.2.2 (일련번호는 최대 20옥텟, 곧 16진수 40자), D136" }
 
     # ======================================================================
     # 문진 서비스: 문진표, 시작 코드, 세션, 턴
     # ======================================================================
-    QuestionnaireId: { type: string, pattern: "^[A-Za-z0-9_-]+$", maxLength: 63, examples: [ "national-health" ], description: "문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다", x-owner: survey-service, x-basis: "U85(문진표가 여럿이고 식별자로 가린다), 사용자 결정 2026-11-10(UD-14: 식별 이름 최대 63). 글자를 영숫자와 밑줄·하이픈으로 제한하는 것은 이 계약의 선택이고 정본에 없다" }
+    QuestionnaireId: { type: string, pattern: "^[A-Za-z0-9_-]+$", maxLength: 63, examples: [ "national-health" ], description: "문진표(환자가 답하는 하나의 질문 묶음)의 식별자. 버전이 바뀌어도 같다", x-owner: survey-service, x-basis: "U85(문진표가 여럿이고 식별자로 가린다), 사용자 결정 2026-11-10(UD-14: 식별 이름 최대 63). 글자는 RFC 3986 2.3 의 unreserved 중 영숫자와 _ - 이다" }
     QuestionnaireTitle: { type: string, minLength: 1, maxLength: 200, examples: [ "국가건강검진 문진표" ], description: "문진표의 제목. 결과와 선택 화면에 보인다", x-owner: survey-service, x-basis: "U87(결과에 문진표 제목), 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     QuestionnaireSummary:
       type: object
       additionalProperties: false
       description: "활성 문진표 하나의 요약(선택 화면에 보일 만큼)"
       x-owner: survey-service
-      x-basis: "U86, F30"
+      x-basis: "U86, N02"
       required: [questionnaire_id, title]
       properties:
         questionnaire_id: { $ref: "#/components/schemas/QuestionnaireId", description: "문진표 식별자" }
@@ -330,10 +330,10 @@ components:
       additionalProperties: false
       description: "지금 활성인 문항 세트가 있는 문진표 목록"
       x-owner: survey-service
-      x-basis: "U86, U85, F30"
+      x-basis: "U86, U85, N02"
       required: [questionnaires]
       properties:
-        questionnaires: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionnaireSummary" }, description: "문진표 요약들" , x-basis: "사용자 결정 2026-11-10(UD-10)" }
+        questionnaires: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/QuestionnaireSummary" }, description: "문진표 요약들", x-basis: "사용자 결정 2026-11-10(UD-10)" }
     SubjectRef: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9.-]{1,64}$", examples: [ "subj-000123" ], description: "문진 대상자를 가리키는 불투명 참조값. 환자 식별 정보(이름·생년월일 등)가 아니다. 설치처의 의료 정보 시스템이 같은 값으로 결과를 당겨 간다", x-owner: survey-service, x-basis: "G-SUBJ-1(불투명 참조값), D85(1), 사용자 결정 2026-11-10 C20, HL7 FHIR R4 id 형식(영숫자·하이픈·마침표 1~64자: 결과를 FHIR 로 내보낼 때 같은 값을 쓴다)" }
     StartCodeValue: { type: string, pattern: "^[0-9]{6}$", maxLength: 6, examples: [ "482910" ], description: "직원이 발급한 일회용 시작 코드(6자리 숫자, 환자가 키오스크 키패드로 입력한다)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10 C20(직원이 발급하는 일회용 시작 코드, 6자리 숫자, QR 없음: docs/v7-flow-resolutions.md, docs/design.md 2절 start_code), RFC 4226 5.3(일회용 값은 최소 6자리), NIST SP 800-63B 5.1.3(일회용 비밀). 정확히 6자리인 것은 C20 과 design.md 가 정한다" }
     StartCodeIssueRequest:
@@ -341,7 +341,7 @@ components:
       additionalProperties: false
       description: "직원이 시작 코드 발급을 요청하는 본문"
       x-owner: survey-service
-      x-basis: "사용자 결정 2026-11-10 C20, F25"
+      x-basis: "사용자 결정 2026-11-10 C20, N05"
       required: [subject_ref]
       properties:
         subject_ref: { $ref: "#/components/schemas/SubjectRef", description: "이 코드로 시작할 문진 대상자의 참조값" }
@@ -368,39 +368,39 @@ components:
       enum: [ACTIVE, PAUSED, ENDED_COMPLETE, ENDED_PARTIAL, EXPIRED]
       x-enum-descriptions:
         ACTIVE: "진행 중"
-        PAUSED: "멈춤. 직원이 풀어야 한다(까닭은 PauseReason)"
-        ENDED_COMPLETE: "문진표의 순서가 끝나 정상 종료"
-        ENDED_PARTIAL: "환자나 직원이 끝까지 가지 않고 끝냄(부분 결과가 남는다)"
-        EXPIRED: "오래 말이 없어 유휴 만료(멈춘 세션은 만료하지 않는다)"
+        PAUSED: "위험 신호나 직원 호출로 멈춤(까닭은 PauseReason)"
+        ENDED_COMPLETE: "모든 문항을 마침"
+        ENDED_PARTIAL: "환자가 중간에 끝냄(부분 결과가 남는다)"
+        EXPIRED: "유휴 초기화 60초로 끝남(UD-17, 멈춘 세션은 만료하지 않는다)"
       description: "세션의 상태"
       x-owner: survey-service
-      x-basis: "D66(5)(위험 정지 중인 세션은 유휴 만료하지 않는다), D85(1)(부분 결과도 상태와 함께 조회), D79 와 U100(문진 끝: 순서표가 END 에 닿으면 끝난다, OPEN_GAPS). 값의 이름은 이 계약의 정의이고 정본 입력에 이름 목록은 없다(PAUSED, ENDED_COMPLETE, ENDED_PARTIAL, EXPIRED)"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 사용자 결정 UD-17(유휴 초기화 60초), D66(5)(위험 정지 중인 세션은 유휴 만료하지 않는다), D85(1)(부분 결과도 상태와 함께 조회), docs/design.md 2절 session 컴포넌트의 진행 규칙"
     PauseReason:
       type: string
       enum: [RISK_SIGNAL, STAFF_CALL]
       x-enum-descriptions:
-        RISK_SIGNAL: "위험 신호가 들어와 멈춤"
-        STAFF_CALL: "환자나 키오스크가 직원을 불러 멈춤"
+        RISK_SIGNAL: "위험 신호(N14)가 들어와 멈춤"
+        STAFF_CALL: "환자나 키오스크가 직원을 불러(N01) 멈춤"
       description: "세션이 멈춘 까닭. 직원 화면과 지표가 구분한다"
       x-owner: survey-service
-      x-basis: "L28(위험 정지와 되묻기 한도 정지를 구분할 수 없다는 빈 곳: 정지 사유 필드를 계약에 둔다, OPEN_GAPS), D64. 되묻기 한도는 정지가 아니라 건너뛰기라서 사유에 없다(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10, 되묻기 한도). 값의 이름은 이 계약의 정의이고 정본 입력에 이름 목록은 없다(RISK_SIGNAL, STAFF_CALL. L28 의 RISK_NOTICE·CALL_STAFF 는 환자에게 가는 고정 문장 이름이다)"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), L28(정지 사유 구분), D64. 세션을 멈추는 사건은 위험 신호와 직원 호출 둘뿐이고 되묻기 한도는 정지가 아니라 건너뛰기다(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)"
     TurnFailureReason:
       type: string
       enum: [EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED]
       x-enum-descriptions:
-        EXTRACTION_UNAVAILABLE: "LoRA-A 추출을 받지 못했다(출력 보증 실패 포함)"
+        EXTRACTION_UNAVAILABLE: "LoRA-A 추출 출력을 받지 못했다(출력 불가 포함)"
         RESPONSE_UNAVAILABLE: "LoRA-B 응답 문장을 받지 못했다"
-        DEADLINE_EXCEEDED: "턴 전체 마감을 넘겼다"
+        DEADLINE_EXCEEDED: "시간 상한을 넘겼다"
       description: "턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다"
       x-owner: survey-service
-      x-basis: "D75(1)(형식을 못 지키면 503 으로 실패 신호를 내고 세션 상태는 바꾸지 않는다), D125(시간 상한을 넘기면 실패 판정). 값의 이름은 이 계약의 정의이고 정본 입력에 이름 목록은 없다(EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D75(1)(실패한 턴은 세션 상태를 바꾸지 않는다), D125(시간 상한). 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다"
     StaffHelpNotice: { type: boolean, description: "이 응답이 서비스의 고정 문장으로 직원 도움을 안내하는지(참이면 안내). 안전과 닿는 안내 문장은 모델이 아니라 서비스가 쓴다. 모델 입출력 v3 부터 쓰인다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(질문의 뜻·대상을 묻는 되물음은 한도에 세지 않고 설명 요청만 3번 이어지면 직원 도움을 안내한다, 모델 입출력 v3 에 의존). 안내 문장을 서비스가 고정 문장으로 쓰는 것은 모델의 출력이 아니라 서비스가 맡는 안전 안내라는 이 계약의 정의이고 정본 입력에 그 책임 문장은 없다" }
     SessionStartRequest:
       type: object
       additionalProperties: false
       description: "키오스크가 세션을 시작하는 본문"
       x-owner: survey-service
-      x-basis: "F29, 사용자 결정 2026-11-10 C20, U86"
+      x-basis: "N01, 사용자 결정 2026-11-10 C20, U86"
       required: [start_code]
       properties:
         start_code: { $ref: "#/components/schemas/StartCodeValue", description: "환자가 입력한 일회용 시작 코드" }
@@ -410,7 +410,7 @@ components:
       additionalProperties: false
       description: "세션 시작 결과. 첫 인사 문장과 첫 문항을 담는다"
       x-owner: survey-service
-      x-basis: "F29, F30, D74(시작은 LoRA-B 만 부른다)"
+      x-basis: "N01, N02, D74(시작은 LoRA-B 만 부른다)"
       required: [session_id, status, questionnaire_id, response_text]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "새 세션의 식별자" }
@@ -424,7 +424,7 @@ components:
       additionalProperties: false
       description: "환자 발화 한 턴을 서버에 보내는 본문"
       x-owner: survey-service
-      x-basis: "F29, D55, D66(1)"
+      x-basis: "N01, D55, D66(1)"
       required: [turn_id, utterance]
       properties:
         turn_id: { $ref: "#/components/schemas/TurnId", description: "이 턴의 식별자(재전송 때 같은 값)" }
@@ -434,7 +434,7 @@ components:
       additionalProperties: false
       description: "한 턴의 처리 결과. 다음에 보일 문장과 세션 상태를 담는다"
       x-owner: survey-service
-      x-basis: "F30, D55, D75(1)"
+      x-basis: "N02, D55, D75(1)"
       required: [turn_id, status]
       properties:
         turn_id: { $ref: "#/components/schemas/TurnId", description: "응답이 가리키는 턴" }
@@ -449,7 +449,7 @@ components:
       additionalProperties: false
       description: "세션 종료 결과"
       x-owner: survey-service
-      x-basis: "F29"
+      x-basis: "N01"
       required: [session_id, status, ended_at]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "끝난 세션" }
@@ -460,7 +460,7 @@ components:
       additionalProperties: false
       description: "키오스크가 2초마다 확인하는 세션 상태. 직원이 정지를 풀었는지 알리는 용도다"
       x-owner: survey-service
-      x-basis: "F31, D66(6)(2초 폴링), L28"
+      x-basis: "N02, D66(6)(2초 폴링), L28"
       required: [session_id, status]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "확인한 세션" }
@@ -479,13 +479,13 @@ components:
         RESULT_READY: "문진이 끝나 의사가 볼 결과가 생겼다"
       description: "알림의 종류"
       x-owner: survey-service
-      x-basis: "D95(직원 호출, OPEN_GAPS 에도 같은 직원 호출), U92(결과 도착 알림), D64(직원 알림은 웹 화면과 푸시). 위험 알림 RISK 는 D88 U1·U2 의 위험 감지가 낳는 알림이고 이름은 이 계약의 정의다(정본의 PAUSED_RISK 는 세션 상태 이름이다). 되묻기 초과 알림은 되묻기 한도를 건너뛰기로 정한 사용자 결정 2026-11-10 이 없앴다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/design.md 2절 alert 컴포넌트(위험, 직원 호출, 결과 도착), D95(직원 호출), U92(결과 도착 알림), D64"
     StaffAlert:
       type: object
       additionalProperties: false
       description: "직원 또는 의사에게 가는 알림 하나"
       x-owner: survey-service
-      x-basis: "D64, D66(3), F38, F41"
+      x-basis: "D64, D66(3), N06"
       required: [alert_id, kind, session_id, raised_at]
       properties:
         alert_id: { $ref: "#/components/schemas/AlertId", description: "알림 식별자" }
@@ -503,7 +503,7 @@ components:
       x-basis: "D66(3), PageLimit 의 쪽 나누기 규칙"
       required: [items]
       properties:
-        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/StaffAlert" }, description: "알림들(최근 것이 먼저)" , x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/StaffAlert" }, description: "알림들(최근 것이 먼저)", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
         next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽을 받을 커서(마지막 쪽이면 없다)" }
     AlertEventName:
       type: string
@@ -532,16 +532,16 @@ components:
     InterventionAction:
       type: string
       enum: [ACKNOWLEDGE, RESUME]
-      x-enum-descriptions: { ACKNOWLEDGE: "알림을 확인했다는 표시만 한다", RESUME: "멈춘 세션의 정지를 풀어 문진을 이어 가게 한다" }
+      x-enum-descriptions: { ACKNOWLEDGE: "알림을 확인했다는 표시만 한다", RESUME: "멈춘 세션을 재개한다(위험 정지 해제는 RESUME)" }
       description: "직원이 알림에 대해 내리는 결정"
       x-owner: survey-service
-      x-basis: "D58(4)(위험으로 멈춘 세션을 푸는 직원 개입 경로와 InterventionDecision, 역할 staff). ACKNOWLEDGE 와 RESUME 이름은 이 계약의 정의이고 정본에 이름 목록은 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D58(4)(위험 정지를 푸는 직원 개입 InterventionDecision)"
     InterventionDecision:
       type: object
       additionalProperties: false
       description: "직원이 멈춘 세션에 대해 내리는 개입 결정"
       x-owner: survey-service
-      x-basis: "F39, F40, D58(4)"
+      x-basis: "N05, D58(4)"
       required: [action]
       properties:
         action: { $ref: "#/components/schemas/InterventionAction", description: "직원의 결정" }
@@ -563,7 +563,7 @@ components:
       additionalProperties: false
       description: "브라우저가 만든 웹 푸시 구독. 구독한 사람의 계정에 묶어 저장한다"
       x-owner: survey-service
-      x-basis: "C11, D64, D66(7), F39, RFC 8030, RFC 8291, RFC 8292, W3C Push API"
+      x-basis: "C11, D64, D66(7), N05, RFC 8030, RFC 8291, RFC 8292, W3C Push API"
       required: [endpoint, keys]
       properties:
         endpoint: { $ref: "#/components/schemas/PushEndpoint", description: "구독 주소" }
@@ -574,7 +574,7 @@ components:
       additionalProperties: false
       description: "푸시 구독을 저장한 결과"
       x-owner: survey-service
-      x-basis: "F39"
+      x-basis: "N05"
       required: [push_subscription_id, registered_at]
       properties:
         push_subscription_id: { $ref: "#/components/schemas/PushSubscriptionId", description: "저장한 구독의 식별자" }
@@ -665,7 +665,7 @@ components:
       additionalProperties: false
       description: "한 문진표의 문항 정의 전체(문항 은행)"
       x-owner: survey-service
-      x-basis: "D13, F15, F16"
+      x-basis: "D13"
       required: [items]
       properties:
         items: { $ref: "#/components/schemas/QuestionItems", description: "문항들" }
@@ -673,10 +673,10 @@ components:
     FlowComparison:
       type: string
       enum: [EQ, NE, LT, LE, GT, GE]
-      x-enum-descriptions: { EQ: "같다", NE: "다르다", LT: "작다", LE: "작거나 같다", GT: "크다", GE: "크거나 같다" }
+      x-enum-descriptions: { EQ: "같다(FHIR 연산자 =)", NE: "다르다(FHIR 연산자 !=)", LT: "작다(FHIR 연산자 <)", LE: "작거나 같다(FHIR 연산자 <=)", GT: "크다(FHIR 연산자 >)", GE: "크거나 같다(FHIR 연산자 >=)" }
       description: "건너뛰기 조건의 비교 연산"
       x-owner: survey-service
-      x-basis: "D76(수 조건 Q8_1.days == 0 같은 건너뛰기 규칙을 순서표가 가진다). 비교 연산 6개 이름 EQ NE LT LE GT GE 는 이 계약의 정의이고 정본에 이름 목록은 없다"
+      x-basis: "HL7 FHIR R4 Questionnaire.item.enableWhen.operator 의 값 집합(QuestionnaireItemOperator: =, !=, >, <, >=, <= 와 exists)과 같은 뜻의 여섯 연산(exists 는 값 비교가 아니라 제외), D76(수 조건 Q8_1.days == 0 같은 건너뛰기 규칙)"
     ConditionValue:
       oneOf:
         - { $ref: "#/components/schemas/YesNoAnswer" }
@@ -715,7 +715,7 @@ components:
       required: [item_id, branches]
       properties:
         item_id: { $ref: "#/components/schemas/QuestionItemId", description: "이 규칙이 다음을 정하는 문항" }
-        branches: { type: array, maxItems: 14, items: { $ref: "#/components/schemas/FlowBranch" }, description: "분기들(순서가 의미를 가진다)" , x-basis: "labels.py 의 건너뛰기 규칙은 고정 조건 6개와 규칙 대상 7개이고 저장 여부를 보는 규칙은 코드로 동적으로 정해진다. 한 문항 뒤 분기 수의 상한 14 는 이 표의 한 문항에 두는 분기를 관측한 규칙 수의 2배로 잡은 이 계약의 선택이다(정본에서 유도되지 않음)" }
+        branches: { type: array, maxItems: 4, items: { $ref: "#/components/schemas/FlowBranch" }, description: "분기들(순서가 의미를 가진다)", x-basis: "contracts/inputs/labels.py next_after 의 건너뛰기 규칙: 문항 하나 뒤의 갈래는 조건 하나와 기본 경로로 최대 2개이고(Q4·Q5·Q6 뒤 answer == false, Q7 뒤 does_not_drink == true, Q8_1·Q9_1 뒤 days == 0 이 각각 조건 하나), 사용자 결정 2026-11-10 의 관측 최대의 2배로 4" }
     QuestionFlowTable:
       type: object
       additionalProperties: false
@@ -725,7 +725,7 @@ components:
       required: [start_item, rules]
       properties:
         start_item: { $ref: "#/components/schemas/QuestionItemId", description: "첫 문항" }
-        rules: { type: array, maxItems: 62, items: { $ref: "#/components/schemas/FlowRule" }, description: "문항별 다음 규칙" , x-basis: "실측 문항 31개, 사용자 결정 2026-11-10 발화 상한과 같은 방식의 관측 최대 2배" }
+        rules: { type: array, maxItems: 62, items: { $ref: "#/components/schemas/FlowRule" }, description: "문항별 다음 규칙", x-basis: "실측 문항 31개, 사용자 결정 2026-11-10 발화 상한과 같은 방식의 관측 최대 2배" }
     QuestionSetContent:
       type: object
       additionalProperties: false
@@ -801,7 +801,7 @@ components:
     # ======================================================================
     YesNoAnswer: { type: boolean, description: "예 또는 아니오 칸의 값(예이면 참)", x-owner: head, x-basis: "데이터셋 labels.py a_state(boolean 칸의 값은 bool 로 쓴다), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 values 의 boolean 값 15572건" }
     NoValue: { type: "null", description: "값이 없음을 뜻하는 null(모름·거절·빠짐 등 저장할 값이 없는 칸)", x-owner: head, x-basis: "데이터셋 labels.py a_state(값이 없으면 value 는 null), IO_SPEC.md 2.2(MISSING 의 value 는 null), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 values 의 null 11992건(MISSING·UNCLEAR·UNKNOWN·REJECTED 상태 건수의 합과 같다)" }
-    SlotText: { type: string, maxLength: 300, examples: [ "어지러움이 있음" ], description: "자유 글 칸의 값", x-owner: survey-service, x-basis: "데이터셋 question_fields.data_type 의 text, 사용자 결정 2026-11-10(발화 상한 300자: 자유 글 값은 환자 발화에서 나온다); 자유 글 값 300 은 발화 한 턴 상한(UtteranceText)에서 파생한 이 계약의 선택이다. SQL.md 는 text 칸의 길이 한도를 정하지 않는다" }
+    SlotText: { type: string, maxLength: 300, examples: [ "어지러움이 있음" ], description: "자유 글 칸의 값", x-owner: survey-service, x-basis: "데이터셋 question_fields.data_type 의 text(SQL.md), 사용자 결정 2026-11-10(발화 한 턴 상한 300자: 칸의 자유 글은 환자 발화에서 나온다)" }
     SlotAnswer:
       anyOf:
         - { $ref: "#/components/schemas/YesNoAnswer" }
@@ -845,8 +845,8 @@ components:
       x-enum-descriptions: { CONFIRMING_STATE: "확인 중 상태를 LoRA-A 입력에 전달한다", MEANING_ASKED_EXEMPTION: "질문의 뜻·대상을 묻는 말을 되묻기 한도에 세지 않는다", STAFF_HELP_AFTER_EXPLAIN: "설명 요청이 한 문항에서 3번 이어지면 서비스가 고정 문장으로 직원 도움을 안내한다" }
       description: "모델 입출력 v3 에 의존해 v3 가 활성이기 전까지 꺼져 있는 기능"
       x-owner: head
-      x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존 기능 셋: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 활성 조건은 릴리스가 아니라 적재한 모델 패키지의 model_io_version 이 v3 이상). 기능 이름 CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN 은 이 계약의 정의이고 정본 입력에 이름은 없다"
-    MinimumModelIoVersion: { type: string, const: model-io-v3, description: "기능이 켜지는 모델 입출력의 최소 버전(model-io-v3)", x-owner: head, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존 기능 셋: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 활성 조건은 릴리스가 아니라 적재한 모델 패키지의 model_io_version 이 v3 이상). 값 model-io-v3 는 ModelIoVersion 의 표기를 따른 이 계약의 정의다. D74(입출력은 데이터셋 정의가 정본)" }
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내)"
+    MinimumModelIoVersion: { type: string, const: model-io-v3, description: "기능이 켜지는 모델 입출력의 최소 버전(model-io-v3)", x-owner: head, x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내), D74(입출력은 데이터셋 정의가 정본). 활성 조건은 적재한 모델 패키지의 model_io_version 이 v3 이상" }
     ModelIoFeatureRequirement:
       type: object
       additionalProperties: false
@@ -869,7 +869,7 @@ components:
         # 위 셋: 기능마다 하나씩이고 중복과 누락을 거부한다
       description: "v3 의존 기능 셋과 켜지는 조건의 표(ModelIoFeature 값마다 정확히 하나)"
       x-owner: head
-      x-basis: "ModelIoFeature 값의 수 3(기능마다 정확히 하나), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존 기능 셋: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 활성 조건은 릴리스가 아니라 적재한 모델 패키지의 model_io_version 이 v3 이상)"
+      x-basis: "ModelIoFeature 값의 수 3(기능마다 정확히 하나), docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내)"
     ModelIoVersion:
       type: string
       enum: [model-io-v2]
@@ -892,10 +892,10 @@ components:
     NextItemRuleKind:
       type: string
       enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
-      x-enum-descriptions: { TARGET_ITEM: "다시 물을 칸(targets)의 문항", ASKED_ITEM: "지금 묻던 문항(question_id)", SEQUENCE_AFTER_SAVED: "이번 턴에 저장되는 값(save 가 참)이나 대상 칸의 문항 다음 문항. 건너뛰기를 반영하고 끝이면 END" }
+      x-enum-descriptions: { TARGET_ITEM: "targets 칸의 문항", ASKED_ITEM: "입력의 question_id(지금 묻던 문항)", SEQUENCE_AFTER_SAVED: "저장한 칸 중 순서표에서 가장 뒤 문항의 다음 문항(건너뛰기 적용, 끝이면 END)" }
       description: "행동마다 next_item 을 정하는 규칙의 종류"
       x-owner: head
-      x-basis: "데이터셋 labels.py a_target 의 next_item 규칙(REASK·CONFIRM 은 targets 의 문항, REDIRECT 는 지금 묻던 문항, 그 밖은 값·대상 칸의 문항 다음 문항으로 건너뛰기 반영), IO_SPEC.md 2.2(next_item), D74, U74. 규칙 종류 이름 TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED 는 이 계약의 정의다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 데이터셋 정본 labels.py a_target 의 next_item 규칙과 IO_SPEC.md 2.2(행동과의 짝은 NextItemRule 이 정본을 따른다), D74, U74"
     NextItemRule:
       type: object
       additionalProperties: false
@@ -912,10 +912,10 @@ components:
       x-enum-descriptions:
         CURRENT_ITEM: "지금 묻는 문항(요청의 input.question_id)의 칸"
         ITEM_RANGE_TO_NEXT_ITEM: "순서표 순서에서 지금 문항부터 출력의 next_item 까지 구간 안의 문항의 칸(건너뛴 문항 포함)"
-        ITEM_FAMILY: "지금 문항과 같은 문항 계열의 문항의 칸. 계열은 문항 식별자의 번호 부분이 같은 문항들이다(Q7_1 과 Q7_2 는 Q7 계열, Q1.D01 과 Q1.D02 는 Q1 계열)"
+        ITEM_FAMILY: "지금 문항과 같은 문항 계열의 문항의 칸. 계열은 문항 식별자에서 첫 _ 또는 . 앞 부분이 같은 문항들이다(Q7_1 과 Q7_2 는 Q7 계열, Q1.D01 과 Q1.D02 는 Q1 계열)"
       description: "저장하는 값의 칸이 있어도 되는 자리의 종류"
       x-owner: head
-      x-basis: "OUT_OF_CURRENT_ITEM 의 판정 규칙(작업 지시 2026-11-10), OPEN_GAPS U24·G13(OUT_OF_CURRENT_ITEM 검사), labels.py 의 문항 식별자 형식(Q1.D01, Q7_1)"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10)(현재 문항의 계열: 한 질문이 하위 문항으로 나뉜 데이터셋 문항 식별자 구조), OUT_OF_CURRENT_ITEM 의 판정 규칙, OPEN_GAPS U24·G13, labels.py 와 SQL.md 의 문항 식별자 형식"
     CurrentItemRule:
       type: object
       additionalProperties: false
@@ -1061,7 +1061,7 @@ components:
       additionalProperties: false
       description: "추론 서버에 LoRA-A 추출을 요청하는 본문"
       x-owner: head
-      x-basis: "F33, D108(1)(input 과 flow), D115(fields), D104(5), D77, D46, ADR 0019 과 docs/design.md 3절(문항 은행 버전은 추출 요청마다 보낸다)"
+      x-basis: "N03, D108(1)(input 과 flow), D115(fields), D104(5), D77, D46, ADR 0019 과 docs/design.md 3절(문항 은행 버전은 추출 요청마다 보낸다)"
       required: [runtime_contract_version, input, state_key_order, flow, fields]
       properties:
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다" }
@@ -1074,7 +1074,7 @@ components:
       additionalProperties: false
       description: "LoRA-A 추출 응답. 처리한 모델 패키지와 검증을 마친 출력"
       x-owner: head
-      x-basis: "F34, D46, D19(처리한 모델 버전을 기록한다), ADR 0019(패키지는 digest 로 가리킨다)"
+      x-basis: "N04, D46, D19(처리한 모델 버전을 기록한다), ADR 0019(패키지는 digest 로 가리킨다)"
       required: [package_digest, output]
       properties:
         package_digest: { $ref: "#/components/schemas/OciDigest", description: "이 출력을 만든 모델 패키지(OCI 매니페스트 digest)" }
@@ -1118,7 +1118,7 @@ components:
       additionalProperties: false
       description: "LoRA-B 의 입력(모델 입출력 v2). 어떤 절차로 어떤 문장을 만들지와 다음에 갈 자리를 알려 주는 모든 것"
       x-owner: head
-      x-basis: "F33, D74, D77, 데이터셋 labels.py b_input 과 start_b_input, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
+      x-basis: "N03, D74, D77, 데이터셋 labels.py b_input 과 start_b_input, 실측 학습 데이터 B 입력 키(action, next, topic, known, user_utterance, reason, ask, hold, current, previous, note)"
       required: [action, topic, next]
       properties:
         action: { $ref: "#/components/schemas/ResponseAction", description: "문장을 만들 절차" }
@@ -1161,7 +1161,7 @@ components:
       additionalProperties: false
       description: "추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문"
       x-owner: head
-      x-basis: "F33, D46, D77, ADR 0019 과 docs/design.md 3절"
+      x-basis: "N03, D46, D77, ADR 0019 과 docs/design.md 3절"
       required: [runtime_contract_version, input]
       properties:
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다" }
@@ -1182,14 +1182,14 @@ components:
       x-enum-descriptions: { NOT_LOADED: "활성화된 모델 패키지가 아직 없거나 적재하지 못했다", LOADING: "모델 패키지를 레지스트리에서 받아 적재하는 중", READY: "적재를 마쳐 추론을 받을 수 있다", FAILED: "새 패키지의 적재에 실패했다(이전 패키지를 유지한다)" }
       description: "추론 서버의 모델 적재 상태"
       x-owner: model-runtime
-      x-basis: "D46(적재를 거부하면 이전 패키지를 유지한다), C05(추론 서버가 스스로 적재), ADR 0019 와 docs/design.md 2절(model-runtime 의 package_loader 와 release). NOT_LOADED, LOADING, READY, FAILED 이름은 이 계약의 정의이고 정본에 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D46(적재를 거부하면 이전 패키지를 유지한다), docs/design.md 2절 package_loader 의 적재 상태"
     ModelChangeReason: { type: string, minLength: 1, maxLength: 4000, examples: [ "평가 보고서의 의미 위반율이 활성 패키지보다 낮다" ], description: "모델 패키지 활성화나 롤백을 결정한 사람이 적는 까닭", x-owner: model-runtime, x-basis: "D53(결정은 사유를 남긴다), D85(3), 최대 길이 값은 사용자 결정 2026-11-10(UD-02, 권고값 일괄 승인)" }
     ActivationRequest:
       type: object
       additionalProperties: false
       description: "승인자가 모델 패키지를 활성화하는 본문. 승인자는 본문이 아니라 OIDC 접근 토큰의 sub 클레임에서 얻는다"
       x-owner: model-runtime
-      x-basis: "ADR 0019(활성화는 model-runtime, 승인은 admin-console), docs/design.md 3절(승인자 신원은 OIDC 토큰 클레임), RFC 9068 2.2(sub), F10, D85(3)"
+      x-basis: "ADR 0019(활성화는 model-runtime, 승인은 admin-console), docs/design.md 3절(승인자 신원은 OIDC 토큰 클레임), RFC 9068 2.2(sub), N07, D85(3)"
       required: [package_digest, reason]
       properties:
         package_digest: { $ref: "#/components/schemas/OciDigest", description: "활성으로 만들 모델 패키지(OCI 매니페스트 digest)" }
@@ -1199,7 +1199,7 @@ components:
       additionalProperties: false
       description: "활성 모델 패키지를 이전에 활성이었던 패키지로 되돌리는 본문. 하는 사람은 OIDC 접근 토큰의 sub 클레임에서 얻는다"
       x-owner: model-runtime
-      x-basis: "ADR 0019(롤백은 model-runtime), docs/design.md 3절(OIDC 토큰 클레임), RFC 9068 2.2(sub), F10, D85(3)"
+      x-basis: "ADR 0019(롤백은 model-runtime), docs/design.md 3절(OIDC 토큰 클레임), RFC 9068 2.2(sub), N07, D85(3)"
       required: [target_package_digest, reason]
       properties:
         target_package_digest: { $ref: "#/components/schemas/OciDigest", description: "되돌아갈 모델 패키지. 이전에 활성이었던 패키지여야 한다" }
@@ -1209,7 +1209,7 @@ components:
       additionalProperties: false
       description: "추론 서버가 지금 적재한 모델 패키지와 적재 상태, 활성화 기록"
       x-owner: model-runtime
-      x-basis: "F35, U45, D46, C05, ADR 0019"
+      x-basis: "N04, U45, D46, C05, ADR 0019"
       required: [state]
       properties:
         state: { $ref: "#/components/schemas/ModelLoadState", description: "적재 상태" }
@@ -1258,7 +1258,7 @@ components:
       additionalProperties: false
       description: "한 세션의 문진 결과. 끝나지 않은 세션은 부분 결과로 상태와 함께 나온다"
       x-owner: survey-service
-      x-basis: "F41, F44, U83, U87, U35, D85(1), D102"
+      x-basis: "N06, N08, U83, U87, U35, D85(1), D102"
       required: [session_id, status, questionnaire_id, question_set_version_id, subject_ref, answers, blanks, started_at]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "결과가 속한 세션" }
@@ -1268,8 +1268,8 @@ components:
         question_set_version_id: { $ref: "#/components/schemas/QuestionSetVersionId", description: "답한 문진표의 버전" }
         subject_ref: { $ref: "#/components/schemas/SubjectRef", description: "문진 대상자 참조값" }
         device_id: { $ref: "#/components/schemas/DeviceId", description: "문진을 한 키오스크 기기" }
-        answers: { type: array, maxItems: 68, items: { $ref: "#/components/schemas/ResultAnswer" }, description: "저장된 답들" , x-basis: "문진 DB 의 가능한 키 수: 칸 52개 중 술 칸 4개가 반복 키 5개를 가져 52-4+4*5=68(SQL.md question_fields 와 repeat_keys_json)" }
-        blanks: { type: array, maxItems: 68, items: { $ref: "#/components/schemas/ResultBlank" }, description: "비어 있는 칸들과 원인" , x-basis: "문진 DB 의 가능한 키 수 68(칸 52개 중 술 칸 4개가 반복 키 5개)" }
+        answers: { type: array, maxItems: 68, items: { $ref: "#/components/schemas/ResultAnswer" }, description: "저장된 답들", x-basis: "문진 DB 의 가능한 키 수: 칸 52개 중 술 칸 4개가 반복 키 5개를 가져 52-4+4*5=68(SQL.md question_fields 와 repeat_keys_json)" }
+        blanks: { type: array, maxItems: 68, items: { $ref: "#/components/schemas/ResultBlank" }, description: "비어 있는 칸들과 원인", x-basis: "문진 DB 의 가능한 키 수 68(칸 52개 중 술 칸 4개가 반복 키 5개)" }
         started_at: { $ref: "#/components/schemas/Timestamp", description: "세션을 시작한 때" }
         ended_at: { $ref: "#/components/schemas/Timestamp", description: "세션이 끝난 때(진행 중이면 없다)" }
         acknowledged_by: { $ref: "#/components/schemas/UserId", description: "결과를 확인한 의사(아직이면 없다)" }
@@ -1298,14 +1298,14 @@ components:
       x-basis: "U83, PageLimit 의 쪽 나누기 규칙"
       required: [items]
       properties:
-        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ResultSummary" }, description: "결과 요약들(최근 것이 먼저)" , x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ResultSummary" }, description: "결과 요약들(최근 것이 먼저)", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
         next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
     ResultAcknowledgement:
       type: object
       additionalProperties: false
       description: "의사가 결과를 확인했다는 기록"
       x-owner: survey-service
-      x-basis: "F42, U83(접근 기록)"
+      x-basis: "N05, U83(접근 기록)"
       required: [session_id, acknowledged_by, acknowledged_at]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "확인한 결과의 세션" }
@@ -1361,7 +1361,7 @@ components:
       additionalProperties: false
       description: "문진 결과(SessionResult)를 FHIR R4 QuestionnaireResponse 로 옮기는 규칙(데이터). questionnaire 는 FhirCanonicalBaseUrl 에 슬래시와 문진표 식별자를 붙인 정본 URL 이다. item.linkId 는 문항이면 문항 식별자이고 칸이면 SlotRefString 이다. subject.identifier.value 는 SubjectRef 다. 저장된 답은 item.answer 로, 빈칸은 answer 없이 data-absent-reason 확장으로 낸다. FHIR 조회의 오류는 OperationOutcome 이다"
       x-owner: survey-service
-      x-basis: "docs/v7-flow-resolutions.md C10(병원 시스템은 당겨 가기만 하고 결과는 FHIR 형식으로도 조회할 수 있다), U83, HL7 FHIR R4 (4.0.1) QuestionnaireResponse(questionnaire, subject, item.linkId, item.answer)와 data-absent-reason 코드(asked-unknown, asked-declined, not-asked), FHIR RESTful API(오류는 OperationOutcome). SubjectRef 를 subject.identifier.value 로, 칸 식별자를 linkId 로, 빈칸 원인을 absent-reason 으로 옮기는 대응은 이 계약의 정의이고 정본에 없다"
+      x-basis: "docs/v7-flow-resolutions.md C10(병원 시스템은 당겨 가기만 하고 결과는 FHIR 형식으로도 조회할 수 있다), U83, HL7 FHIR R4 (4.0.1) QuestionnaireResponse(questionnaire, subject, item.linkId, item.answer)와 data-absent-reason 코드(asked-unknown, asked-declined, not-asked), FHIR RESTful API(오류는 OperationOutcome). SubjectRef 를 subject.identifier.value 로, 칸 식별자를 linkId 로, 빈칸 원인을 absent-reason 으로 옮기는 대응은 이 계약이 FHIR R4 의 코드로 정한 것이다"
       required: [status_map, absent_map]
       properties:
         status_map: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/FhirStatusMapEntry" }, description: "세션 상태에서 FHIR status 로 가는 대응(ACTIVE 와 PAUSED 는 in-progress, ENDED_COMPLETE 는 completed, ENDED_PARTIAL 과 EXPIRED 는 stopped)", x-basis: "SessionStatus 값의 수 5" }
@@ -1372,14 +1372,14 @@ components:
       x-enum-descriptions: { SELF_HARM: "자해·자살", CHEST_PAIN: "흉통", DYSPNEA: "호흡곤란", ALTERED_CONSCIOUSNESS: "의식저하", SEVERE_BLEEDING: "심한 출혈", PARALYSIS: "마비" }
       description: "위험 신호의 분류(임상 검토 전의 보수적 임시 목록)"
       x-owner: survey-service
-      x-basis: "D88 U2(널리 쓰는 레드플래그 임시 기본 목록: 자해·자살, 흉통, 호흡곤란, 의식저하, 심한 출혈, 마비 등, 임상 검토 전). 영문 코드 이름은 이 계약의 정의이고 한국어 분류와의 대응은 정본에 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D88 U2(임상 검토 전 임시 기본 목록: 자해·자살, 흉통, 호흡곤란, 의식저하, 심한 출혈, 마비), L11(위험 감지는 기본 꺼짐), UD-18"
     RiskSourceName: { type: string, maxLength: 63, examples: [ "risk-engine" ], description: "위험 신호를 낸 감지기의 이름", x-owner: survey-service, x-basis: "D85(2)(입력원은 외부), 사용자 결정 2026-11-10(UD-14)" }
     RiskSignal:
       type: object
       additionalProperties: false
       description: "외부 위험 감지기가 보내는 위험 신호 하나"
       x-owner: survey-service
-      x-basis: "F37, D85(2), D88 U1, L11(위험 감지는 기본 꺼짐)"
+      x-basis: "N14, D85(2), D88 U1, L11(위험 감지는 기본 꺼짐)"
       required: [session_id, category, detected_at]
       properties:
         session_id: { $ref: "#/components/schemas/SessionId", description: "신호가 가리키는 세션" }
@@ -1398,21 +1398,21 @@ components:
       x-enum-descriptions: { EXTRACT_FAILED: "추출이 실패했다", REASK_STREAK: "같은 문항에서 되묻기가 연속됐다" }
       description: "실패 사례를 찾아낸 탐지 규칙"
       x-owner: survey-service
-      x-basis: "OPEN_GAPS G14(탐지 규칙 REASK_STREAK 과 EXTRACT_FAILED. EXTRACT_FAILED 가 값 없는 보류·건너뛰기를 실패로 볼지는 정본에 정의가 없어 이 계약은 그 포함 여부를 정하지 않는다)"
+      x-basis: "OPEN_GAPS G14(탐지 규칙 REASK_STREAK 과 EXTRACT_FAILED. EXTRACT_FAILED 가 값 없는 보류·건너뛰기를 실패로 볼지는 이 계약이 정하지 않는다(G14 는 정의를 ADR 로 미뤘다))"
     ReviewStatus:
       type: string
       enum: [UNREVIEWED, CONFIRMED, DISMISSED]
-      x-enum-descriptions: { UNREVIEWED: "아직 검토하지 않았다", CONFIRMED: "검토자가 실패로 확정했고 기대 답이 있다", DISMISSED: "검토자가 실패가 아니라고 판단했다" }
+      x-enum-descriptions: { UNREVIEWED: "아직 검토하지 않았다", CONFIRMED: "실패로 확정했다(기대 출력이 있고 model-lab 이 받아 가는 대상)", DISMISSED: "실패가 아니라고 판단했다" }
       description: "실패 사례의 검토 상태"
       x-owner: survey-service
-      x-basis: "D52(2)(확정된 CONFIRMED 사례만 회귀 평가 집합), D71(검토 상태 review_status 키), L07(근거는 사람이 CONFIRMED 로 검토한 사례만). UNREVIEWED 와 DISMISSED 이름과 뜻은 이 계약의 정의이고 정본에 목록이 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D52(2)(확정된 CONFIRMED 사례만 회귀 평가 집합), D71, L07. CONFIRMED 만 model-lab 이 받아 간다(N09)"
     ReviewedInput: { type: string, maxLength: 300, examples: [ "중풍 진단 받았고 약도 먹어요" ], description: "검토자가 개인정보를 빼고 고쳐 쓴 환자 발화", x-owner: survey-service, x-basis: "D55, D57(B안 reviewed_input), 사용자 결정 2026-11-10(발화 상한 300자: 고쳐 쓴 발화도 발화 한 턴이다)" }
     FailureCase:
       type: object
       additionalProperties: false
       description: "실패 사례 하나. 비식별한 턴 기록에서 만들고 검토자가 확정한다"
       x-owner: survey-service
-      x-basis: "F19, F20, F46, D15, D43, D71, D52, L12(검토용 원문 180일)"
+      x-basis: "N09, N06, D15, D43, D71, D52, L12(검토용 원문 180일)"
       required: [case_id, case_version, kind, review_status, questionnaire_id, item_id, created_at]
       properties:
         case_id: { $ref: "#/components/schemas/CaseId", description: "사례 식별자" }
@@ -1428,14 +1428,14 @@ components:
         reviewed_by: { $ref: "#/components/schemas/UserId", description: "검토한 사람" }
         reviewed_at: { $ref: "#/components/schemas/Timestamp", description: "검토한 때" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "사례를 만든 때" }
-      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status] , x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
+      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status], x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
       then: { required: [expected], x-basis: "D52(2)(CONFIRMED, expected 있음)" }
     FailureCaseExport:
       type: object
       additionalProperties: false
       description: "model-lab 이 당겨 가는 실패 사례. 환자 발화 원문과 모델 출력을 빼고 검토자가 개인정보를 뺀 문장과 기대 출력만 담는다"
       x-owner: survey-service
-      x-basis: "D15(FailureCase 는 항상 비식별 뒤에만 만든다), L12(원문은 검토용이라 검토자 역할에만), F19, F20, D52(2)"
+      x-basis: "D15(FailureCase 는 항상 비식별 뒤에만 만든다), L12(원문은 검토용이라 검토자 역할에만), N09, D52(2)"
       required: [case_id, case_version, kind, review_status, questionnaire_id, item_id, created_at]
       properties:
         case_id: { $ref: "#/components/schemas/CaseId", description: "사례 식별자" }
@@ -1447,14 +1447,14 @@ components:
         reviewed_input: { $ref: "#/components/schemas/ReviewedInput", description: "검토자가 개인정보를 빼고 고쳐 쓴 발화(검토를 마친 사례에만 있다)" }
         expected: { $ref: "#/components/schemas/ActionExtraction", description: "검토자가 확정한 기대 출력(CONFIRMED 일 때)" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "사례를 만든 때" }
-      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status] , x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
+      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status], x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
       then: { required: [expected, reviewed_input], x-basis: "D52(2)(CONFIRMED, expected 있음) 내보내는 사례에는 원문이 없고(D55·D57) 회귀 평가 집합이 입력으로 쓸 고쳐 쓴 문장이 있어야 하므로 CONFIRMED 에는 reviewed_input 도 요구하는 것은 이 계약의 선택이다" }
     FailureCaseExportPage:
       type: object
       additionalProperties: false
       description: "학습·데이터 영역이 읽는 실패 사례 목록 한 쪽"
       x-owner: survey-service
-      x-basis: "F19, F20, PageLimit 의 쪽 나누기 규칙"
+      x-basis: "N09, PageLimit 의 쪽 나누기 규칙"
       required: [items]
       properties:
         items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FailureCaseExport" }, description: "사례들", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
@@ -1464,24 +1464,24 @@ components:
       additionalProperties: false
       description: "실패 사례 목록 한 쪽"
       x-owner: survey-service
-      x-basis: "F46, PageLimit 의 쪽 나누기 규칙"
+      x-basis: "N06, PageLimit 의 쪽 나누기 규칙"
       required: [items]
       properties:
-        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FailureCase" }, description: "사례들" , x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FailureCase" }, description: "사례들", x-basis: "한 번에 담는 항목 수는 쪽 나누기 최대값 100 을 따른다(PageLimit, GitHub REST·Stripe 관행)" }
         next_cursor: { $ref: "#/components/schemas/PageCursor", description: "다음 쪽 커서" }
     CaseReview:
       type: object
       additionalProperties: false
       description: "검토자가 사례에 게시하는 검토 결과"
       x-owner: survey-service
-      x-basis: "F45, D52(1), D71(3)"
+      x-basis: "N05, D52(1), D71(3)"
       required: [review_status, base_case_version]
       properties:
         base_case_version: { $ref: "#/components/schemas/CaseVersion", description: "검토자가 본 사례의 버전. 최신 버전과 다르면 409(CASE_VERSION_MISMATCH)로 거절해 동시 수정을 막는다" }
         review_status: { $ref: "#/components/schemas/ReviewStatus", description: "확정한 상태" }
         expected: { $ref: "#/components/schemas/ActionExtraction", description: "확정한 기대 출력" }
         reviewed_input: { $ref: "#/components/schemas/ReviewedInput", description: "고쳐 쓴 발화" }
-      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status] , x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
+      if: { properties: { review_status: { const: CONFIRMED } }, required: [review_status], x-basis: "D52(2): 확정된(CONFIRMED) 실패 사례는 expected 가 있다" }
       then: { required: [expected], x-basis: "D52(2)(CONFIRMED, expected 있음)" }
     DeidentifiedUtterance: { type: string, maxLength: 300, examples: [ "중풍 진단 받았고 약도 먹어요" ], description: "비식별 처리를 마친 환자 발화(개인정보를 뺀 글)", x-owner: survey-service, x-basis: "D15(비식별 처리는 survey-service 의 failure_case), 사용자 결정 2026-11-10(발화 상한 300자)" }
     DeidentifiedTrace:
@@ -1489,7 +1489,7 @@ components:
       additionalProperties: false
       description: "비식별 처리를 마친 턴 기록(검토자가 읽는 것)"
       x-owner: survey-service
-      x-basis: "F46, D15, D71"
+      x-basis: "N06, D15, D71"
       required: [case_id, occurred_at]
       properties:
         case_id: { $ref: "#/components/schemas/CaseId", description: "이 기록이 속한 사례" }
@@ -1503,7 +1503,7 @@ components:
     # 모델 패키지, 평가 보고서, 학습 실행(model-lab)
     # ======================================================================
     SemanticVersion: { type: string, pattern: "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$", maxLength: 64, examples: [ "0.11.10" ], description: "의미 있는 버전 문자열(MAJOR.MINOR.PATCH)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2~10(공식 정규식: 숫자 부분은 선행 0 없이, 사전 버전 식별자는 비어 있지 않고 숫자만이면 선행 0 없이, 빌드 식별자는 비어 있지 않게), D46(MAJOR.MINOR 가 다르면 적재 거부). 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
-    BaseModelName: { type: string, maxLength: 96, examples: [ "Qwen/Qwen3-8B" ], description: "기반 모델의 이름(모델 허브 식별자 형태, 예를 들어 Qwen/Qwen3-8B)", x-owner: model-lab, x-basis: "D74(Qwen3 기반 모델), D81(프로파일별 기반 모델: gpu-12g 는 Qwen3-1.7B). 모델 이름 형식(소유자/이름)과 최대 96 은 Hugging Face Hub 저장소 이름의 관행(huggingface_hub 의 repo id 검증)이며 정본 결정이 아니다" }
+    BaseModelName: { type: string, maxLength: 96, pattern: "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$", not: { pattern: "(--|\\.\\.)" }, examples: [ "Qwen/Qwen3-8B" ], description: "기반 모델의 이름(모델 허브 식별자 형태, 예를 들어 Qwen/Qwen3-8B)", x-owner: model-lab, x-basis: "D74(Qwen3 기반 모델), D81(프로파일별 기반 모델). Hugging Face Hub 저장소 이름 규칙(huggingface_hub 의 validate_repo_id: 1~96자, repo_name 또는 namespace/repo_name, 글자는 영숫자와 - _ . 이고 -- 와 .. 는 금지, 원문 확인)" }
     AdapterRole:
       type: string
       enum: [LORA_A, LORA_B]
@@ -1550,15 +1550,15 @@ components:
         artifactType: { $ref: "#/components/schemas/ModelPackageArtifactType", description: "이 아티팩트가 모델 패키지임을 가리키는 유형" }
         config: { $ref: "#/components/schemas/ModelPackageBlobDescriptor", description: "목록표(ModelPackageManifest) 파일. 미디어 유형은 config 유형이다" }
         layers: { type: array, minItems: 4, maxItems: 4, items: { $ref: "#/components/schemas/ModelPackageBlobDescriptor" }, description: "어댑터 가중치와 시스템 프롬프트 파일들", x-basis: "어댑터 2개(AdapterRole 값의 수 2) 곱하기 파일 2개(가중치와 시스템 프롬프트) 4" }
-    TokenLimit: { type: integer, minimum: 1, maximum: 32768, examples: [ 512 ], description: "한 번에 만들 수 있는 최대 토큰 수", x-owner: model-lab, x-basis: "Qwen3 의 기본 문맥 길이 32768(제품 사양이며 표준·정본 결정이 아니다). 출력 토큰 수의 상한을 총 문맥 길이로 둔 것은 이 계약의 선택이다" }
-    SamplingTemperature: { type: number, minimum: 0, maximum: 2, examples: [ 0 ], description: "응답을 만들 때 다음 글자를 고르는 무작위성의 크기. 0 이면 가장 확률 높은 것만 고르고 클수록 다양하다", x-owner: model-lab, x-basis: "OpenAI Chat Completions API 의 temperature 허용 범위 0~2(제품 API 규격이며 표준이 아니다. vLLM 의 OpenAI 호환 서버가 같은 범위를 쓴다). D82 는 제약 디코딩만 정하고 temperature 범위를 정하지 않는다" }
+    TokenLimit: { type: integer, minimum: 1, maximum: 32768, examples: [ 512 ], description: "한 번에 만들 수 있는 최대 토큰 수", x-owner: model-lab, x-basis: "Qwen3 모델 카드(Hugging Face Qwen/Qwen3-8B)의 Context Length: 32,768 natively. 출력 토큰 수의 상한을 이 기본 문맥 길이로 둔다" }
+    SamplingTemperature: { type: number, minimum: 0, maximum: 2, examples: [ 0 ], description: "응답을 만들 때 다음 글자를 고르는 무작위성의 크기. 0 이면 가장 확률 높은 것만 고르고 클수록 다양하다", x-owner: model-lab, x-basis: "OpenAI Chat Completions API 의 temperature 범위: OpenAI OpenAPI 명세 CreateChatCompletionRequest 의 temperature 는 minimum 0, maximum 2(What sampling temperature to use, between 0 and 2). model-runtime 이 쓰는 OpenAI 호환 API 의 범위이며 D82 는 제약 디코딩만 정한다" }
     ConstrainedDecoding: { type: boolean, description: "출력을 스키마에 맞게 제약하며 만드는지(참이면 제약 디코딩)", x-owner: model-lab, x-basis: "D82, D83(제약 디코딩이 형식을 지킨다)" }
     ServingConfig:
       type: object
       additionalProperties: false
       description: "어댑터 하나를 서빙할 때의 설정(어댑터와 함께 패키지에 들어간다)"
       x-owner: model-lab
-      x-basis: "D45(역할별 서빙 설정), D75(4), F12"
+      x-basis: "D45(역할별 서빙 설정), D75(4), N10"
       required: [max_new_tokens, temperature, constrained_decoding]
       properties:
         max_new_tokens: { $ref: "#/components/schemas/TokenLimit", description: "만들 수 있는 최대 토큰 수" }
@@ -1578,7 +1578,7 @@ components:
         serving_config: { $ref: "#/components/schemas/ServingConfig", description: "서빙 설정" }
     RequiredMetricName:
       type: string
-      enum: [value_precision, value_recall, precision_match_rate, next_item_accuracy, schema_valid_raw, semantic_violation_rate, ungrounded_number_rate, forbidden_expression_rate, length_p95_ms]
+      enum: [value_precision, value_recall, precision_match_rate, next_item_accuracy, schema_valid_raw, semantic_violation_rate, ungrounded_number_rate, forbidden_expression_rate, length_p95_seconds]
       x-enum-descriptions:
         value_precision: "비율(ratio). 모델이 낸 값(key, value, status)이 정답과 모두 일치한 개수를 모델이 낸 값의 개수로 나눈 것. 분모는 모델이 낸 values 의 개수다(D96(1))"
         value_recall: "비율(ratio). 정답 값(key, value, status)을 모델이 모두 일치시켜 낸 개수를 정답 값의 개수로 나눈 것. 분모는 정답 values 의 개수다(D96(1))"
@@ -1588,10 +1588,10 @@ components:
         semantic_violation_rate: "비율(ratio). 합격 조건(ActionExtractionRules 와 ActionExtraction 스키마)을 어긴 출력의 비율이고 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다. 분모는 평가 표본 수이고 위반 코드(ViolationCode)별로 slice 를 낸다(slice 표기는 violation_code=<코드>)(D97, U11)"
         ungrounded_number_rate: "비율(ratio). 응답 문장의 숫자가 입력 재료에 없는 비율. 분모는 숫자가 든 응답 문장 수다(D94)"
         forbidden_expression_rate: "비율(ratio). 금지 표현이 든 응답의 비율. 금지 표현 목록이 없으면 sample_count 0 으로 낸다(D96(5))"
-        length_p95_ms: "밀리초(milliseconds). 한 번의 모델 호출 시간의 95 백분위수(D96(6))"
+        length_p95_seconds: "초(seconds). 한 번의 모델 호출 시간의 95 백분위수(D96(6)). 단위를 밀리초에서 초로 바꾸며 이름도 Prometheus 명명 관례(기본 단위 접미사)에 맞췄다"
       description: "평가 보고서가 반드시 담는 지표의 이름과 뜻(계산식, 단위, 분모, slice). 이 밖의 지표 이름도 MetricName 으로 낼 수 있다"
       x-owner: model-lab
-      x-basis: "D96(value_precision·value_recall 은 key, value, status 일치, precision 일치는 값과 따로 보고, next_item_accuracy 는 action 별 분모, schema_valid_raw 는 제약 디코딩 켠 값과 끈 값, forbidden_expression_rate 는 목록이 없으면 n=0, length_p95_ms), D97(semantic_violation_rate, 그룹 ACCURACY), D94(ungrounded_number_rate). precision_match_rate 의 이름과 분모(값이 맞은 것 중 precision 도 맞은 개수)는 D96(2)를 풀어 쓴 이 계약의 정의이고 정본에 없다"
+      x-basis: "D96(value_precision·value_recall 은 key, value, status 일치, precision 일치는 값과 따로 보고, next_item_accuracy 는 action 별 분모, schema_valid_raw 는 제약 디코딩 켠 값과 끈 값, forbidden_expression_rate 는 목록이 없으면 n=0, length_p95_seconds 는 D96(6)의 시간 지표이며 밀리초였던 단위와 이름은 헤드 결정 2026-11-10 으로 Prometheus 명명 관례의 초로 바꿨다), D97(semantic_violation_rate, 그룹 ACCURACY), D94(ungrounded_number_rate). precision_match_rate 의 이름과 분모(값이 맞은 것 중 precision 도 맞은 개수)는 D96(2)를 풀어 쓴 이 계약의 이름이다"
     MetricName:
       anyOf:
         - { $ref: "#/components/schemas/RequiredMetricName" }
@@ -1634,7 +1634,7 @@ components:
       x-enum-descriptions: { action: "LoRA-A 의 행동(ExtractionAction 값)별로 쪼갠다(D96(3))", violation_code: "의미 위반 코드(ViolationCode 값)별로 쪼갠다(D97)", constrained_decoding: "제약 디코딩의 켬(on)과 끔(off)으로 쪼갠다(D96(4))", question_type: "문항 유형별로 쪼갠다(D13)", unit: "칸의 단위별로 쪼갠다(D13)", value_range: "값의 범위별로 쪼갠다(D13)" }
       description: "평가 지표를 쪼개는 기준의 이름"
       x-owner: model-lab
-      x-basis: "D96(3)(action 별), D96(4)(제약 디코딩 켠 값과 끈 값), D97(위반 코드별 slice), D13(문항 유형·단위·범위별 평가). 키 이름 action, violation_code, constrained_decoding, question_type, unit, value_range 는 이 계약의 정의이고 정본에 이름 목록은 없다"
+      x-basis: "D96(3)(next_item_accuracy 는 action 별), D96(4)(schema_valid_raw 는 제약 디코딩 켠 값과 끈 값), D97(위반 코드별 slice), D13(문항 유형·단위·범위별 평가). 키 이름 action, violation_code, constrained_decoding, question_type, unit, value_range 는 이 계약이 위 결정의 뜻을 따라 붙인 이름이다"
     ViolationCode:
       type: string
       enum: [OUTPUT_SCHEMA, SAVE_RULE, TARGET_NOT_IN_VALUES, NEXT_ITEM_MISMATCH, UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE, OUT_OF_CURRENT_ITEM]
@@ -1652,15 +1652,15 @@ components:
       description: "model-runtime 의 출력 검증이 낸 위반의 코드이고 semantic_violation_rate 가 센다. 코드는 ActionExtractionRules 와 ActionExtraction 스키마의 합격 조건에서만 나오고 조건 하나가 코드 하나다. 코드를 내는 검사는 model-runtime 의 출력 검증 한 곳이다(R7). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다"
       x-owner: head
       x-basis: "ActionExtraction, ActionExtractionRules, QuestionFieldSpec(칸 규격) 스키마의 조건 하나당 코드 하나, D75(3), D97(위반 코드별 slice), D115(값 고쳐 쓰기 전 출력으로 센다), R7, ADR 0019(모델의 입력·출력과 계약 규칙만으로 판단할 수 있는 것은 model-runtime 이 맡는다); OPEN_GAPS U24·U74·G13(정본에 이름이 있는 UNKNOWN_SLOT, OUT_OF_CURRENT_ITEM, VALUE_TYPE_MISMATCH, UNKNOWN_ITEM). 나머지 여섯 이름은 합격 조건 하나에 코드 하나를 붙인 이 계약의 정의다"
-    MetricSlice: { type: string, pattern: "^(action|violation_code|constrained_decoding|question_type|unit|value_range)=[A-Za-z0-9_.-]{1,64}$", maxLength: 85, examples: [ "violation_code=OUT_OF_CURRENT_ITEM" ], description: "지표를 쪼갠 조각. 기준 이름(MetricSliceDimension)과 값을 등호로 이은 글(예를 들어 action=REASK, violation_code=OUT_OF_CURRENT_ITEM, constrained_decoding=on). 전체이면 없다", x-owner: model-lab, x-basis: "D96, D97, D13. 사용자 결정 2026-11-10(UD-01)은 이름·제목 글을 200자로 정하고 이 표기는 기준 이름 최대 20(constrained_decoding), 등호 1, 값 최대 64 를 더한 85 로 더 좁힌다. 값 길이 64 와 글자 집합 [A-Za-z0-9_.-] 는 이 계약의 선택이고 정본에 없다" }
+    MetricSlice: { type: string, pattern: "^(action|violation_code|constrained_decoding|question_type|unit|value_range)=[A-Za-z0-9_.-]{1,63}$", maxLength: 84, examples: [ "violation_code=OUT_OF_CURRENT_ITEM" ], description: "지표를 쪼갠 조각. 기준 이름(MetricSliceDimension)과 값을 등호로 이은 글(예를 들어 action=REASK, violation_code=OUT_OF_CURRENT_ITEM, constrained_decoding=on). 전체이면 없다", x-owner: model-lab, x-basis: "D96, D97, D13, 사용자 결정 2026-11-10(UD-25: 조각 값 최대 63자, UD-01 의 이름·제목 200자 안). 길이 84 는 기준 이름 최대 20(constrained_decoding), 등호 1, 값 최대 63 의 합이다" }
     MetricUnit:
       type: string
-      enum: [ratio, milliseconds, count]
-      x-enum-descriptions: { ratio: "0 이상 1 이하의 비율", milliseconds: "밀리초", count: "개수" }
+      enum: [ratio, seconds, count]
+      x-enum-descriptions: { ratio: "0 이상 1 이하의 비율", seconds: "초", count: "개수" }
       description: "평가 지표 값의 단위"
       x-owner: model-lab
-      x-basis: "D96(비율 지표, length_p95_ms 는 밀리초), D97(위반율은 비율). count 는 개수 지표(ExtraMetricName)를 위한 이 계약의 정의이고 단위 이름 ratio, milliseconds, count 는 정본에 목록이 없다"
-    MetricValue: { type: number, minimum: 0, maximum: 2147483647, examples: [ 0.93 ], description: "지표 값(단위는 같은 지표의 unit 이 정한다)", x-owner: model-lab, x-basis: "D96, 단위는 같은 지표의 unit 이 정한다. 비율은 EvaluationMetric 이 1 이하로 제한하고 개수·밀리초의 상한 2147483647 은 OpenAPI int32 최댓값을 개수 범위로 삼은 이 계약의 선택이다(int32 는 정수 형식이고 소수의 범위를 정하지 않는다)" }
+      x-basis: "Prometheus 명명 관례(기본 단위를 쓴다: 초, 바이트이고 밀리초가 아니다. 비율은 0~1 이다), D96(비율 지표, 시간 지표), D97(위반율은 비율). count 는 개수 지표(ExtraMetricName)의 단위다"
+    MetricValue: { type: number, minimum: 0, maximum: 9007199254740991, examples: [ 0.93 ], description: "지표 값(단위는 같은 지표의 unit 이 정한다)", x-owner: model-lab, x-basis: "D96, 단위는 같은 지표의 unit 이 정한다. 최솟값 0, 최댓값 9007199254740991 은 UD-21(RFC 7493 2.2 의 안전한 정수 범위 ±(2^53-1))의 양의 끝이다. 비율은 EvaluationMetric 이 1 이하로 제한한다" }
     SampleCount: { type: integer, minimum: 0, maximum: 2147483647, examples: [ 400 ], description: "지표를 계산한 표본의 수", x-owner: model-lab, x-basis: "D96(n=0 도 보고한다), OpenAPI int32" }
     EvaluationMetric:
       type: object
@@ -1688,7 +1688,7 @@ components:
       required: [dataset_version_id, metrics, created_at]
       properties:
         dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "평가에 쓴 데이터셋 버전" }
-        metrics: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/EvaluationMetric" }, description: "지표들" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-07, 권고값 일괄 승인)" }
+        metrics: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/EvaluationMetric" }, description: "지표들", x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-07, 권고값 일괄 승인)" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "보고서를 만든 때" }
     TrainingRunId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "학습 실행 하나의 식별자", x-owner: model-lab, x-basis: "RFC 9562 (UUID), D78" }
     TrainingLineage:
@@ -1701,20 +1701,20 @@ components:
       properties:
         dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "학습에 쓴 데이터셋 버전" }
         base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
-        training_run_ids: { type: array, maxItems: 2, items: { $ref: "#/components/schemas/TrainingRunId" }, description: "어댑터를 만든 학습 실행들" , x-basis: "AdapterRole 값의 수 2(어댑터마다 학습 실행 하나)" }
+        training_run_ids: { type: array, maxItems: 2, items: { $ref: "#/components/schemas/TrainingRunId" }, description: "어댑터를 만든 학습 실행들", x-basis: "AdapterRole 값의 수 2(어댑터마다 학습 실행 하나)" }
     ModelPackageManifest:
       type: object
       additionalProperties: false
       description: "모델 패키지의 목록표(OCI 아티팩트의 config 파일). 어댑터, 짝이 되는 시스템 프롬프트, 계보, 평가 보고서를 묶는다. 패키지의 식별자는 OCI 매니페스트의 digest 다(OciDigest)"
       x-owner: model-lab
-      x-basis: "F07, F12, D75(4), D53, C06, ADR 0019, OCI Image Spec 1.1 manifest.md(config)"
+      x-basis: "N10, D75(4), D53, C06, ADR 0019, OCI Image Spec 1.1 manifest.md(config)"
       required: [base_model, runtime_contract_version, model_io_version, model_runtime_version, adapters, lineage, evaluation, created_at]
       properties:
         base_model: { $ref: "#/components/schemas/BaseModelName", description: "기반 모델" }
         runtime_contract_version: { $ref: "#/components/schemas/RuntimeContractVersion", description: "학습한 문항 은행과 칸 키의 정수 버전" }
         model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "어댑터가 학습한 모델 입출력 형식의 버전" }
         model_runtime_version: { $ref: "#/components/schemas/SemanticVersion", description: "학습과 평가에 쓴 model-runtime 라이브러리 버전. 서빙 설치본과 MAJOR.MINOR 가 같아야 적재한다" }
-        adapters: { type: array, minItems: 2, maxItems: 2, items: { $ref: "#/components/schemas/AdapterEntry" }, description: "역할마다 하나씩의 어댑터" , x-basis: "AdapterRole 값의 수 2(역할마다 하나)" }
+        adapters: { type: array, minItems: 2, maxItems: 2, items: { $ref: "#/components/schemas/AdapterEntry" }, description: "역할마다 하나씩의 어댑터", x-basis: "AdapterRole 값의 수 2(역할마다 하나)" }
         lineage: { $ref: "#/components/schemas/TrainingLineage", description: "계보" }
         evaluation: { $ref: "#/components/schemas/EvaluationReport", description: "평가 보고서" }
         created_at: { $ref: "#/components/schemas/Timestamp", description: "패키지를 만든 때" }
@@ -1732,7 +1732,7 @@ components:
       description: "데이터셋 파일이 속한 갈래"
       x-owner: model-lab
       x-basis: "D100(학습·검증·평가 구분), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): split 값은 train 72442·val 7794·test 13193 이고 파일은 lora_a_train, lora_a_val, lora_a_test 처럼 갈래마다 하나다"
-    RowCount: { type: integer, minimum: 0, maximum: 2147483647, examples: [ 36145 ], description: "파일에 든 행(JSON Lines 한 줄)의 수", x-owner: model-lab, x-basis: "F18, OpenAPI int32" }
+    RowCount: { type: integer, minimum: 0, maximum: 2147483647, examples: [ 36145 ], description: "파일에 든 행(JSON Lines 한 줄)의 수", x-owner: model-lab, x-basis: "N11, OpenAPI int32" }
     DatasetFileSet:
       type: string
       enum: [final, finaltest]
@@ -1755,7 +1755,7 @@ components:
       additionalProperties: false
       description: "데이터셋 파일 하나의 선언(역할, 갈래, 해시, 크기, 행 수)"
       x-owner: model-lab
-      x-basis: "F17, F18, G02"
+      x-basis: "N11, G02"
       required: [adapter_role, file_set, split, content, row_count]
       properties:
         file_set: { $ref: "#/components/schemas/DatasetFileSet", description: "파일이 속한 묶음" }
@@ -1764,20 +1764,20 @@ components:
         content: { $ref: "#/components/schemas/DatasetFileRef", description: "파일의 해시와 크기" }
         row_count: { $ref: "#/components/schemas/RowCount", description: "행 수" }
     DatasetFiles: { type: array, maxItems: 8, items: { $ref: "#/components/schemas/DatasetFileDeclaration" }, description: "데이터셋 파일들(final 묶음의 어댑터 2개 곱하기 갈래 3개 6개와 finaltest 묶음 2개, 합계 8개)", x-owner: model-lab, x-basis: "D100, 학습 서버 final·finaltest 93,429행 실측(2026-11-10): final 6개와 finaltest 2개, 합계 8개(행 수: final A 36174·3891·4498, B 36268·3903·4511, finaltest 각 2092)" }
-    DatasetName: { type: string, minLength: 1, maxLength: 200, examples: [ "dataset_10_29" ], description: "데이터셋을 사람이 가리키는 이름", x-owner: model-lab, x-basis: "F17, 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
+    DatasetName: { type: string, minLength: 1, maxLength: 200, examples: [ "dataset_10_29" ], description: "데이터셋을 사람이 가리키는 이름", x-owner: model-lab, x-basis: "N11, 최대 길이 값은 사용자 결정 2026-11-10(UD-01, 권고값 일괄 승인)" }
     DatasetOrigin:
       type: string
       enum: [IMPORTED, SYNTHETIC]
-      x-enum-descriptions: { IMPORTED: "데이터셋 담당이 확정해 가져온 최종 데이터", SYNTHETIC: "합성 시험용 샘플(리포에 두는 시험 데이터)" }
-      description: "데이터셋이 어디서 왔는지"
+      x-enum-descriptions: { IMPORTED: "데이터셋 담당이 확정한 데이터", SYNTHETIC: "학습 파이프라인이 만든 데이터" }
+      description: "데이터셋이 어디서 왔는지(model-lab 은 데이터셋 담당의 작업을 따라 한다, ADR 0019)"
       x-owner: model-lab
-      x-basis: "OPEN_GAPS G02(데이터셋 담당이 확정한 데이터를 가져온다, 재생성하지 않는다), docs/v7-flow-resolutions.md C25(리포에는 시험용 합성 샘플만 두고 실제 데이터는 가져온다). IMPORTED 와 SYNTHETIC 이름은 이 계약의 정의이고 정본에 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), OPEN_GAPS G02(확정한 데이터를 가져온다), ADR 0019(학습 파이프라인은 데이터셋 담당의 작업을 따라 한다)"
     DatasetManifest:
       type: object
       additionalProperties: false
       description: "게시된 데이터셋 한 버전의 목록표"
       x-owner: model-lab
-      x-basis: "F18, D100, D49"
+      x-basis: "N11, D100, D49"
       required: [dataset_version_id, name, origin, runtime_contract_version, files, created_at]
       properties:
         dataset_version_id: { $ref: "#/components/schemas/DatasetVersionId", description: "데이터셋 버전" }
@@ -1821,7 +1821,7 @@ components:
       required: [human_review, messages, scenario_id, split]
       properties:
         human_review: { $ref: "#/components/schemas/HumanReviewMark", description: "사람 검토 표시" }
-        messages: { type: array, minItems: 3, maxItems: 3, items: { $ref: "#/components/schemas/ChatMessage" }, description: "시스템 지시문, 입력, 정답 순서의 메시지 셋" , x-basis: "실측 학습 데이터 모든 행의 메시지 수 3(시스템, 입력, 정답)" }
+        messages: { type: array, minItems: 3, maxItems: 3, items: { $ref: "#/components/schemas/ChatMessage" }, description: "시스템 지시문, 입력, 정답 순서의 메시지 셋", x-basis: "실측 학습 데이터 모든 행의 메시지 수 3(시스템, 입력, 정답)" }
         scenario_id: { $ref: "#/components/schemas/ScenarioId", description: "시나리오 식별" }
         split: { $ref: "#/components/schemas/DatasetSplit", description: "행이 속한 갈래" }
 
@@ -1846,14 +1846,14 @@ components:
         RESTORE_TEST: "백업에서 복구가 되는지 정기적으로 시험한다(복구 시험, 운영 저장소는 건드리지 않는다)"
       description: "deploy 의 스케줄러가 한 번 실행하는 잡의 이름"
       x-owner: deploy
-      x-basis: "D130(영역마다 backup·restore 잡과 종료 코드 0·75·1), D88 U6(일일 백업과 정기 복원 시험), D85(5)(스케줄러 주기: 후보 수집·운영 피드백 잡·백업), D39(잡은 저장소를 보고 일하는 멱등 잡), ADR 0019 와 docs/design.md 2절(model-lab 의 잡 단계와 survey-service 의 failure_case). 잡 이름은 이 계약의 정의이고 정본에 이름 목록은 없다"
-    JobTimeoutSeconds: { type: integer, minimum: 1, maximum: 86400, examples: [ 600 ], description: "잡 한 번이 끝나야 하는 시간 상한(초). deploy 가 이 값보다 큰 가장 작은 300초 배수를 주기로 정한다", x-owner: deploy, x-basis: "D131(영역은 잡의 timeout_seconds 만 선언하고 deploy 가 선언 상한보다 큰 가장 작은 300초 배수를 주기로 정한다). 1~86400 은 일일 백업(D85(5), U6)이 하루 안에 끝난다는 이 계약의 범위 선택이며 정본이 실행 상한의 범위를 정하지 않는다. 주기와 실행 상한은 다른 값이다" }
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D130(영역마다 backup·restore 잡과 종료 코드 0·75·1), D88 U6(일일 백업과 정기 복원 시험), D39, docs/design.md 2절(model-lab 의 잡 단계, survey-service 의 failure_case)"
+    JobTimeoutSeconds: { type: integer, minimum: 1, maximum: 259200, examples: [ 600 ], description: "잡 한 번이 끝나야 하는 시간 상한(초). deploy 가 이 값보다 큰 가장 작은 300초 배수를 주기로 정한다", x-owner: deploy, x-basis: "D131(영역은 잡의 timeout_seconds 만 선언하고 deploy 가 선언 상한보다 큰 가장 작은 300초 배수를 주기로 정한다), 사용자 결정 2026-11-10(UD-24: 계약이 허용하는 잡 실행 시간의 최대 259200초). 주기와 실행 상한은 다른 값이다" }
     JobDeclaration:
       type: object
       additionalProperties: false
       description: "영역이 선언하는 잡 하나(이름과 시간 상한)"
       x-owner: deploy
-      x-basis: "D131, F60"
+      x-basis: "D131, N13"
       required: [job, timeout_seconds]
       properties:
         job: { $ref: "#/components/schemas/JobName", description: "잡 이름" }
@@ -1863,10 +1863,10 @@ components:
       additionalProperties: false
       description: "이미지가 가진 잡들의 선언. 영역은 실행 일정을 모른다"
       x-owner: deploy
-      x-basis: "D131, F60, 구조 규칙 4"
+      x-basis: "D131, N13, 구조 규칙 4"
       required: [jobs]
       properties:
-        jobs: { type: array, maxItems: 11, items: { $ref: "#/components/schemas/JobDeclaration" }, description: "잡들" , x-basis: "JobName 값의 수 11" }
+        jobs: { type: array, maxItems: 11, items: { $ref: "#/components/schemas/JobDeclaration" }, description: "잡들", x-basis: "JobName 값의 수 11" }
     JobRunInput:
       type: object
       additionalProperties: false
@@ -1878,7 +1878,7 @@ components:
         job: { $ref: "#/components/schemas/JobName", description: "실행할 잡" }
         requested_at: { $ref: "#/components/schemas/Timestamp", description: "스케줄러가 실행을 요청한 때(잡이 시각을 스스로 읽지 않고 이 값을 쓴다)" }
         snapshot_id: { $ref: "#/components/schemas/BackupSnapshotId", description: "RESTORE 일 때 복구할 스냅샷" }
-    BackupSnapshotId: { type: string, pattern: "^[0-9a-f]{8,64}$", maxLength: 64, examples: [ "79766175" ], description: "백업 스냅샷 하나의 식별자(restic 스냅샷 ID 의 16진수 표기)", x-owner: platform, x-basis: "D130(백업 도구는 restic). restic 의 스냅샷 ID 는 SHA-256 의 16진수이고 짧은 형태를 허용한다(도구 관행이며 표준·정본 조항이 아니다). 최소 8자는 그 도구의 관례를 따른 이 계약의 선택이다" }
+    BackupSnapshotId: { type: string, pattern: "^[0-9a-f]{8,64}$", maxLength: 64, examples: [ "79766175" ], description: "백업 스냅샷 하나의 식별자(restic 스냅샷 ID 의 16진수 표기)", x-owner: deploy, x-basis: "D130(백업 도구는 restic). restic 의 스냅샷 ID 는 SHA-256 의 16진수이고 짧은 형태를 허용한다(도구 관행이며 표준·정본 조항이 아니다). 최소 8자는 그 도구의 관례를 따른 이 계약의 선택이다" }
     JobExitCode:
       type: integer
       enum: [0, 75, 1]
@@ -1894,7 +1894,7 @@ components:
       additionalProperties: false
       description: "잡 한 번의 실행 결과(표준 출력에 JSON 한 줄로 낸다)"
       x-owner: deploy
-      x-basis: "D130(잡의 종료 코드 0·75·1). 표준 출력에 JSON 한 줄로 내는 직렬화와 시각·처리 수 칸은 이 계약의 정의이고 정본에 없다"
+      x-basis: "D130(잡의 종료 코드 0·75·1). 표준 출력에 JSON 한 줄로 내는 직렬화와 시각·처리 수 칸은 이 계약이 정한 모양이다"
       required: [job, exit_code, started_at, finished_at]
       properties:
         job: { $ref: "#/components/schemas/JobName", description: "실행한 잡" }
@@ -1913,14 +1913,14 @@ components:
     EgressProxyUrl: { type: string, format: uri, maxLength: 8000, examples: [ "http://127.0.0.1:3128" ], description: "영역 게이트웨이의 나가는 CONNECT 터널 주소. Exposure.egress 에 선언한 상대에게만 닿는다", x-owner: platform, x-basis: "D128(나가는 호출은 OPENIT_EGRESS_PROXY 의 CONNECT 터널, RFC 9110 9.3.6), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
     LogLevel:
       type: string
-      enum: [DEBUG, INFO, WARNING, ERROR]
-      x-enum-descriptions: { DEBUG: "자세한 진단 기록", INFO: "보통 기록", WARNING: "경고 이상", ERROR: "오류만" }
+      enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+      x-enum-descriptions: { DEBUG: "자세한 진단 기록", INFO: "보통 기록", WARNING: "경고 이상", ERROR: "오류 이상", CRITICAL: "치명적 오류만" }
       description: "표준 출력으로 내는 로그의 최소 수준"
       x-owner: deploy
-      x-basis: "로그는 표준 출력으로 낸다. 수준 이름 DEBUG, INFO, WARNING, ERROR 는 Python logging 모듈의 수준 이름을 따른 이 계약의 선택이고 정본에 목록이 없다"
+      x-basis: "로그는 표준 출력으로 낸다. 수준은 Python 표준 라이브러리 logging 의 표준 수준 DEBUG, INFO, WARNING, ERROR, CRITICAL 이다(Python 문서 Logging Levels)"
     DatabaseUrl: { type: string, format: uri, pattern: "^postgresql://", maxLength: 8000, examples: [ "postgresql://survey-db:5432/survey" ], description: "자기 영역 데이터베이스의 접속 주소(비밀번호는 넣지 않는다)", x-owner: deploy, x-basis: "D85(6)(저장소는 PostgreSQL), D126(DB 는 데이터 주인 영역의 컴포넌트), D84(비밀번호는 파일), PostgreSQL 문서의 libpq 접속 URI(postgresql:// 스킴), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
-    BackupRepositoryUrl: { type: string, pattern: "^rest:https://", maxLength: 8000, examples: [ "rest:https://platform:8000/survey-service" ], description: "백업을 보낼 저장소 주소(restic REST 저장소)", x-owner: platform, x-basis: "D130(백업 저장 공간은 platform 의 restic rest-server), docs/v7-flow-resolutions.md C14(영역 사이 모든 HTTP 는 TLS 라서 https 만 받는다), restic 의 REST 백엔드 주소 형식 rest:https://…(도구 사양), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
-    OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, examples: [ "https://backup.example.org/openit" ], description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: platform, x-basis: "docs/v7-flow-resolutions.md C09(서버 밖 대상이 필수이고 대상 주소는 설정), D88 U6, 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
+    BackupRepositoryUrl: { type: string, pattern: "^rest:https://", maxLength: 8000, examples: [ "rest:https://platform:8000/survey-service" ], description: "백업을 보낼 저장소 주소(restic REST 저장소)", x-owner: deploy, x-basis: "D130(백업 저장 공간은 platform 의 restic rest-server), docs/v7-flow-resolutions.md C14(영역 사이 모든 HTTP 는 TLS 라서 https 만 받는다), restic 의 REST 백엔드 주소 형식 rest:https://…(도구 사양), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
+    OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, examples: [ "https://backup.example.org/openit" ], description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: deploy, x-basis: "docs/v7-flow-resolutions.md C09(서버 밖 대상이 필수이고 대상 주소는 설정), D88 U6, 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
     VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, examples: [ 300 ], description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
     ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(되묻기 한도는 처음 질문 1회에 되묻기 2회), D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
@@ -1938,13 +1938,13 @@ components:
         - { $ref: "#/components/schemas/Ipv6Address" }
       description: "서버의 호스트 이름 또는 IP 주소"
       x-owner: deploy
-      x-basis: "F64(서버 배치), RFC 1123 2.1(호스트 이름), RFC 4291 2.2 와 RFC 2673 3.2(IP 주소)"
+      x-basis: "N13(서버 배치), RFC 1123 2.1(호스트 이름), RFC 4291 2.2 와 RFC 2673 3.2(IP 주소)"
     DevicePlacementTable:
       type: object
       additionalProperties: false
       description: "deploy 가 survey-service 에 파일로 주는 기기별 기본 문진표 배치표. 서버는 mTLS 로 확인된 기기 ID 로 기본 문진표를 고른다"
       x-owner: survey-service
-      x-basis: "U86(사용자 결정: 기기에 배치된 문진표가 기본), F26, F64"
+      x-basis: "U86(사용자 결정: 기기에 배치된 문진표가 기본), N13"
       required: [placements]
       properties:
         placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "사용자 결정 2026-11-10(UD-08)" }
@@ -1954,107 +1954,101 @@ components:
       additionalProperties: false
       description: "deploy 가 survey-service 에 주는 환경 입력. 비밀은 NAME_FILE 경로로만 준다"
       x-owner: survey-service
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다), docs/v7-flow-resolutions.md C14(영역 사이 TLS), ADR 0019(model-runtime 호출은 N03, 이웃은 model-runtime 하나). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다. 백업 암호와 별도의 백업 암호화 키 파일, aud 에 쓰는 OPENIT_OIDC_AUDIENCE 도 같은 정의다"
-      required: [OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_MODEL_RUNTIME_URL, OPENIT_MODEL_RUNTIME_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_VAPID_PRIVATE_KEY_FILE, OPENIT_VAPID_SUBJECT, OPENIT_BACKUP_REPOSITORY_URL, OPENIT_BACKUP_PASSWORD_FILE, OPENIT_BACKUP_HTTP_CREDENTIALS_FILE, OPENIT_BACKUP_ENCRYPTION_KEY_FILE, OPENIT_EGRESS_PROXY]
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
+      required: [OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_DATABASE_URL, OPENIT_DATABASE_PASSWORD_FILE, OPENIT_MODEL_RUNTIME_URL, OPENIT_MODEL_RUNTIME_TOKEN_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_VAPID_PRIVATE_KEY_FILE, OPENIT_VAPID_SUBJECT, OPENIT_EGRESS_PROXY]
       properties:
-        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다" }
-        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다)" }
-        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다" }
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급)" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
-        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
-        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "문진 데이터베이스 접속 주소" }
-        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "문진 데이터베이스 비밀번호 파일" }
-        OPENIT_MODEL_RUNTIME_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "추론을 부를 model-runtime 주소" }
-        OPENIT_MODEL_RUNTIME_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-runtime 에 보일 기계 토큰 파일" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
-        OPENIT_VAPID_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "웹 푸시 VAPID 개인키 파일" }
-        OPENIT_VAPID_SUBJECT: { $ref: "#/components/schemas/VapidSubject", description: "VAPID 연락처" }
-        OPENIT_BACKUP_REPOSITORY_URL: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소" }
-        OPENIT_BACKUP_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
-        OPENIT_BACKUP_HTTP_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 서버(restic rest-server)의 영역별 HTTP 인증 자격 파일. 자격은 주소에 넣지 않는다" }
-        OPENIT_BACKUP_ENCRYPTION_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "백업 내용을 암호화하는 키 파일" }
-        SURVEY_FHIR_CANONICAL_BASE_URL: { $ref: "#/components/schemas/FhirCanonicalBaseUrl", description: "FHIR 결과의 questionnaire 정본 URL 의 기준 주소" }
-        SURVEY_DEVICE_PLACEMENTS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기별 기본 문진표 배치표 파일(DevicePlacementTable 모양)" }
-        SURVEY_START_CODE_TTL_SECONDS: { $ref: "#/components/schemas/StartCodeTtlSeconds", description: "시작 코드 유효 시간" }
-        SURVEY_REASK_LIMIT: { $ref: "#/components/schemas/ReaskLimit", description: "되묻기 한도" }
-        SURVEY_EXPLAIN_STREAK_LIMIT: { $ref: "#/components/schemas/ExplainStreakLimit", description: "설명 요청 연속 한도" }
-        SURVEY_RAW_UTTERANCE_RETENTION_DAYS: { $ref: "#/components/schemas/RawUtteranceRetentionDays", description: "검토용 환자 발화 원문 보존 일수" }
-        SURVEY_RISK_DETECTION_ENABLED: { $ref: "#/components/schemas/RiskDetectionEnabled", description: "위험 감지 사용 여부" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_admin_api" }
+        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_admin_api" }
+        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_admin_api" }
+        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api, link_model_client" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api, link_model_client" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 컴포넌트" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널. 필요한 컴포넌트: link_model_client, link_push" }
+        OPENIT_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "문진 데이터베이스 접속 주소. 필요한 컴포넌트: store" }
+        OPENIT_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "문진 데이터베이스 비밀번호 파일. 필요한 컴포넌트: store" }
+        OPENIT_MODEL_RUNTIME_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "추론을 부를 model-runtime 주소. 필요한 컴포넌트: link_model_client" }
+        OPENIT_MODEL_RUNTIME_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "model-runtime 에 보일 기계 토큰 파일. 필요한 컴포넌트: link_model_client" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_hospital_api, link_risk_in, 실패 사례를 내보내는 link_admin_api" }
+        OPENIT_VAPID_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "웹 푸시 VAPID 개인키 파일. 필요한 컴포넌트: link_push" }
+        OPENIT_VAPID_SUBJECT: { $ref: "#/components/schemas/VapidSubject", description: "VAPID 연락처. 필요한 컴포넌트: link_push" }
+        SURVEY_FHIR_CANONICAL_BASE_URL: { $ref: "#/components/schemas/FhirCanonicalBaseUrl", description: "FHIR 결과의 questionnaire 정본 URL 의 기준 주소. 필요한 컴포넌트: result" }
+        SURVEY_DEVICE_PLACEMENTS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기별 기본 문진표 배치표 파일(DevicePlacementTable 모양). 필요한 컴포넌트: session" }
+        SURVEY_START_CODE_TTL_SECONDS: { $ref: "#/components/schemas/StartCodeTtlSeconds", description: "시작 코드 유효 시간. 필요한 컴포넌트: start_code" }
+        SURVEY_REASK_LIMIT: { $ref: "#/components/schemas/ReaskLimit", description: "되묻기 한도. 필요한 컴포넌트: session" }
+        SURVEY_EXPLAIN_STREAK_LIMIT: { $ref: "#/components/schemas/ExplainStreakLimit", description: "설명 요청 연속 한도. 필요한 컴포넌트: session" }
+        SURVEY_RAW_UTTERANCE_RETENTION_DAYS: { $ref: "#/components/schemas/RawUtteranceRetentionDays", description: "검토용 환자 발화 원문 보존 일수. 필요한 컴포넌트: trace, failure_case" }
+        SURVEY_RISK_DETECTION_ENABLED: { $ref: "#/components/schemas/RiskDetectionEnabled", description: "위험 감지 사용 여부. 필요한 컴포넌트: link_risk_in" }
     ModelRuntimeEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다)"
       x-owner: model-runtime
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다), D72(추론 서버는 위치에 독립이고 모델 캐시는 유지 볼륨), D129(다른 서버는 hosts 표와 루트 인증서), docs/design.md 2절(link_registry 가 레지스트리에서 digest 로 받고 사람 신원은 OIDC 토큰). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다. D72 의 옛 이름(MODEL_RUNTIME_RELEASE_URL 등)은 활성 릴리스를 읽던 시절의 것이라 레지스트리 입력으로 대체했다"
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
       required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT, OPENIT_OIDC_ISSUER_URL, OPENIT_OIDC_AUDIENCE, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_MACHINE_TOKENS_FILE, OPENIT_MODEL_PROFILE, OPENIT_MODEL_CACHE_DIR]
       properties:
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급)" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
-        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널(같은 서버에 있을 때)" }
-        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "활성화 승인과 롤백을 호출하는 사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다" }
-        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다)" }
-        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다" }
-        OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 digest 로 받을 레지스트리 주소(OCI Distribution)" }
-        OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지가 올라 있는 레지스트리 저장소 이름" }
-        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에서 받을 때 보일 자격 파일(읽기 권한)" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양)" }
-        OPENIT_MODEL_PROFILE: { $ref: "#/components/schemas/ModelProfileName", description: "GPU 크기별 프로파일 이름" }
-        OPENIT_MODEL_CACHE_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "기반 모델 가중치를 받아 두는 유지되는 폴더(모델 허브에서 처음 시작할 때 받는다)" }
-        OPENIT_HOSTS_TABLE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(다른 서버일 때만)" }
+        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_api, link_registry" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_api, link_registry" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_api" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "요청을 받을 포트. 필요한 컴포넌트: link_api" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 컴포넌트" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널(같은 서버에 있을 때). 필요한 컴포넌트: link_registry" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "활성화 승인과 롤백을 호출하는 사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api" }
+        OPENIT_OIDC_JWKS_URL: { $ref: "#/components/schemas/OidcJwksUrl", description: "발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_api" }
+        OPENIT_OIDC_AUDIENCE: { $ref: "#/components/schemas/ServiceName", description: "이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api" }
+        OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 digest 로 받을 레지스트리 주소(OCI Distribution). 필요한 컴포넌트: link_registry" }
+        OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지가 올라 있는 레지스트리 저장소 이름. 필요한 컴포넌트: link_registry" }
+        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 필요한 컴포넌트: link_registry" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_api" }
+        OPENIT_MODEL_PROFILE: { $ref: "#/components/schemas/ModelProfileName", description: "GPU 크기별 프로파일 이름. 필요한 컴포넌트: inference" }
+        OPENIT_MODEL_CACHE_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "기반 모델 가중치를 받아 두는 유지되는 폴더(모델 허브에서 처음 시작할 때 받는다). 필요한 컴포넌트: inference" }
+        OPENIT_HOSTS_TABLE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(다른 서버일 때만). 필요한 컴포넌트: link_registry" }
     ModelLabEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 model-lab 잡에 주는 환경 입력. model-lab 은 상시 서버가 아니라서 요청을 받는 포트와 데이터베이스가 없다"
       x-owner: model-lab
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다), ADR 0019 와 docs/design.md 2절(model-lab 은 잡: 데이터셋 가져오기, 실패 사례 당겨 오기 N09, 레지스트리 게시 N10). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다"
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
       required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_SURVEY_SERVICE_URL, OPENIT_SURVEY_SERVICE_TOKEN_FILE, OPENIT_REGISTRY_URL, OPENIT_REGISTRY_REPOSITORY, OPENIT_REGISTRY_CREDENTIALS_FILE, OPENIT_DATASET_DIR, OPENIT_WORK_DIR, OPENIT_TRAINING_CONFIG_FILE, OPENIT_EGRESS_PROXY]
       properties:
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 잡의 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급)" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 잡의 TLS 개인키 파일" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
-        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널" }
-        OPENIT_SURVEY_SERVICE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "확정된 비식별 실패 사례를 당겨 올 survey-service 주소" }
-        OPENIT_SURVEY_SERVICE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "survey-service 에 보일 기계 토큰 파일(권한 case-reader)" }
-        OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 게시할 레지스트리 주소(OCI Distribution)" }
-        OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지를 올릴 레지스트리 저장소 이름" }
-        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에 올릴 때 보일 자격 파일(쓰기 권한)" }
-        OPENIT_DATASET_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "데이터셋 담당이 확정한 학습·평가 데이터가 놓인 폴더(읽기)" }
-        OPENIT_WORK_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "잡 단계 사이의 중간 산출물(학습 입력, 어댑터, 평가 집합)을 두는 유지되는 폴더" }
-        OPENIT_TRAINING_CONFIG_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "학습·평가 설정 파일(모델 성능 시행착오를 설정으로 바꾼다)" }
+        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_failure_cases, publish" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 잡의 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 잡의 TLS 개인키 파일. 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 잡 단계" }
+        OPENIT_EGRESS_PROXY: { $ref: "#/components/schemas/EgressProxyUrl", description: "나가는 호출이 지나는 게이트웨이 터널. 필요한 컴포넌트: link_failure_cases, publish" }
+        OPENIT_SURVEY_SERVICE_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "확정된 비식별 실패 사례를 당겨 올 survey-service 주소. 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_SURVEY_SERVICE_TOKEN_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "survey-service 에 보일 기계 토큰 파일(권한 case-reader). 필요한 컴포넌트: link_failure_cases" }
+        OPENIT_REGISTRY_URL: { $ref: "#/components/schemas/PeerBaseUrl", description: "모델 패키지를 게시할 레지스트리 주소(OCI Distribution). 필요한 컴포넌트: publish" }
+        OPENIT_REGISTRY_REPOSITORY: { $ref: "#/components/schemas/OciRepositoryName", description: "모델 패키지를 올릴 레지스트리 저장소 이름. 필요한 컴포넌트: publish" }
+        OPENIT_REGISTRY_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "레지스트리에 올릴 때 보일 자격 파일(쓰기 권한). 필요한 컴포넌트: publish" }
+        OPENIT_DATASET_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "데이터셋 담당이 확정한 학습·평가 데이터가 놓인 폴더(읽기). 필요한 컴포넌트: import_dataset" }
+        OPENIT_WORK_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "잡 단계 사이의 중간 산출물(학습 입력, 어댑터, 평가 집합)을 두는 유지되는 폴더. 필요한 컴포넌트: prepare, train, evaluate, publish(단계 사이의 중간 산출물)" }
+        OPENIT_TRAINING_CONFIG_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "학습·평가 설정 파일(모델 성능 시행착오를 설정으로 바꾼다). 필요한 컴포넌트: prepare, train, evaluate" }
     KioskFrontendEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 키오스크 화면 이미지에 주는 환경 입력"
       x-owner: kiosk-frontend
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다). 기기 토큰은 없다(D136). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다"
-      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT]
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
+      required: [OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT]
       properties:
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급)" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: 화면 전체(link_survey, speech, start_view, conversation_view, idle_reset 을 담은 정적 파일 서버)" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
     AdminConsoleEnv:
       type: object
       additionalProperties: false
       description: "deploy 가 업무 화면 이미지에 주는 환경 입력"
       x-owner: admin-console
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다), C01(사람 화면은 admin-console 한 앱). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다"
-      required: [OPENIT_ROOT_CERTIFICATE_FILE, OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT]
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
+      required: [OPENIT_TLS_CERTIFICATE_FILE, OPENIT_TLS_PRIVATE_KEY_FILE, OPENIT_LISTEN_PORT]
       properties:
-        OPENIT_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다" }
-        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급)" }
-        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일" }
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
+        OPENIT_TLS_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: 화면 전체(link_survey, link_model, 각 view 를 담은 정적 파일 서버)" }
+        OPENIT_TLS_PRIVATE_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "정적 화면을 내보낼 포트. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 화면 전체(정적 파일 서버)" }
     DeviceAllowEntry:
       type: object
       additionalProperties: false
@@ -2070,24 +2064,24 @@ components:
       additionalProperties: false
       description: "공개 입구에 deploy 가 파일로 주는 키오스크 기기 허용 목록. 등록·회전·폐기는 이 목록을 바꾸는 것이다"
       x-owner: platform
-      x-basis: "F54, C13, D113, D136"
+      x-basis: "N13, C13, D113, D136"
       required: [devices]
       properties:
-        devices: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DeviceAllowEntry" }, description: "허용하는 기기 인증서들" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
+        devices: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DeviceAllowEntry" }, description: "허용하는 기기 인증서들", x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
     CaMode:
       type: string
       enum: [self, organization]
       x-enum-descriptions: { self: "platform 의 step-ca 가 자기 루트를 만든다", organization: "조직이 가진 CA 가 중간 인증서를 발급해 그 아래에서 일한다" }
       description: "영역 사이 TLS 를 발급하는 사설 CA 의 방식"
       x-owner: platform
-      x-basis: "docs/v7-flow-resolutions.md C14(영역 사이 TLS 는 platform 의 사설 CA step-ca 가 발급), D127, D88 U5(TLS 는 내부 CA 가 기본이고 공인 인증서는 설정). self 와 organization 이름과 뜻(자기 루트 또는 조직 CA 아래 중간 인증서)은 이 계약의 정의이고 정본에 없다"
+      x-basis: "ADR 0015(사설 CA 방식), docs/v7-flow-resolutions.md C14(영역 사이 TLS 는 platform 의 사설 CA step-ca 가 발급), D127, D88 U5, docs/design.md 2절 ca 컴포넌트"
     IngressCertificateMode:
       type: string
       enum: [acme-public, organization, private]
       x-enum-descriptions: { acme-public: "공인 ACME CA(예 Let's Encrypt)가 공개 입구 인증서를 발급한다", organization: "조직이 발급한 인증서를 쓴다", private: "사설 CA 가 발급한 인증서를 쓴다" }
       description: "공개 입구가 쓰는 TLS 인증서를 얻는 방식"
       x-owner: platform
-      x-basis: "D88 U5(TLS 는 내부 CA 가 기본이고 공인 인증서는 설정으로), RFC 8555(ACME). acme-public, organization, private 이름과 조건은 이 계약의 정의이고 정본에 없다"
+      x-basis: "ADR 0015(입구 인증서 방식), D88 U5(TLS 는 내부 CA 가 기본이고 공인 인증서는 설정), RFC 8555(ACME), docs/design.md 2절 gateway·ca 컴포넌트"
     AcmeDirectoryUrl: { type: string, format: uri, pattern: "^https://", maxLength: 8000, examples: [ "https://acme-v02.api.letsencrypt.org/directory" ], description: "ACME 서버의 디렉터리 주소(공개 입구 인증서를 공인 ACME CA 에서 받을 때)", x-owner: platform, x-basis: "RFC 8555 7.1.1(디렉터리 URL), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     AlertReceiverUrl: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:alerts@example.org" ], description: "감시 경보를 받을 주소(https 웹훅 또는 mailto)", x-owner: platform, x-basis: "D10(서버 전체 중단은 서버 밖 감시로 알린다는 감시 배치의 원칙이며 수신처 주소의 위치를 정하지 않는다), RFC 6068(mailto), 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
     PlatformEnv:
@@ -2095,37 +2089,34 @@ components:
       additionalProperties: false
       description: "deploy 가 platform 에 주는 환경 입력"
       x-owner: platform
-      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134(영역 밖에서 주입하는 것은 계약으로 선언한다), docs/v7-flow-resolutions.md C09(서버 밖 백업)·C13(기기 허용 목록 입력)·C14(사설 CA)·C23(노출 선언), U82(표준 IdP), D88 U5(TLS 방식). 입력 이름과 필수 여부는 영역이 받는 입력으로 이 계약이 정의한 것이고 정본에 이름 목록은 없다"
-      required: [OPENIT_LISTEN_PORT, OPENIT_OIDC_ISSUER_URL, OPENIT_IDP_ADMIN_PASSWORD_FILE, OPENIT_CA_MODE, OPENIT_INGRESS_CERTIFICATE_MODE, OPENIT_TRUST_LIST_FILE, OPENIT_TLS_ROOT_CERTIFICATE_FILE, OPENIT_CA_PASSWORD_FILE, OPENIT_DEVICE_ALLOWLIST_FILE, OPENIT_DEVICE_CA_CERTIFICATE_FILE, OPENIT_EXPOSURES_DIR, OPENIT_MACHINE_TOKENS_FILE, OPENIT_OFFSITE_BACKUP_URL, OPENIT_OFFSITE_BACKUP_CREDENTIALS_FILE, OPENIT_BACKUP_ENCRYPTION_KEY_FILE, OPENIT_ALERT_RECEIVER_URL, OPENIT_IDP_DATABASE_URL, OPENIT_IDP_DATABASE_PASSWORD_FILE]
+      x-basis: "D133(deploy 가 넘기는 입력은 모두 받는 쪽의 Env 스키마에 둔다), D84(비밀은 NAME_FILE 경로의 파일로 받는다), D128(OPENIT_EGRESS_PROXY), D134, docs/design.md 4절(헤드 결정 2026-11-10)(환경 입력: 각 영역 컴포넌트가 필요로 하는 설정만 두고 비밀은 _FILE 경로, ADR 0005). 입력마다 필요한 컴포넌트를 description 에 적었고 docs/design.md 2절의 컴포넌트가 필요로 하지 않는 입력(백업 입력은 deploy 의 backup·restore 잡이 쓴다)은 이 Env 에서 지웠다"
+      required: [OPENIT_LISTEN_PORT, OPENIT_OIDC_ISSUER_URL, OPENIT_IDP_ADMIN_PASSWORD_FILE, OPENIT_CA_MODE, OPENIT_INGRESS_CERTIFICATE_MODE, OPENIT_TRUST_LIST_FILE, OPENIT_TLS_ROOT_CERTIFICATE_FILE, OPENIT_CA_PASSWORD_FILE, OPENIT_DEVICE_ALLOWLIST_FILE, OPENIT_DEVICE_CA_CERTIFICATE_FILE, OPENIT_EXPOSURES_DIR, OPENIT_MACHINE_TOKENS_FILE, OPENIT_ALERT_RECEIVER_URL, OPENIT_IDP_DATABASE_URL, OPENIT_IDP_DATABASE_PASSWORD_FILE]
       properties:
-        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "공개 입구가 요청을 받는 포트" }
-        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준" }
-        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람 인증(OIDC) 발급자 주소. 서비스가 접근 토큰의 iss 를 확인할 때 쓴다" }
-        OPENIT_IDP_ADMIN_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사람 인증(Keycloak)의 초기 admin 계정 임시 비밀번호 파일" }
-        OPENIT_IDP_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "사람 인증(Keycloak) 데이터베이스 접속 주소" }
-        OPENIT_IDP_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사람 인증 데이터베이스 비밀번호 파일" }
-        OPENIT_CA_MODE: { $ref: "#/components/schemas/CaMode", description: "사설 CA 의 방식" }
-        OPENIT_CA_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사설 CA(step-ca)의 키 암호 파일" }
-        OPENIT_INGRESS_CERTIFICATE_MODE: { $ref: "#/components/schemas/IngressCertificateMode", description: "공개 입구 인증서를 얻는 방식" }
-        OPENIT_ACME_DIRECTORY_URL: { $ref: "#/components/schemas/AcmeDirectoryUrl", description: "ACME 서버 디렉터리 주소(공개 입구 인증서 방식이 acme-public 일 때 필수)" }
-        OPENIT_TRUST_LIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 CA 인증서 묶음 파일(조직 CA 방식이면 조직 CA 를 넣는다)" }
-        OPENIT_TLS_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "영역 사이 TLS 의 루트 인증서 파일(모든 서비스에 OPENIT_ROOT_CERTIFICATE_FILE 로 나눠 준다)" }
-        OPENIT_DEVICE_ALLOWLIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 허용 목록 파일(DeviceAllowlist 모양)" }
-        OPENIT_DEVICE_CA_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 인증서를 발급하는 조직 PKI 의 루트 인증서 파일" }
-        OPENIT_EXPOSURES_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "영역들의 노출 선언(Exposure)을 모은 폴더. 공개 입구가 이것으로 경로를 구성하고 같은 공개 경로를 두 영역이 열면 시작하지 않는다" }
-        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "공개 입구가 기계 토큰 경로를 가르는 호출자 표 파일(MachineTokenTable 모양)" }
-        OPENIT_OFFSITE_BACKUP_URL: { $ref: "#/components/schemas/OffsiteBackupUrl", description: "서버 밖 백업 대상 주소. 서버 밖 대상이 없으면 시작하지 않고 경보(CRIT)를 낸다" }
-        OPENIT_OFFSITE_BACKUP_CREDENTIALS_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖 백업 대상의 자격 파일" }
-        OPENIT_BACKUP_ENCRYPTION_KEY_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖으로 보내는 백업의 암호화 키 파일" }
-        OPENIT_ALERT_RECEIVER_URL: { $ref: "#/components/schemas/AlertReceiverUrl", description: "감시 경보 수신처" }
+        OPENIT_LISTEN_PORT: { $ref: "#/components/schemas/ListenPort", description: "공개 입구가 요청을 받는 포트. 필요한 컴포넌트: gateway" }
+        OPENIT_LOG_LEVEL: { $ref: "#/components/schemas/LogLevel", description: "로그 수준. 필요한 컴포넌트: 모든 컴포넌트" }
+        OPENIT_OIDC_ISSUER_URL: { $ref: "#/components/schemas/OidcIssuerUrl", description: "사람 인증(OIDC) 발급자 주소. 서비스가 접근 토큰의 iss 를 확인할 때 쓴다. 필요한 컴포넌트: identity, identity_proxy, gateway" }
+        OPENIT_IDP_ADMIN_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사람 인증(Keycloak)의 초기 admin 계정 임시 비밀번호 파일. 필요한 컴포넌트: identity" }
+        OPENIT_IDP_DATABASE_URL: { $ref: "#/components/schemas/DatabaseUrl", description: "사람 인증(Keycloak) 데이터베이스 접속 주소. 필요한 컴포넌트: identity" }
+        OPENIT_IDP_DATABASE_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사람 인증 데이터베이스 비밀번호 파일. 필요한 컴포넌트: identity" }
+        OPENIT_CA_MODE: { $ref: "#/components/schemas/CaMode", description: "사설 CA 의 방식. 필요한 컴포넌트: ca" }
+        OPENIT_CA_PASSWORD_FILE: { $ref: "#/components/schemas/SecretFilePath", description: "사설 CA(step-ca)의 키 암호 파일. 필요한 컴포넌트: ca" }
+        OPENIT_INGRESS_CERTIFICATE_MODE: { $ref: "#/components/schemas/IngressCertificateMode", description: "공개 입구 인증서를 얻는 방식. 필요한 컴포넌트: gateway, ca" }
+        OPENIT_ACME_DIRECTORY_URL: { $ref: "#/components/schemas/AcmeDirectoryUrl", description: "ACME 서버 디렉터리 주소(공개 입구 인증서 방식이 acme-public 일 때 필수). 필요한 컴포넌트: gateway" }
+        OPENIT_TRUST_LIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "신뢰할 CA 인증서 묶음 파일(조직 CA 방식이면 조직 CA 를 넣는다). 필요한 컴포넌트: gateway" }
+        OPENIT_TLS_ROOT_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "영역 사이 TLS 의 루트 인증서 파일(모든 서비스에 OPENIT_ROOT_CERTIFICATE_FILE 로 나눠 준다). 필요한 컴포넌트: ca, gateway" }
+        OPENIT_DEVICE_ALLOWLIST_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 허용 목록 파일(DeviceAllowlist 모양). 필요한 컴포넌트: gateway" }
+        OPENIT_DEVICE_CA_CERTIFICATE_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "기기 인증서를 발급하는 조직 PKI 의 루트 인증서 파일. 필요한 컴포넌트: gateway" }
+        OPENIT_EXPOSURES_DIR: { $ref: "#/components/schemas/ConfigFilePath", description: "영역들의 노출 선언(Exposure)을 모은 폴더. 공개 입구가 이것으로 경로를 구성하고 같은 공개 경로를 두 영역이 열면 시작하지 않는다. 필요한 컴포넌트: gateway" }
+        OPENIT_MACHINE_TOKENS_FILE: { $ref: "#/components/schemas/ConfigFilePath", description: "공개 입구가 기계 토큰 경로를 가르는 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: gateway" }
+        OPENIT_ALERT_RECEIVER_URL: { $ref: "#/components/schemas/AlertReceiverUrl", description: "감시 경보 수신처. 필요한 컴포넌트: monitoring" }
     # ---- 이미지 선언(이미지 라벨), 배치 설정 ----
     ExposureAudience:
       type: string
       enum: [HUMAN_OIDC, DEVICE_MTLS, MACHINE_TOKEN, EXTERNAL_MACHINE_TOKEN, DENIED]
-      x-enum-descriptions: { HUMAN_OIDC: "공개 입구를 지나 사람 인증(OIDC) 뒤에서만 열린다", DEVICE_MTLS: "기기 인증서(mTLS)를 낸 키오스크에게만 열린다", MACHINE_TOKEN: "같은 서버의 영역 사이 mTLS 와 기계 토큰 호출에만 열린다(공개 입구로 내보내지 않는다)", EXTERNAL_MACHINE_TOKEN: "다른 서버나 설치처 밖의 기계 호출자(설치처의 의료 정보 시스템, 위험 감지기)가 TLS 와 기계 토큰으로 받는 영역 게이트웨이로 직접 온다", DENIED: "열지 않는다" }
+      x-enum-descriptions: { HUMAN_OIDC: "입구를 지나 사람 인증(OIDC) 뒤에서만 열린다", DEVICE_MTLS: "기기 인증서(mTLS)를 낸 키오스크에게만 열린다", MACHINE_TOKEN: "같은 서버의 영역 사이 mTLS 와 기계 토큰 호출에만 열린다(입구로 내보내지 않는다)", EXTERNAL_MACHINE_TOKEN: "다른 서버나 설치처 밖의 기계 호출자(병원 시스템, 위험 감지기)가 TLS 와 기계 토큰으로 직접 온다", DENIED: "열지 않는다" }
       description: "경로를 누구에게 여는지"
       x-owner: deploy
-      x-basis: "D129(공개 입구는 machine-token·denied·상태 경로를 내보내지 않고 compose 밖 호출자는 받는 영역의 게이트웨이로 직접 온다), D136(기기 인증은 mTLS), U82(사람은 OIDC), D132, D128, C23, docs/design.md N08·N14. 이름 HUMAN_OIDC, DEVICE_MTLS, MACHINE_TOKEN, EXTERNAL_MACHINE_TOKEN, DENIED 는 이 계약의 정의이고 정본에 목록은 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D129(입구는 machine-token·denied·상태 경로를 내보내지 않고 compose 밖 호출자는 받는 영역으로 직접 온다), D136(기기 인증은 mTLS), U82(사람은 OIDC), D132, D128, C23, docs/design.md N08·N12·N14"
     HttpMethodName:
       type: string
       enum: [GET, POST, PUT, DELETE]
@@ -2143,14 +2134,14 @@ components:
       required: [path_prefix, methods, audience]
       properties:
         path_prefix: { $ref: "#/components/schemas/RoutePathPrefix", description: "노출하는 경로의 앞부분" }
-        methods: { type: array, minItems: 1, maxItems: 4, items: { $ref: "#/components/schemas/HttpMethodName" }, description: "허용하는 메서드들" , x-basis: "HttpMethodName 값의 수 4" }
+        methods: { type: array, minItems: 1, maxItems: 4, items: { $ref: "#/components/schemas/HttpMethodName" }, description: "허용하는 메서드들", x-basis: "HttpMethodName 값의 수 4" }
         audience: { $ref: "#/components/schemas/ExposureAudience", description: "이 경로를 여는 대상" }
     ExternalEgressTarget:
       type: object
       additionalProperties: false
       description: "영역 밖(설치처 밖 포함)의 나가는 호출 상대 하나. 호스트는 설치처 설정에서 온다"
       x-owner: deploy
-      x-basis: "D128(나가는 호출은 Exposure.egress 에 선언한 상대에게만), C11(브라우저 푸시 서비스), F65(모델 허브), C09(서버 밖 백업 대상), RFC 9110 9.3.6(CONNECT 는 호스트와 포트로 가리킨다)"
+      x-basis: "D128(나가는 호출은 Exposure.egress 에 선언한 상대에게만), C11(브라우저 푸시 서비스)(모델 허브), C09(서버 밖 백업 대상), RFC 9110 9.3.6(CONNECT 는 호스트와 포트로 가리킨다)"
       required: [host, port]
       properties:
         host: { $ref: "#/components/schemas/HostAddress", description: "상대의 호스트 이름 또는 IP 주소" }
@@ -2161,7 +2152,7 @@ components:
         - { $ref: "#/components/schemas/ExternalEgressTarget" }
       description: "나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트)"
       x-owner: deploy
-      x-basis: "D128(나가는 허용 목록은 Exposure.egress), C11(브라우저 푸시 서비스), F65(모델 허브), C09(서버 밖 백업 대상), ADR 0019(model-lab 은 survey-service 에서 당겨 오고 레지스트리에 게시한다: 서비스 이름으로 가리킨다)"
+      x-basis: "D128(나가는 허용 목록은 Exposure.egress), C11(브라우저 푸시 서비스)(모델 허브), C09(서버 밖 백업 대상), ADR 0019(model-lab 은 survey-service 에서 당겨 오고 레지스트리에 게시한다: 서비스 이름으로 가리킨다)"
     Exposure:
       type: object
       additionalProperties: false
@@ -2170,9 +2161,47 @@ components:
       x-basis: "C23, D128(허용 목록은 Exposure.egress), D129, D132"
       required: [routes, egress]
       properties:
-        routes: { type: array, maxItems: 29, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들" , x-basis: "이 계약에서 서비스 하나의 작업 수 최대 29(survey-service, 건강 상태와 지표 포함)" }
+        routes: { type: array, maxItems: 29, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들", x-basis: "이 계약에서 서비스 하나의 작업 수 최대 29(survey-service, 건강 상태와 지표 포함)" }
         egress: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/EgressTarget" }, description: "나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)", x-basis: "사용자 결정 2026-11-10(UD-11)" }
     ContainerPath: { type: string, pattern: "^/", maxLength: 4096, examples: [ "/var/lib/openit/cache" ], description: "컨테이너 안의 절대 경로", x-owner: deploy, x-basis: "D134(쓰는 경로를 선언한다), Linux 의 PATH_MAX 4096(NUL 을 포함한 바이트 수, linux/limits.h. POSIX limits.h 의 PATH_MAX 는 구현마다 다르다). maxLength 는 글자 수라 바이트 수와 다를 수 있으나 경로는 ASCII 로 쓴다" }
+    CapabilityName: { type: string, pattern: "^CAP_[A-Z_]+$", maxLength: 40, examples: [ "CAP_NET_BIND_SERVICE" ], description: "컨테이너에 더하는 Linux capability 의 이름(추가 권한). 기본은 모두 뺀 상태에서 더한다", x-owner: deploy, x-basis: "D134(추가 권한), compose 서비스 키 cap_add, capabilities(7)(이름은 CAP_ 로 시작하는 대문자와 밑줄), 최대 길이 40 은 이 계약의 선택이다" }
+    SysctlName: { type: string, pattern: "^[a-z0-9_]+(\\.[a-z0-9_]+)+$", maxLength: 255, examples: [ "net.ipv4.ip_unprivileged_port_start" ], description: "컨테이너에 주입하는 sysctl 의 이름(점으로 이은 소문자 키)", x-owner: deploy, x-basis: "D134(sysctls), compose 서비스 키 sysctls, sysctl(8)(점으로 이은 키), 최대 길이 255 는 이 계약의 선택이다" }
+    SysctlValue: { type: string, maxLength: 255, examples: [ "0" ], description: "sysctl 에 주는 값(글자로 쓴다)", x-owner: deploy, x-basis: "D134(sysctls), compose 서비스 키 sysctls(값은 문자열이나 수), 최대 길이 255 는 SysctlName 과 같게 맞춘 이 계약의 선택이다" }
+    Sysctl:
+      type: object
+      additionalProperties: false
+      description: "컨테이너에 주입하는 sysctl 하나(이름과 값)"
+      x-owner: deploy
+      x-basis: "D134(sysctls), compose 서비스 키 sysctls"
+      required: [name, value]
+      properties:
+        name: { $ref: "#/components/schemas/SysctlName", description: "sysctl 이름" }
+        value: { $ref: "#/components/schemas/SysctlValue", description: "sysctl 값" }
+    PathPersistent: { type: boolean, description: "쓰는 경로의 내용이 컨테이너를 다시 만들어도 남아야 하는지(참이면 유지되는 볼륨, 거짓이면 임시 저장소)", x-owner: deploy, x-basis: "D134(쓰는 경로의 유지 여부), compose 서비스 키 volumes 와 tmpfs" }
+    WritablePath:
+      type: object
+      additionalProperties: false
+      description: "컨테이너가 쓰는 경로 하나(경로, 유지 여부, 쓰는 사용자). 루트 파일시스템은 읽기 전용이다"
+      x-owner: deploy
+      x-basis: "D134(쓰는 경로의 유지 여부와 쓰는 사용자), OCI 이미지 설정의 Volumes 와 compose 서비스 키 volumes, tmpfs"
+      required: [path, persistent, owner_uid]
+      properties:
+        path: { $ref: "#/components/schemas/ContainerPath", description: "쓰는 경로" }
+        persistent: { $ref: "#/components/schemas/PathPersistent", description: "유지 여부" }
+        owner_uid: { $ref: "#/components/schemas/RunAsUid", description: "그 경로에 쓰는 사용자" }
+    ArgvElement: { type: string, maxLength: 4096, examples: [ "/usr/local/bin/openit-run" ], description: "시작 프로세스 명령줄의 요소 하나", x-owner: deploy, x-basis: "D134(절대 경로 argv), 최대 길이 4096 은 경로 상한(ContainerPath)과 같게 맞춘 이 계약의 선택이다" }
+    ProcessDeclaration:
+      type: object
+      additionalProperties: false
+      description: "시작 프로세스 하나의 실행 규칙. 서비스의 진입점이면 job 이 없고 잡이면 그 잡의 이름이 있다. 첫 요소는 절대 경로다"
+      x-owner: deploy
+      x-basis: "D134(절대 경로 argv 실행 규칙을 역할·잡별로 선언), OCI 이미지 설정의 Entrypoint 와 Cmd, docs/design.md 4절 JobName"
+      required: [argv]
+      properties:
+        job: { $ref: "#/components/schemas/JobName", description: "이 규칙이 실행하는 잡(서비스의 진입점이면 없다)" }
+        argv: { type: array, minItems: 1, maxItems: 64, items: { $ref: "#/components/schemas/ArgvElement" }, description: "명령줄(첫 요소는 /로 시작하는 절대 경로)", x-basis: "요소 수 64 는 이 계약의 선택이다" }
+      allOf:
+        - { properties: { argv: { prefixItems: [ { pattern: "^/" } ] } }, x-basis: "D134(절대 경로 argv)" }
     EnvVarName: { type: string, pattern: "^[A-Z_][A-Z0-9_]*$", maxLength: 63, examples: [ "OPENIT_LISTEN_PORT" ], description: "환경 변수의 이름", x-owner: deploy, x-basis: "POSIX Base Definitions 8.1(환경 변수 이름은 대문자·숫자·밑줄이고 숫자로 시작하지 않는다), D134(읽는 파일의 경로 변수), 사용자 결정 2026-11-10(UD-14: 식별 이름 최대 63)" }
     EnvKind:
       type: string
@@ -2180,33 +2209,36 @@ components:
       x-enum-descriptions: { VALUE: "비밀이 아닌 값", SECRET_FILE: "비밀이 든 파일의 경로(NAME_FILE)", FILE_PATH: "비밀이 아닌 설정 파일 또는 폴더의 경로" }
       description: "환경 입력의 종류"
       x-owner: deploy
-      x-basis: "D84(비밀은 NAME_FILE 파일), D134(읽는 파일은 경로 변수와 종류와 필수 여부를 선언한다). VALUE, SECRET_FILE, FILE_PATH 이름은 이 계약의 정의이고 정본에 목록은 없다"
+      x-basis: "ADR 0005(비밀은 _FILE 경로로 받는다), D84(비밀은 NAME_FILE 파일), D134(읽는 파일은 경로 변수와 종류와 필수 여부를 선언한다), docs/design.md 4절(헤드 결정 2026-11-10)"
     EnvDeclaration:
       type: object
       additionalProperties: false
       description: "이미지가 받는 환경 입력 하나의 선언"
       x-owner: deploy
-      x-basis: "D134, F60"
+      x-basis: "D134, N13"
       required: [name, kind, required]
       properties:
         name: { $ref: "#/components/schemas/EnvVarName", description: "환경 변수 이름" }
         kind: { $ref: "#/components/schemas/EnvKind", description: "입력의 종류" }
         required: { $ref: "#/components/schemas/IsRequired", description: "없으면 시작하지 않는 입력인지" }
     IsRequired: { type: boolean, description: "환경 입력이 없으면 서비스가 시작하지 않는지(참이면 필수 입력)", x-owner: deploy, x-basis: "D134" }
-    RunAsUid: { type: integer, minimum: 1, maximum: 4294967294, examples: [ 10001 ], description: "이미지가 실행되는 숫자 사용자 ID(root 가 아니다)", x-owner: deploy, x-basis: "D134(숫자 실행 사용자를 선언한다). Linux 의 uid 는 32비트 부호 없는 정수이고 4294967295(-1)는 setuid 계열이 바꾸지 않음을 뜻해 쓸 수 없다. 0(root)을 빼는 것은 root 로 실행하지 않는다는 이 계약의 선택이고 정본 결정은 없다" }
+    RunAsUid: { type: integer, minimum: 1, maximum: 4294967294, examples: [ 10001 ], description: "이미지가 실행되는 숫자 사용자 ID(root 가 아니다)", x-owner: deploy, x-basis: "D134(숫자 실행 사용자를 선언한다), ADR 0004(root 가 아닌 사용자로 실행한다)와 CIS Docker Benchmark 4.1(컨테이너를 위한 사용자를 만든다: root 로 실행하지 않는다)에서 0(root)을 뺀다. 상한 4294967294 는 Linux uid_t 가 32비트 부호 없는 정수이고 4294967295(-1)는 setuid 계열이 바꾸지 않음을 뜻해 쓸 수 없어서 뺀 값이다" }
     ContainerInputs:
       type: object
       additionalProperties: false
-      description: "영역 밖에서 컨테이너에 주입하는 것 전체의 선언(실행 사용자, 환경 입력, 쓰는 경로)"
+      description: "영역 밖에서 컨테이너에 주입하는 것 전체의 선언(실행 사용자, 환경 입력, 쓰는 경로, 추가 권한, sysctls, 시작 프로세스 명령줄)"
       x-owner: deploy
-      x-basis: "D134(주입 전체: 숫자 실행 사용자, 읽는 파일, 쓰는 경로의 유지 여부와 쓰는 사용자, 추가 권한, sysctls, 절대 경로 argv 를 역할·잡별로 선언). 이 계약은 그 일부(실행 사용자, 환경 입력, 쓰는 경로)만 정의한다. 나머지를 뺀 결정이 정본에 없어 복원할지는 헤드 결정이 필요하다"
-      required: [run_as_uid, env, writable_paths]
+      x-basis: "D134(주입 전체: 숫자 실행 사용자, 읽는 파일, 쓰는 경로의 유지 여부와 쓰는 사용자, 추가 권한, sysctls, 절대 경로 argv 를 역할·잡별로 선언), N13. 항목을 모두 정의한다"
+      required: [run_as_uid, env, writable_paths, capabilities, sysctls, processes]
       properties:
         run_as_uid: { $ref: "#/components/schemas/RunAsUid", description: "실행 사용자" }
-        env: { type: array, maxItems: 27, items: { $ref: "#/components/schemas/EnvDeclaration" }, description: "받는 환경 입력들" , x-basis: "이 계약의 환경 입력 객체 칸 수 최대 27(SurveyServiceEnv)" }
-        writable_paths: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/ContainerPath" }, description: "쓰는 경로들(루트 파일시스템은 읽기 전용이다)" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-09, 권고값 일괄 승인)" }
+        env: { type: array, maxItems: 23, items: { $ref: "#/components/schemas/EnvDeclaration" }, description: "받는 환경 입력들", x-basis: "이 계약의 환경 입력 객체 칸 수 최대 23" }
+        writable_paths: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/WritablePath" }, description: "쓰는 경로들(루트 파일시스템은 읽기 전용이다)", x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-09, 권고값 일괄 승인)" }
+        capabilities: { type: array, maxItems: 41, items: { $ref: "#/components/schemas/CapabilityName" }, description: "더하는 추가 권한들(기본은 없다)", x-basis: "capabilities(7) 의 Linux capability 수에 맞춘 상한이며 이 계약의 선택이다" }
+        sysctls: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/Sysctl" }, description: "주입하는 sysctl 들", x-basis: "쓰는 경로 수 상한(UD-09)과 같게 맞춘 이 계약의 선택이다" }
+        processes: { type: array, minItems: 1, maxItems: 12, items: { $ref: "#/components/schemas/ProcessDeclaration" }, description: "시작 프로세스들(서비스의 진입점 하나와 잡마다 하나)", x-basis: "서비스 진입점 1 + JobName 값의 수 11" }
     DatabaseEngine: { type: string, const: POSTGRESQL, description: "영역 데이터베이스 엔진(PostgreSQL)", x-owner: deploy, x-basis: "D85(6)(저장소는 PostgreSQL), D133(영역 DB 이미지의 선언)" }
-    DatabaseMajorVersion: { type: integer, minimum: 16, maximum: 16, examples: [ 16 ], description: "데이터베이스의 주 버전", x-owner: deploy, x-basis: "D85(6)(저장소는 PostgreSQL). 주 버전 16 은 이 계약의 선택이고 정본에 버전 고정은 없다" }
+    DatabaseMajorVersion: { type: integer, minimum: 16, maximum: 16, examples: [ 16 ], description: "데이터베이스의 주 버전", x-owner: deploy, x-basis: "ADR 0001(PostgreSQL 16), D85(6)(저장소는 PostgreSQL)" }
     DatabaseDeclaration:
       type: object
       additionalProperties: false
@@ -2217,13 +2249,27 @@ components:
       properties:
         engine: { $ref: "#/components/schemas/DatabaseEngine", description: "영역 데이터베이스 컨테이너의 엔진" }
         major_version: { $ref: "#/components/schemas/DatabaseMajorVersion", description: "영역 데이터베이스 컨테이너의 주 버전" }
+    DeployBackupConfig:
+      type: object
+      additionalProperties: false
+      description: "운영자가 deploy 에 주는 백업 설정. 백업·복구·서버 밖 동기화·복원 시험 잡은 deploy 가 도는 잡이라 이 입력은 영역 Env 가 아니라 deploy 의 배치 설정에 둔다"
+      x-owner: deploy
+      x-basis: "D130(restic 백업, 저장 공간은 platform), D85(5)(백업 매일), D88 U6(서버 밖 대상 필수, 암호화, 정기 복원 시험), docs/v7-flow-resolutions.md C09, docs/design.md 2절 deploy(backup, restore 명령)와 4절 JobName, N13"
+      required: [repository_url, password_file, http_credentials_file, encryption_key_file, offsite_url, offsite_credentials_file]
+      properties:
+        repository_url: { $ref: "#/components/schemas/BackupRepositoryUrl", description: "백업 저장소 주소(platform 의 restic rest-server)" }
+        password_file: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 암호 파일" }
+        http_credentials_file: { $ref: "#/components/schemas/SecretFilePath", description: "백업 저장소 서버의 영역별 HTTP 인증 자격 파일. 자격은 주소에 넣지 않는다" }
+        encryption_key_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖으로 보내는 백업의 암호화 키 파일" }
+        offsite_url: { $ref: "#/components/schemas/OffsiteBackupUrl", description: "서버 밖 백업 대상 주소. 없으면 시작하지 않고 경보(CRIT)를 낸다" }
+        offsite_credentials_file: { $ref: "#/components/schemas/SecretFilePath", description: "서버 밖 백업 대상의 자격 파일" }
     ContractsVersionLabel: { type: string, pattern: "^7\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", maxLength: 64, examples: [ "7.0.0" ], description: "이미지가 따르는 계약 버전(7.x.y)", x-owner: head, x-basis: "Semantic Versioning 2.0.0 2(숫자 부분은 선행 0 없이), 7 은 이 계약 문서의 메이저 버전(components.yaml 의 info.version 7.0.0)이고 최대 길이 64 는 SemVer 가 정하지 않은 이 계약의 선택이다" }
     ImageDeclaration:
       type: object
       additionalProperties: false
       description: "영역이 이미지 라벨로 deploy 에 알리는 선언. deploy 는 이미지 안을 열지 않고 이 선언만 읽는다"
       x-owner: deploy
-      x-basis: "F60, D134, D133"
+      x-basis: "N13, D134, D133"
       required: [service, revision, contracts_version, exposure, inputs]
       properties:
         service: { $ref: "#/components/schemas/ImageUnitName", description: "이미지의 영역 이름(상시 서비스 또는 잡 이미지)" }
@@ -2239,7 +2285,7 @@ components:
       additionalProperties: false
       description: "영역 이미지가 달아야 하는 라벨의 키와 값. ImageDeclaration 의 각 칸이 어느 라벨에 실리는지의 정의다. 객체 값(exposure, inputs, jobs, database)은 JSON 글자 하나로 쓴다"
       x-owner: deploy
-      x-basis: "D50(이미지 라벨 키 io.openit.service 등), D133(io.openit.database), D134(io.openit.inputs), OCI Image Spec 의 어노테이션 org.opencontainers.image.revision(소스 리비전). io.openit.contracts·io.openit.exposure·io.openit.jobs 이름은 이 계약의 정의이고 D50 의 io.openit.revision·io.openit.contracts.boundary 를 대체한 정본 결정은 없다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10)(이미지 라벨: org.opencontainers.image.revision 은 OCI 표준 주석, io.openit.contracts 는 모노레포의 계약 버전 하나, io.openit.service, io.openit.exposure, io.openit.inputs, io.openit.jobs, io.openit.database 이고 D50 의 계약별 라벨을 대체한다), ADR 0002(모노레포), D133(io.openit.database), D134(io.openit.inputs), OCI Image Spec 1.1 의 어노테이션"
       required: [io.openit.service, io.openit.contracts, io.openit.exposure, io.openit.inputs, org.opencontainers.image.revision]
       properties:
         io.openit.service: { $ref: "#/components/schemas/ImageUnitName", description: "ImageDeclaration.service. 이미지의 영역 이름" }
@@ -2255,18 +2301,18 @@ components:
       additionalProperties: false
       description: "서버 하나와 그 서버에서 띄울 서비스들"
       x-owner: deploy
-      x-basis: "F64, U97, UD-15"
+      x-basis: "N13, U97, UD-15"
       required: [name, address, services]
       properties:
         name: { $ref: "#/components/schemas/ServerName", description: "서버 이름" }
         address: { $ref: "#/components/schemas/HostAddress", description: "서버의 호스트 이름 또는 주소" }
-        services: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/ServiceName" }, description: "이 서버에서 띄울 서비스들" , x-basis: "ServiceName 값의 수 5" }
+        services: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/ServiceName" }, description: "이 서버에서 띄울 서비스들", x-basis: "ServiceName 값의 수 5" }
     DevicePlacement:
       type: object
       additionalProperties: false
       description: "키오스크 기기 하나에 기본으로 배치하는 문진표"
       x-owner: deploy
-      x-basis: "F64, U86"
+      x-basis: "N13, U86"
       required: [device_id, questionnaire_id]
       properties:
         device_id: { $ref: "#/components/schemas/DeviceId", description: "기본 문진표를 배치할 키오스크 기기" }
@@ -2276,11 +2322,12 @@ components:
       additionalProperties: false
       description: "운영자가 deploy 에 주는 배치 설정(서버, 주소, 서비스 묶음, 기기별 문진표 배치)"
       x-owner: deploy
-      x-basis: "F64, U97, U86"
-      required: [servers, device_placements]
+      x-basis: "N13, U97, U86"
+      required: [servers, device_placements, backup]
       properties:
-        servers: { type: array, minItems: 1, maxItems: 5, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들" , x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 5 이하. 서비스와 서버의 대응은 배치 설정으로 정한다(사용자 결정 2026-11-10(UD-15), U97)" }
-        device_placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들" , x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
+        servers: { type: array, minItems: 1, maxItems: 5, items: { $ref: "#/components/schemas/ServerEntry" }, description: "서버들", x-basis: "서버마다 서비스가 하나 이상이므로 서버 수는 서비스 수 5 이하. 서비스와 서버의 대응은 배치 설정으로 정한다(사용자 결정 2026-11-10(UD-15), U97)" }
+        backup: { $ref: "#/components/schemas/DeployBackupConfig", description: "백업 설정" }
+        device_placements: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/DevicePlacement" }, description: "기기별 기본 문진표 배치들", x-basis: "목록 크기 값은 사용자 결정 2026-11-10(UD-08, 권고값 일괄 승인)" }
 
   securitySchemes:
     device_mtls:

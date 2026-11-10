@@ -138,7 +138,7 @@ test('실패 사례: 기계 독자용 모양에는 발화 원문이 없고, CONF
 });
 test('지표: 비율 단위의 값은 1 을 넘으면 거부한다', () => {
   ok('EvaluationMetric', { name: 'value_precision', value: 0.93, unit: 'ratio', sample_count: 400 }); no('EvaluationMetric', { name: 'value_precision', value: 1.2, unit: 'ratio', sample_count: 400 });
-  ok('EvaluationMetric', { name: 'length_p95_ms', value: 1800, unit: 'milliseconds', sample_count: 400 });
+  ok('EvaluationMetric', { name: 'length_p95_seconds', value: 1.8, unit: 'seconds', sample_count: 400 });
 });
 test('결과 빈칸은 반복 키까지 칸을 가린다', () => {
   ok('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount', reason: 'REASK_LIMIT' }); ok('ResultBlank', { item_id: 'Q9_2', reason: 'UNASKED' }); no('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount' });
@@ -249,4 +249,33 @@ test('FHIR R4 공식 스키마: OperationOutcome 예시를 받고 계약 스키�
   assert.equal(val(oo), true, JSON.stringify(val.errors?.slice(0, 3))); ok('FhirOperationOutcome', oo);
   assert.equal(val({ resourceType: 'OperationOutcome', issue: [{ severity: 'bad', code: 'not-found' }] }), false, '없는 severity 코드');
   assert.equal(val({ resourceType: 'OperationOutcome' }), false, 'issue 없음');
+});
+
+test('표준·사용자 결정으로 정한 값: 로그 수준, 단위, 조각 길이, 커서, 기반 모델 이름, 시각', () => {
+  ok('LogLevel', 'CRITICAL'); no('LogLevel', 'FATAL'); ok('MetricUnit', 'seconds'); no('MetricUnit', 'milliseconds');
+  ok('MetricSlice', 'action=' + 'A'.repeat(63)); no('MetricSlice', 'action=' + 'A'.repeat(64));
+  ok('PageCursor', 'a'.repeat(96)); no('PageCursor', 'a'.repeat(97));
+  ok('BaseModelName', 'Qwen/Qwen3-8B'); ok('BaseModelName', 'bert-base-cased'); no('BaseModelName', 'a/b/c'); no('BaseModelName', 'foo--bar'); no('BaseModelName', 'foo..bar'); no('BaseModelName', 'a'.repeat(97));
+  ok('NumericDate', 253402300799); no('NumericDate', 253402300800);
+  ok('RunAsUid', 1); no('RunAsUid', 0); ok('RunAsUid', 4294967294); no('RunAsUid', 4294967295);
+  ok('JobTimeoutSeconds', 259200); no('JobTimeoutSeconds', 259201); ok('PageLimit', 100); no('PageLimit', 101);
+  ok('MetricValue', 9007199254740991); no('MetricValue', 9007199254740992); no('MetricValue', -1);
+  ok('DeviceId', 'kiosk-01'); no('DeviceId', 'kiosk 01'); ok('QuestionnaireId', 'national-health'); no('QuestionnaireId', 'a.b');
+});
+test('컨테이너 주입 선언은 D134 의 항목(쓰기 경로의 유지 여부와 사용자, 추가 권한, sysctls, 절대 경로 argv)을 모두 가진다', () => {
+  const base = { run_as_uid: 10001, env: [{ name: 'OPENIT_LISTEN_PORT', kind: 'VALUE', required: true }], writable_paths: [{ path: '/var/lib/openit', persistent: true, owner_uid: 10001 }], capabilities: [], sysctls: [{ name: 'net.ipv4.ip_unprivileged_port_start', value: '0' }], processes: [{ argv: ['/usr/local/bin/serve'] }, { job: 'BACKUP', argv: ['/usr/local/bin/backup', '--once'] }] };
+  ok('ContainerInputs', base);
+  for (const k of ['capabilities', 'sysctls', 'processes', 'writable_paths']) { const c = { ...base }; delete c[k]; no('ContainerInputs', c, `${k} 없음`); }
+  no('ContainerInputs', { ...base, run_as_uid: 0 }, 'root'); no('ContainerInputs', { ...base, processes: [{ argv: ['serve'] }] }, '상대 경로 argv');
+  no('ContainerInputs', { ...base, writable_paths: ['/var/lib/openit'] }, '유지 여부와 사용자 없는 경로'); no('ContainerInputs', { ...base, capabilities: ['net_bind'] }, 'capability 이름');
+});
+test('Env 는 입력마다 필요한 컴포넌트를 적고 백업 입력은 deploy 의 배치 설정에 있다', () => {
+  const S = doc.components.schemas;
+  for (const [n, s] of Object.entries(S)) if (/Env$/.test(n)) for (const [k, p] of Object.entries(s.properties)) assert.ok(p.description.includes('필요한 컴포넌트'), `${n}.${k}`);
+  for (const n of ['SurveyServiceEnv', 'PlatformEnv', 'ModelRuntimeEnv', 'ModelLabEnv']) assert.ok(!Object.keys(S[n].properties).some((k) => /BACKUP/.test(k)), `${n} 에 백업 입력`);
+  assert.ok(S.DeploymentLayout.required.includes('backup')); assert.ok(S.DeployBackupConfig.properties.offsite_url);
+});
+test('x-basis 에 옛 흐름 번호(F+숫자)와 없어진 영역 이름이 남지 않는다', () => {
+  const txt = readFileSync(path.join(root, 'components.yaml'), 'utf8');
+  assert.equal((txt.match(/\bF[0-9]{2}\b/g) ?? []).length, 0); assert.ok(!txt.includes('정본에 없'));
 });

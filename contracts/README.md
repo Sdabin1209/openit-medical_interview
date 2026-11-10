@@ -43,6 +43,10 @@ head 는 영역 사이 값(`x-owner: head`)의 주인이다. boundary-contracts 
 - **학습 영역에 나가는 사례:** model-lab 은 환자 발화 원문과 모델 출력이 없는 `FailureCaseExport` 만 당겨 간다(N09). 원문(`FailureCase.utterance`)은 검토자 역할에만 나간다(D15, L12).
 - **계약 밖의 표준 프로토콜:** 웹 푸시(RFC 8030·8291·8292), 서비스 인증서 발급(ACME RFC 8555, step-ca), 백업 저장소(restic REST), 컨테이너 이미지 배포(OCI Distribution), 가입 신청과 역할 부여(Keycloak). 이들은 표준이 정본이라 이 계약이 작업으로 다시 만들지 않고, 오가는 우리 쪽 값(`PushSubscription`, `WebPushPayload`, `MachineTokenTable`, `BackupSnapshotId` 등)만 정의한다.
 
+## 영역 사이 어휘와 입력
+
+표준이나 데이터셋 정본에 목록이 없는 열거 값(세션 상태, 알림 종류, 기계 역할, 잡 이름 등)은 `../docs/design.md` 4절이 정본이고 스키마의 `x-basis` 가 그 절을 가리킨다. 환경 입력(`*Env`)은 입력마다 필요한 2절 컴포넌트를 description 에 적고, 어느 컴포넌트도 필요로 하지 않는 입력은 두지 않는다. 백업·복구·서버 밖 동기화·복원 시험은 deploy 가 도는 잡이라 그 입력은 영역 Env 가 아니라 deploy 의 배치 설정(`DeploymentLayout.backup`, `DeployBackupConfig`)에 있다. 컨테이너 주입 선언 `ContainerInputs` 는 D134 의 항목(실행 사용자, 환경 입력, 쓰는 경로의 유지 여부와 사용자, 추가 권한, sysctls, 절대 경로 argv)을 모두 담는다. 평가 지표의 시간 단위는 Prometheus 명명 관례의 초다(`MetricUnit`, `length_p95_seconds`).
+
 ## 모델 패키지(OCI 아티팩트)
 
 모델 패키지는 레지스트리에 OCI 이미지 매니페스트로 게시한다(OCI Image Spec 1.1, ADR 0019). 게시용 HTTP 작업은 없고 전송은 OCI Distribution 표준이 맡는다. 계약이 정하는 것은 이름과 모양이다.

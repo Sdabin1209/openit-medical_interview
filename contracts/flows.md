@@ -5,7 +5,7 @@
 ## 요약
 
 - 영역은 7개(survey-service, model-runtime, platform, model-lab, kiosk-frontend, admin-console, deploy)와 계약의 주인 head 다(`areas.yaml`). 상시 HTTP 서비스는 survey-service, model-runtime 과 화면·platform 의 상태 작업뿐이다. model-lab 은 잡이라 HTTP 서버가 없고 계약의 작업이 없다.
-- 영역 사이 흐름은 14개(N01~N14)다. 계약의 작업은 47개(survey-service 29, model-runtime 9, 화면과 platform 은 건강 상태·지표 3개씩), 스키마는 342개다.
+- 영역 사이 흐름은 14개(N01~N14)다. 계약의 작업은 47개(survey-service 29, model-runtime 9, 화면과 platform 은 건강 상태·지표 3개씩), 스키마는 351개다.
 - 모델 패키지는 레지스트리의 OCI 아티팩트(N10)이고 게시용 HTTP 작업은 없다. 활성화 승인·롤백은 model-runtime 의 작업이다(N07). 사람의 신원은 OIDC 접근 토큰의 sub 클레임이며 본문이나 별도 헤더의 신원은 쓰지 않는다(design.md 3절 끝, RFC 9068).
 - 문항 은행 버전 호환은 별도 흐름이 없다. model-runtime 이 추출·응답 요청마다 받은 `runtime_contract_version` 을 적재한 패키지의 값과 비교해 다르면 409 `QUESTION_BANK_VERSION_MISMATCH` 로 거부한다(N03).
 - 턴 기록과 업무 로그의 수집, 실패 탐지는 survey-service 영역 안의 일이라 계약에 값이 없다(ADR 0019).
@@ -27,7 +27,7 @@
 | N10 | model-lab → 레지스트리 → model-runtime | 모델 패키지(OCI 아티팩트, artifactType 으로 구분, digest 로 고정) | HTTP 작업 없음(OCI Distribution 표준이 전송). model-runtime 이 getModelPackage 와 activateModelPackage 로 digest 를 받는다 | ModelPackageOciManifest, ModelPackageManifest, EvaluationReport, ModelPackageBlobDescriptor, ModelPackageArtifactType, ModelPackageBlobMediaType, OciDigest, OciImageManifestMediaType | OCI Image Spec 1.1, ADR 0019, D75(4), D45 |
 | N11 | 외부 데이터셋 담당 → model-lab | 확정된 학습·평가 데이터(입출력 규칙은 labels.py 와 IO_SPEC.md) | HTTP 작업 없음(파일을 잡 입력 폴더 OPENIT_DATASET_DIR 에 둔다) | DatasetManifest, DatasetFileDeclaration, DatasetFileRef, DatasetRow, ChatMessage | G02, C25, D74, D77, D100 |
 | N12 | platform → 모든 서비스 | 인증된 사용자 신원과 역할(OIDC 접근 토큰), 기기 신원(mTLS), 서비스 인증서(영역 사이 TLS), 기계 토큰 | HTTP 작업 없음(표준 프로토콜). 작업의 security 로 요구한다 | UserIdentityClaims, AccessTokenHeader, UserRole, MachineRole, MachineTokenTable, DeviceAllowlist, ForwardedClientCertValue | U82, D113, D136, D122, RFC 9068, RFC 8705 |
-| N13 | deploy → 모든 영역 | 환경 설정, 비밀 파일 경로, 잡 실행, 백업·복구, 이미지 선언, 노출 선언, 배치 설정 | HTTP 작업 없음(잡 실행과 환경 입력) | SurveyServiceEnv, ModelRuntimeEnv, ModelLabEnv, KioskFrontendEnv, AdminConsoleEnv, PlatformEnv, JobsDeclaration, JobRunInput, JobRunResult, ImageDeclaration, Exposure, DeploymentLayout | D84, D128, D130, D131, D133, D134 |
+| N13 | deploy → 모든 영역 | 환경 설정, 비밀 파일 경로, 잡 실행, 백업·복구, 이미지 선언, 노출 선언, 배치 설정 | HTTP 작업 없음(잡 실행과 환경 입력) | SurveyServiceEnv, ModelRuntimeEnv, ModelLabEnv, KioskFrontendEnv, AdminConsoleEnv, PlatformEnv, JobsDeclaration, JobRunInput, JobRunResult, ImageDeclaration, ContainerInputs, Exposure, DeploymentLayout, DeployBackupConfig | D84, D128, D130, D131, D133, D134 |
 | N14 | 외부 위험 감지기 → survey-service | 위험 신호(위험 감지가 켜졌을 때만) | receiveRiskSignal | RiskSignal, RiskCategory, StaffAlert | D85(2), D88 U1, L11, UD-18 |
 
 ## 영역 안의 일(계약에 값이 없다)
