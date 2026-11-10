@@ -1,0 +1,117 @@
+{
+ "routes": [
+  {
+   "path_prefix": "/v1/questionnaires",
+   "methods": [
+    "GET"
+   ],
+   "audience": "DEVICE_MTLS"
+  },
+  {
+   "path_prefix": "/v1/sessions",
+   "methods": [
+    "GET",
+    "POST"
+   ],
+   "audience": "DEVICE_MTLS"
+  },
+  {
+   "path_prefix": "/v1/questionnaires",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/start-codes",
+   "methods": [
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/sessions",
+   "methods": [
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/staff-alerts",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/push-config",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/push-subscriptions",
+   "methods": [
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/results",
+   "methods": [
+    "GET",
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/cases",
+   "methods": [
+    "GET",
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/deidentified-traces",
+   "methods": [
+    "GET"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/question-set-versions",
+   "methods": [
+    "GET",
+    "POST"
+   ],
+   "audience": "HUMAN_OIDC"
+  },
+  {
+   "path_prefix": "/v1/results",
+   "methods": [
+    "GET"
+   ],
+   "audience": "EXTERNAL_MACHINE_TOKEN"
+  },
+  {
+   "path_prefix": "/v1/risk-signals",
+   "methods": [
+    "POST"
+   ],
+   "audience": "EXTERNAL_MACHINE_TOKEN"
+  },
+  {
+   "path_prefix": "/v1/case-exports",
+   "methods": [
+    "GET"
+   ],
+   "audience": "MACHINE_TOKEN"
+  }
+ ],
+ "egress": [
+  "model-runtime",
+  "platform"
+ ]
+}

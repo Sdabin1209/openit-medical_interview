@@ -1,0 +1,150 @@
+{
+ "run_as_uid": 10001,
+ "env": [
+  {
+   "name": "OPENIT_OIDC_ISSUER_URL",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_OIDC_JWKS_URL",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "OPENIT_OIDC_AUDIENCE",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_ROOT_CERTIFICATE_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_TLS_CERTIFICATE_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_TLS_PRIVATE_KEY_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_LISTEN_PORT",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_LOG_LEVEL",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "OPENIT_EGRESS_PROXY",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_DATABASE_URL",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_DATABASE_PASSWORD_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MODEL_RUNTIME_URL",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_MACHINE_TOKENS_FILE",
+   "kind": "FILE_PATH",
+   "required": true
+  },
+  {
+   "name": "OPENIT_VAPID_PRIVATE_KEY_FILE",
+   "kind": "SECRET_FILE",
+   "required": true
+  },
+  {
+   "name": "OPENIT_VAPID_SUBJECT",
+   "kind": "VALUE",
+   "required": true
+  },
+  {
+   "name": "SURVEY_FHIR_CANONICAL_BASE_URL",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "SURVEY_DEVICE_PLACEMENTS_FILE",
+   "kind": "FILE_PATH",
+   "required": false
+  },
+  {
+   "name": "SURVEY_START_CODE_TTL_SECONDS",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "SURVEY_REASK_LIMIT",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "SURVEY_EXPLAIN_STREAK_LIMIT",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "SURVEY_RAW_UTTERANCE_RETENTION_DAYS",
+   "kind": "VALUE",
+   "required": false
+  },
+  {
+   "name": "SURVEY_RISK_DETECTION_ENABLED",
+   "kind": "VALUE",
+   "required": false
+  }
+ ],
+ "writable_paths": [],
+ "capabilities": [],
+ "sysctls": [],
+ "processes": [
+  {
+   "argv": [
+    "/app/.venv/bin/python",
+    "-m",
+    "survey_service"
+   ]
+  },
+  {
+   "job": "DETECT_FAILURES",
+   "argv": [
+    "/app/.venv/bin/python",
+    "-m",
+    "survey_service.jobs",
+    "DETECT_FAILURES"
+   ]
+  },
+  {
+   "job": "PURGE_EXPIRED",
+   "argv": [
+    "/app/.venv/bin/python",
+    "-m",
+    "survey_service.jobs",
+    "PURGE_EXPIRED"
+   ]
+  }
+ ]
+}
