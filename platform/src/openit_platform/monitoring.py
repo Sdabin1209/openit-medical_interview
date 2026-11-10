@@ -1,7 +1,7 @@
 """감시 설정 생성(design.md 2절 monitoring, ADR 0014, platform ADR 0005).
 
 - 인증서 만료 감시 대상(blackbox): step-ca, 레지스트리, 공개 입구.
-- 영역 /metrics 수집 대상: 노출 선언이 있는 서비스.
+- 영역 /metrics 수집 대상: 노출 선언이 있는 서비스. 영역 게이트웨이의 평문 감시 포트로 긁는다.
 - 경보 수신처(Alertmanager): 수신처 주소는 파일(url_file)로 준다. 웹훅 주소에 토큰이 들어 있는 경우가 많아 설정 파일에 적지 않는다(D84).
 """
 
@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from .area_gateway import MONITOR_PORT
 from .contract.models import Exposure
-from .pki import fmt_minutes
 from .settings import PlatformSettings
 
 RECEIVER = "operator"
@@ -33,7 +33,8 @@ def tls_targets(settings: PlatformSettings, registry_local: bool) -> str:
 
 
 def area_targets(settings: PlatformSettings, exposures: dict[str, Exposure]) -> str:
-    rows = [{"targets": [f"{service}:{settings.service_port}"], "labels": {"service": service}} for service in sorted(exposures)]
+    # 왜 평문 감시 포트: 영역 게이트웨이가 /metrics 를 TLS 포트와 별개의 평문 포트로 서비스에 이어 준다. backend 내부 네트워크에서만 닿고 입구로는 나가지 않는다(platform ADR 0007)
+    rows = [{"targets": [f"{service}:{MONITOR_PORT}"], "labels": {"service": service}} for service in sorted(exposures)]
     return yaml.safe_dump(rows, sort_keys=False) if rows else "[]\n"
 
 
@@ -50,7 +51,7 @@ def alertmanager_config(settings: PlatformSettings) -> str:
                 receiver["email_configs"] = [{"to": urlsplit(settings.alert_receiver_url).path, "send_resolved": True}]
         if scheme == "mailto":
             glob = {"smtp_smarthost": settings.alert_smtp_smarthost, "smtp_from": f"openit-alerts@{settings.public_host}"}
-    heartbeat = fmt_minutes(settings.alert_heartbeat_minutes)
+    heartbeat = settings.alert_heartbeat_interval
     config: dict[str, object] = {
         **({"global": glob} if glob else {}),
         "route": {

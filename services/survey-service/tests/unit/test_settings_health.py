@@ -17,7 +17,7 @@ REQUIRED = {
     "OPENIT_ROOT_CERTIFICATE_FILE": "/etc/openit/root.pem", "OPENIT_TLS_CERTIFICATE_FILE": "/etc/openit/tls.pem",
     "OPENIT_TLS_PRIVATE_KEY_FILE": "/run/secrets/tls_key", "OPENIT_LISTEN_PORT": "8080",
     "OPENIT_DATABASE_URL": "postgresql://survey@db:5432/survey", "OPENIT_DATABASE_PASSWORD_FILE": "/run/secrets/db",
-    "OPENIT_MODEL_RUNTIME_URL": "https://model-runtime", "OPENIT_MODEL_RUNTIME_TOKEN_FILE": "/run/secrets/mr",
+    "OPENIT_MODEL_RUNTIME_URL": "https://model-runtime", "OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE": "/run/secrets/mr",
     "OPENIT_MACHINE_TOKENS_FILE": "/etc/openit/machines.json", "OPENIT_VAPID_PRIVATE_KEY_FILE": "/run/secrets/vapid",
     "OPENIT_VAPID_SUBJECT": "mailto:ops@example.org", "OPENIT_EGRESS_PROXY": "http://127.0.0.1:3128",
 }  # fmt: skip
@@ -32,6 +32,8 @@ def test_env_is_validated_by_the_contract_schema() -> None:
             load_env(broken)
     with pytest.raises(ValidationError):
         load_env({**REQUIRED, "OPENIT_MODEL_RUNTIME_URL": "http://model-runtime"})  # 영역 사이 호출은 항상 TLS
+    with pytest.raises(ValidationError):
+        load_env({**REQUIRED, "OPENIT_OIDC_ISSUER_URL": "http://platform/realms/openit"})  # 발급자도 TLS(pattern)
     with pytest.raises(ValidationError):
         load_env({**REQUIRED, "OPENIT_OIDC_AUDIENCE": "somebody-else"})
     with pytest.raises(ValidationError):
@@ -86,3 +88,13 @@ async def test_readyz_is_503_without_leaking_when_database_is_down(harness: Harn
         r = await c.get("/readyz")
     assert r.status_code == 503 and r.headers["retry-after"].isdigit() and "SECRET" not in r.text
     assert r.headers["content-type"].startswith("application/problem+json")
+
+
+def test_the_generated_contract_model_itself_rejects_plain_http_peers() -> None:
+    """생성기가 format uri 와 함께 있는 pattern 을 싣는다(survey-service-004). 설정 읽기에 따로 확인하는 코드는 없다."""
+    from survey_service.contract.models import PeerBaseUrl
+
+    assert PeerBaseUrl.model_validate("https://model-runtime").root == "https://model-runtime"
+    for plain in ("http://model-runtime", "ftp://model-runtime", "model-runtime"):
+        with pytest.raises(ValidationError):
+            PeerBaseUrl.model_validate(plain)

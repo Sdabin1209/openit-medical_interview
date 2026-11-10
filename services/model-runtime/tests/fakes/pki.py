@@ -72,7 +72,11 @@ def make_pki(folder: Path) -> Pki:
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
-    hosts: list[x509.GeneralName] = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    hosts: list[x509.GeneralName] = [
+        x509.DNSName("localhost"),
+        x509.DNSName("registry.openit.test"),  # 이름 표 시험이 가짜 이름을 127.0.0.1 로 풀어 접속한다
+        x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+    ]
     server, server_key = _issue(ca_key, ca_name, "localhost", ExtendedKeyUsageOID.SERVER_AUTH, hosts)
     client, client_key = _issue(ca_key, ca_name, "survey-service", ExtendedKeyUsageOID.CLIENT_AUTH, [])
     pki = Pki(

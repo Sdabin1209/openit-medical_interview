@@ -226,7 +226,11 @@ def plan(settings: PlatformSettings, exposures: dict[str, Exposure], contracts: 
         targets: list[tuple[str, int]] = []
         for target in exposure.egress:
             inner = target.root
-            if isinstance(inner, ServiceName):
+            if inner is ServiceName.platform:
+                # 왜 발급자의 호스트와 포트: 계약 EgressTarget 은 서비스 이름 platform 을 '사람·기계 토큰의 발급자(OIDC 발급자 주소의 호스트와 포트)로 나가는 터널'로 정한다.
+                # 토큰 엔드포인트와 JWKS 가 이 길을 쓴다. 발급자 주소는 설치처 값이라 선언에 적지 못한다(platform ADR 0003)
+                targets.append((settings.public_host, settings.public_port))
+            elif isinstance(inner, ServiceName):
                 targets.append((inner.value, settings.service_port))
             else:
                 targets.append((str(inner.host.root.root if hasattr(inner.host.root, "root") else inner.host.root), int(inner.port.root)))
@@ -460,7 +464,8 @@ def _builtin_routes() -> list[dict[str, Any]]:
     return [
         # 입구가 열지 않는 상태 경로(D129)
         *({"match": {"path": path}, "direct_response": {"status": 404}, "typed_per_filter_config": dict(public)} for path in HEALTH_PATHS),
-        # 로그인에 필요한 경로. 로그인 전에 열려야 하므로 인증을 걸지 않는다(계약에 이 대상이 없다: change-requests/platform-001). 관리 콘솔(/admin)과 master realm 은 열지 않는다
+        # 로그인에 필요한 경로. 로그인 전에 열려야 하므로 인증을 걸지 않는다. platform 내부 구현이라 계약에 선언하지 않는다(계약 9.0.0, platform ADR 0003).
+        # 관리 콘솔(/admin)과 master realm 은 열지 않는다
         {"match": {"prefix": realm}, "route": {"cluster": KEYCLOAK, "timeout": f"{ROUTE_SECONDS}s"}, "typed_per_filter_config": dict(public)},
         {"match": {"prefix": "/resources/"}, "route": {"cluster": KEYCLOAK, "timeout": f"{ROUTE_SECONDS}s"}, "typed_per_filter_config": dict(public)},
         {"match": {"prefix": "/oauth2/"}, "route": {"cluster": OAUTH2_PROXY, "timeout": f"{ROUTE_SECONDS}s"}, "typed_per_filter_config": dict(public)},

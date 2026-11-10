@@ -8,14 +8,16 @@ import pytest
 from fakes.engine import FakeEngine
 from model_runtime.link.engine import VllmEngine
 from model_runtime.types import ChatRequest, EngineError
-from support import adapter_folder
+from support import BASE_MODEL, adapter_folder
 
 pytestmark = pytest.mark.anyio
 
 
 def client(fake: FakeEngine) -> VllmEngine:
     return VllmEngine(
-        "http://engine", httpx.AsyncClient(transport=httpx.ASGITransport(app=fake.app()), base_url="http://engine")
+        "http://engine",
+        BASE_MODEL,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=fake.app()), base_url="http://engine"),
     )
 
 
@@ -75,10 +77,17 @@ async def test_unreachable_engine_is_engine_error() -> None:
     async def down(_: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
 
-    engine = VllmEngine("http://engine", httpx.AsyncClient(transport=httpx.MockTransport(down)))
+    engine = VllmEngine("http://engine", BASE_MODEL, httpx.AsyncClient(transport=httpx.MockTransport(down)))
     with pytest.raises(EngineError):
         await engine.complete(ChatRequest("m", "s", "u", 10, 0.0))
     with pytest.raises(EngineError):
         await engine.load_adapter("m", Path("/x"))
     assert not await engine.healthy()
     await engine.unload_adapter("m")  # 정리 단계는 실패해도 멈추지 않는다
+
+
+async def test_ready_only_when_the_engine_serves_the_profile_base_model() -> None:
+    fake = FakeEngine()
+    assert await client(fake).healthy()
+    fake.base_model = "Qwen/Qwen3-1.7B"  # 엔진이 프로파일과 다른 기반 모델로 떠 있다
+    assert not await client(fake).healthy()

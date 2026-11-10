@@ -1,6 +1,7 @@
 """link_model_client: model-runtime 에 추출·응답 문장을 요청한다(N03, N04).
 
-나가는 호출은 영역 게이트웨이의 CONNECT 터널(OPENIT_EGRESS_PROXY)로만 간다(D128). 영역 사이 호출은 TLS 와 기계 토큰이다.
+나가는 호출은 영역 게이트웨이의 CONNECT 터널(OPENIT_EGRESS_PROXY)로만 간다(D128). 영역 사이 호출은 mTLS(우리 클라이언트
+인증서, 루트 인증서로 서버 검증)와 기계 토큰(client credentials 로 받은 JWT, ADR 0014)이다.
 계약 값 검증은 받는 쪽(model-runtime)이 한 번 했으므로 응답을 계약 타입으로 읽을 뿐 의미를 다시 검사하지 않는다(R7).
 """
 
@@ -19,6 +20,8 @@ from survey_service.contract.models import (
     ResponseGenerationRequest,
     ResponseResult,
 )
+from survey_service.link.machine_token import MachineTokenSource, TokenError
+from survey_service.link.tls import ClientTls
 from survey_service.types import Limits, ModelCallError, ModelCallFailure
 
 # 왜 이 지표: 계약 RequiredPrometheusMetric(model_call_duration_seconds, 라벨 op). 호출 시간 히스토그램(초)
@@ -33,35 +36,46 @@ class HttpModelClient:
     def __init__(
         self,
         base_url: str,
-        token: str,
+        tokens: MachineTokenSource,
         limits: Limits,
         *,
         egress_proxy: str | None,
-        root_certificate: str | None,
+        tls: ClientTls | None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._limits = limits
+        self._tokens = tokens
+        self._tls = tls
         self._status: tuple[float, str | None] | None = None
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            headers={"Authorization": f"Bearer {token}"},
             proxy=egress_proxy if transport is None else None,
-            verify=root_certificate if root_certificate and transport is None else True,
+            verify=tls.context if tls is not None and transport is None else True,
             transport=transport,
         )
+
+    async def _headers(self) -> dict[str, str]:
+        """요청 머리글. 왜 매번: 토큰은 만료 전에 갱신되고 클라이언트 인증서는 파일이 바뀌면 다시 올린다(ADR 0015)."""
+        if self._tls is not None:
+            self._tls.refresh()
+        try:
+            return {"Authorization": f"Bearer {await self._tokens.token()}"}
+        except TokenError as error:
+            raise ModelCallError(ModelCallFailure.UNAVAILABLE) from error
 
     async def _post(self, op: str, path: str, body: str, seconds: int) -> Any:  # noqa: ANN401
         started = time.monotonic()
         try:
-            response = await self._client.post(
-                path, content=body, headers={"Content-Type": "application/json"}, timeout=float(seconds)
-            )
+            headers = {**await self._headers(), "Content-Type": "application/json"}
+            response = await self._client.post(path, content=body, headers=headers, timeout=float(seconds))
         except httpx.TimeoutException as error:
             raise ModelCallError(ModelCallFailure.DEADLINE) from error
         except httpx.HTTPError as error:
             raise ModelCallError(ModelCallFailure.UNAVAILABLE) from error
         finally:
             MODEL_CALL_SECONDS.labels(op=op).observe(time.monotonic() - started)
+        if response.status_code == 401:
+            self._tokens.invalidate()  # 왜: 토큰이 취소됐거나 발급자가 키를 돌렸을 수 있다. 다음 호출이 새로 받는다
         if response.status_code != 200:
             # 왜 상태·사유를 구분하지 않나: OUTPUT_INVALID, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH
             # 모두 턴은 실패 신호로 끝난다
@@ -91,11 +105,15 @@ class HttpModelClient:
             return self._status[1]
         version: str | None = None
         try:
-            response = await self._client.get("/v1/model-status", timeout=float(self._limits.extract_seconds))
+            response = await self._client.get(
+                "/v1/model-status", headers=await self._headers(), timeout=float(self._limits.extract_seconds)
+            )
+            if response.status_code == 401:
+                self._tokens.invalidate()
             if response.status_code == 200:
                 status = ModelStatus.model_validate_json(response.content)
                 version = status.model_io_version.value if status.model_io_version is not None else None
-        except (httpx.HTTPError, ValidationError):
+        except (httpx.HTTPError, ValidationError, ModelCallError):
             version = None
         self._status = (now, version)
         return version

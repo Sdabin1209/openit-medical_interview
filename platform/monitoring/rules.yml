@@ -27,7 +27,7 @@ groups:
         annotations:
           summary: "{{ $labels.instance }} 의 조직 발급 인증서가 30일 안에 만료된다(교체가 필요하다)"
       - alert: OpenitAreaDown
-        # 영역의 /metrics 를 읽지 못한다(서비스가 멈췄거나 TLS 검증에 실패했다)
+        # 영역의 /metrics 를 읽지 못한다(서비스나 영역 게이트웨이가 멈췄다)
         expr: up{job="openit-areas"} == 0
         for: 5m
         labels: { severity: critical }

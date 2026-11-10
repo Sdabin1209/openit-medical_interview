@@ -18,6 +18,7 @@ from .settings import REALM, PlatformSettings
 # 왜 300: Keycloak 의 기본값(5분)이다. RFC 9068 은 수명을 정하지 않고 RFC 6819 가 접근 토큰을 짧게 두라고 권한다. 측정하지 않았다(platform ADR 0004)
 ACCESS_TOKEN_SECONDS = 300
 OAUTH2_PROXY_CLIENT = "oauth2-proxy"
+GROUPS_CLAIM = "groups"  # oauth2-proxy 의 --oidc-groups-claim 기본값. compose 의 명령에 따로 적지 않는다
 ADMIN_USER = "admin"  # 계약 UserRole.admin 설명: 초기 admin 계정은 임시 비밀번호로 시작한다
 MACHINE_SECRET_DIR = "/run/machine-clients"  # noqa: S105  컨테이너 안 폴더. 파일 이름이 기계 클라이언트 이름이다(값이 아니다)
 
@@ -77,6 +78,27 @@ def _client_id_mapper(client_id: str) -> dict[str, Any]:
     }
 
 
+def _groups_mapper() -> dict[str, Any]:
+    # 왜 이 매퍼: 화면은 oauth2-proxy 의 /oauth2/userinfo 의 groups 로 자기 역할을 안다(admin-console-001, 계약 9.0.0 '화면이 아는 사용자 역할').
+    # oauth2-proxy 는 기본값 --oidc-groups-claim=groups 로 ID 토큰의 이 클레임을 세션에 담는다. Keycloak 표준 프로토콜 매퍼(User Realm Role)가 realm 역할을 낸다.
+    # 클라이언트 범위(scopeMappings)가 UserRole 로 제한되어 있어 groups 에도 UserRole 만 나온다. 화면의 표시는 편의이고 권한은 서버가 토큰으로 검사한다
+    return {
+        "name": "groups",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-usermodel-realm-role-mapper",
+        "consentRequired": False,
+        "config": {
+            "claim.name": GROUPS_CLAIM,
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+        },
+    }
+
+
 def _client_base(client_id: str, secret_ref: str) -> dict[str, Any]:
     return {
         "clientId": client_id,
@@ -108,7 +130,7 @@ def render_realm(settings: PlatformSettings, human_services: list[str], machine:
             "standardFlowEnabled": True,
             "redirectUris": [f"{settings.public_base_url}/oauth2/callback"],
             "webOrigins": [],
-            "protocolMappers": [_client_id_mapper(OAUTH2_PROXY_CLIENT), *(_audience_mapper(service) for service in human_services)],
+            "protocolMappers": [_client_id_mapper(OAUTH2_PROXY_CLIENT), _groups_mapper(), *(_audience_mapper(service) for service in human_services)],
         }
     )
     clients: list[dict[str, Any]] = [proxy]

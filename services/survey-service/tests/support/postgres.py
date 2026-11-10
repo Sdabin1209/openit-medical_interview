@@ -1,4 +1,4 @@
-"""시험용 PostgreSQL 16 컨테이너(`pytest -m postgres`). 컨테이너 이름에 openit-ss 를 넣고, 시험이 끝나면
+"""시험용 PostgreSQL 16 컨테이너(`pytest -m postgres`). 컨테이너 이름에 openit-int-ss 를 넣고, 시험이 끝나면
 자기가 만든 것만 ID 로 지운다.
 
 docker 호출은 프로젝트 자체 설정만 쓴다: DOCKER_CONFIG 가 있으면 그대로, 없으면 빈 설정 폴더({})를 쓰고
@@ -22,7 +22,7 @@ def docker_env() -> dict[str, str]:
     env = {key: os.environ[key] for key in ("PATH", "DOCKER_HOST", "DOCKER_CONTEXT") if key in os.environ}
     config = os.environ.get("DOCKER_CONFIG")
     if not config:
-        folder = Path(tempfile.mkdtemp(prefix="openit-ss-docker-", dir=os.environ.get("TMPDIR")))
+        folder = Path(tempfile.mkdtemp(prefix="openit-int-ss-docker-", dir=os.environ.get("TMPDIR")))
         (folder / "config.json").write_text("{}\n", encoding="utf-8")
         config = str(folder)
     env["DOCKER_CONFIG"] = config
@@ -41,7 +41,7 @@ class PostgresContainer:
 
     def __init__(self) -> None:
         self.password = secrets.token_hex(12)
-        name = f"openit-ss-test-pg-{uuid.uuid4().hex[:8]}"
+        name = f"openit-int-ss-test-pg-{uuid.uuid4().hex[:8]}"
         self.cid = docker(
             "run", "-d", "--name", name, "-e", f"POSTGRES_PASSWORD={self.password}", "-p", "127.0.0.1::5432",
             "--tmpfs", "/var/lib/postgresql/data", IMAGE,

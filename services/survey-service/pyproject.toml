@@ -36,12 +36,12 @@ dev = [
 [tool.openit.contract]
 openapi = ["survey-service"]  # contracts/openapi/<이름>.yaml
 # 왜 schemas: HTTP 작업이 직접 참조하지 않아도 이 영역이 받거나 내는 값들. 이웃 model-runtime 에 보내는 요청·응답(N03·N04),
-# 환경 입력(D133), 기계 토큰 표, 접근 토큰 검증(RFC 9068 프로파일), 웹 푸시 내용(C11), 기능 조건(v3), 시간 상한(D125)
+# 환경 입력(D133), 기계 호출자 표, 접근 토큰 검증(RFC 9068 프로파일: 사람·기계), 이미지 선언(잡·노출·입력, 시험이 파일을 검증한다), 웹 푸시 내용(C11), 기능 조건(v3), 시간 상한(D125)
 schemas = [
   "ExtractionRequest", "ExtractionResult", "ResponseGenerationRequest", "ResponseResult",
-  "SurveyServiceEnv", "DevicePlacementTable", "MachineTokenTable", "UserIdentityClaims", "AccessTokenHeader",
+  "SurveyServiceEnv", "DevicePlacementTable", "MachineTokenTable", "MachineIdentityClaims", "UserIdentityClaims", "AccessTokenHeader",
   "AccessTokenType", "WebPushPayload", "ModelIoFeatureRequirements", "ModelIoVersion", "TimeBudgetTable",
-  "FhirMapping", "ModelStatus", "ReaskLimit", "ExplainStreakLimit", "JobRunInput", "JobRunResult", "JobsDeclaration",
+  "FhirMapping", "ModelStatus", "ReaskLimit", "ExplainStreakLimit", "JobRunInput", "JobRunResult", "JobsDeclaration", "Exposure", "ContainerInputs",
 ]
 
 [build-system]

@@ -1,8 +1,9 @@
 """샌드박스(D123): 제품을 그대로 복사한 두 번째 설치를 따로 띄운다. 제품 compose·설정에는 시험용 문이 없다.
 
 - 리포의 deploy/·platform/·contracts/ 를 임시 폴더로 복사하고 그 복사본의 ./deploy bootstrap 으로 설치한다(신뢰의 뿌리 -> 레지스트리 -> 기동).
-- 시험에 필요한 것은 설치 입력(노출 선언, 기기 허용 목록, 기계 호출자 표, 기기 CA)과 compose 에 더하는 시험 서비스(에코 상류, 클라이언트)뿐이다.
-- 끝나면 이 프로젝트(openit-pf-sbx-…)의 컨테이너·볼륨·네트워크를 내리고 남은 것이 0개인지 확인한다. 실패하면 로그를 먼저 남긴다.
+- 시험에 필요한 것은 설치 입력(노출 선언, 기기 허용 목록, 기계 호출자 표, 기기 CA)과 compose 에 더하는 시험 서비스뿐이다.
+  시험 서비스: 평문 에코 상류(가짜 영역 서비스), 영역마다 실제 영역 게이트웨이(platform/caddy/area-gateway.Caddyfile, platform ADR 0007), 클라이언트.
+- 끝나면 이 프로젝트(openit-int-pf-sbx-…)의 컨테이너·볼륨·네트워크를 내리고 남은 것이 0개인지 확인한다. 실패하면 로그를 먼저 남긴다.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from pathlib import Path
 from types import ModuleType
 
 from cryptography.hazmat.primitives import serialization
+
+from openit_platform import area_gateway
 
 from .devices import Issued, make_ca, make_device
 
@@ -40,7 +43,7 @@ EXPOSURES = {
             {"path_prefix": "/v1/risk-signals", "methods": ["POST"], "audience": "EXTERNAL_MACHINE_TOKEN"},
             {"path_prefix": "/v1/case-exports", "methods": ["GET"], "audience": "MACHINE_TOKEN"},
         ],
-        "egress": ["model-runtime"],
+        "egress": ["model-runtime", "platform"],
     },
     "model-runtime": {"routes": [{"path_prefix": "/v1/model-status", "methods": ["GET"], "audience": "HUMAN_OIDC"}], "egress": []},
     "admin-console": {"routes": [{"path_prefix": "/console/", "methods": ["GET"], "audience": "HUMAN_OIDC"}], "egress": []},
@@ -48,34 +51,25 @@ EXPOSURES = {
 }
 MACHINE_CALLERS = {
     "tokens": [
-        {"client": "hospital", "roles": ["result-reader"], "token_file": "/run/secrets/unused-hospital"},
-        {"client": "detector", "roles": ["risk-detector"], "token_file": "/run/secrets/unused-detector"},
-        {"client": "lab", "roles": ["case-reader"], "token_file": "/run/secrets/unused-lab"},
+        {"client": "hospital", "roles": ["result-reader"], "client_secret_file": "/run/secrets/unused-hospital"},
+        {"client": "detector", "roles": ["risk-detector"], "client_secret_file": "/run/secrets/unused-detector"},
+        {"client": "lab", "roles": ["case-reader"], "client_secret_file": "/run/secrets/unused-lab"},
     ]
 }
 
-CADDYFILE = """# 시험용 에코 상류: 영역 서비스의 이름으로 사설 CA 에서 인증서를 받고, 받은 요청의 머리글을 본문에 되돌려 준다.
+ACME_URL = "https://step-ca:9000/acme/acme/directory"  # deploy/env.example 의 OPENIT_INTERNAL_ACME_DIRECTORY_URL 기본값
+UPSTREAM_PORT = 8080
+CADDY_IMAGE = "caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0"  # 제품 compose 와 같은 digest
+CLIENT_CERT_AREA = "survey-service"  # 시험 클라이언트가 이웃 영역으로서 보일 클라이언트 인증서의 주인(그 영역 게이트웨이가 받은 인증서를 읽기 전용으로 본다)
+
+# 가짜 영역 서비스: 평문 HTTP 로 받은 요청의 머리글을 본문에 되돌려 준다(영역 게이트웨이 뒤의 서비스 컨테이너 자리).
+UPSTREAM_CADDYFILE = """# 시험용 평문 상류(영역 서비스의 자리). 영역 게이트웨이만 닿는다.
 {
 	admin off
-	https_port 8443
-	skip_install_trust
-	renew_interval 1m
+	auto_https off
 }
 
-survey-service, model-runtime, admin-console, kiosk-frontend {
-	tls {
-		issuer acme {
-			dir https://step-ca:9000/acme/acme/directory
-			trusted_roots /etc/openit/trust-list.pem
-			disable_tlsalpn_challenge
-		}
-		client_auth {
-			mode verify_if_given
-			trust_pool file {
-				pem_file /etc/openit/trust-list.pem
-			}
-		}
-	}
+http://:8080 {
 	handle /metrics {
 		respond <<METRICS
 			# TYPE sandbox_up gauge
@@ -84,21 +78,22 @@ survey-service, model-runtime, admin-console, kiosk-frontend {
 	}
 	handle {
 		respond <<BODY
-			service={http.request.tls.server_name}
+			service={http.request.host}
 			method={http.request.method}
 			path={http.request.uri.path}
 			xfcc={http.request.header.X-Forwarded-Client-Cert}
 			authorization={http.request.header.Authorization}
-			client_san={http.request.tls.client.san.dns_names.0}
 			BODY 200
 	}
 }
 """
 
-COMPOSE = """# 시험용 서비스(제품 compose 에는 없다). 제품 compose 와 합쳐 같은 프로젝트로 띄운다.
-services:
-  sandbox-upstream:
-    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+
+def gateway_service(name: str) -> str:
+    """영역 게이트웨이 하나(제품의 deploy 가 영역마다 compose 에 두는 것과 같은 모양: platform/caddy/area-gateway.md)."""
+    healthcheck = area_gateway.healthcheck_command(name, ACME_URL)
+    return f"""  sandbox-gw-{name}:
+    image: {CADDY_IMAGE}
     read_only: true
     user: "10001:10001"
     cap_drop: [ALL]
@@ -107,22 +102,56 @@ services:
     tmpfs:
       - /data:uid=10001,gid=10001,mode=0700
       - /config:uid=10001,gid=10001,mode=0700
+    environment:
+      OPENIT_AREA_NAME: {name}
+      OPENIT_AREA_UPSTREAM: sandbox-upstream:{UPSTREAM_PORT}
+      OPENIT_SERVICE_PORT: "8443"
+      OPENIT_INTERNAL_ACME_DIRECTORY_URL: {ACME_URL}
     volumes:
-      - ./sandbox/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ../platform/caddy/{area_gateway.CADDYFILE}:/etc/caddy/Caddyfile:ro
+      - ${{OPENIT_TRUST_LIST_FILE}}:/etc/openit/trust-list.pem:ro
+      - sandbox-certs-{name}:{area_gateway.AREA_CERTS}
     networks:
       backend:
-        aliases: [survey-service, model-runtime, admin-console, kiosk-frontend]
-  sandbox-client:
+        aliases: [{name}]
+    healthcheck:
+      test: ["CMD-SHELL", "{healthcheck}"]
+      interval: 3s
+      timeout: 3s
+      retries: 100
+"""
+
+
+def compose_text() -> str:
+    gateways = "".join(gateway_service(name) for name in SERVICES)
+    volumes = "".join(f'  sandbox-certs-{name}:\n    driver: local\n    driver_opts: {{ type: tmpfs, device: tmpfs, o: "uid=10001,gid=10001,mode=0700" }}\n' for name in SERVICES)
+    return f"""# 시험용 서비스(제품 compose 에는 없다). 제품 compose 와 합쳐 같은 프로젝트로 띄운다.
+services:
+  sandbox-upstream:
+    image: {CADDY_IMAGE}
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+      - /config:uid=10001,gid=10001,mode=0700
+    volumes:
+      - ./sandbox/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [backend]
+{gateways}  sandbox-client:
     image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
     read_only: true
+    user: "10001:10001"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["sleep", "infinity"]
     volumes:
-      - ${OPENIT_TRUST_LIST_FILE}:/etc/openit/trust-list.pem:ro
+      - ${{OPENIT_TRUST_LIST_FILE}}:/etc/openit/trust-list.pem:ro
+      - sandbox-certs-{CLIENT_CERT_AREA}:{area_gateway.AREA_CERTS}:ro
     networks: [backend]
-"""
+volumes:
+{volumes}"""
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -135,7 +164,7 @@ def load_module(name: str, path: Path) -> ModuleType:
 
 class Sandbox:
     def __init__(self) -> None:
-        self.project = f"openit-pf-sbx-{secrets.token_hex(3)}"
+        self.project = f"openit-int-pf-sbx-{secrets.token_hex(3)}"
         self.root = Path(tempfile.mkdtemp(prefix=f"{self.project}-"))
         self.deploy_dir = self.root / "deploy"
         self.state = self.root / "state"
@@ -161,8 +190,8 @@ class Sandbox:
         (self.state / "machine-callers.json").write_text(json.dumps(MACHINE_CALLERS), encoding="utf-8")
         self.write_devices()
         (self.deploy_dir / "sandbox").mkdir()
-        (self.deploy_dir / "sandbox" / "Caddyfile").write_text(CADDYFILE, encoding="utf-8")
-        (self.deploy_dir / "compose.sandbox.yaml").write_text(COMPOSE, encoding="utf-8")
+        (self.deploy_dir / "sandbox" / "Caddyfile").write_text(UPSTREAM_CADDYFILE, encoding="utf-8")
+        (self.deploy_dir / "compose.sandbox.yaml").write_text(compose_text(), encoding="utf-8")
         env = {
             "OPENIT_PROJECT_NAME": self.project,
             # 왜 5m: 리프의 자동 갱신(Caddy)과 입구의 인증서 재적재, 루트 교체 뒤 새 중간 CA 로의 갱신을 몇 분 안에 본다(ADR 0014 의 시험 방법)
@@ -262,14 +291,24 @@ class Sandbox:
             time.sleep(interval)
         raise AssertionError(f"시간 안에 {what} 되지 않았다 {last}")
 
+    def gateway_services(self) -> list[str]:
+        return [f"sandbox-gw-{name}" for name in SERVICES]
+
     def start_test_services(self) -> None:
-        self.compose("up", "-d", "--no-deps", "sandbox-upstream", "sandbox-client")
+        self.compose("up", "-d", "--no-deps", "sandbox-upstream", *self.gateway_services(), "sandbox-client")
 
-        def upstream_ready() -> bool:
-            names = " ".join(f"/data/caddy/certificates/*/{name}/{name}.crt" for name in SERVICES)
-            return self.exec("sandbox-upstream", "sh", "-c", f"for f in {names}; do test -s $f || exit 1; done", check=False).returncode == 0
+        def gateways_ready() -> bool:
+            """영역 게이트웨이마다 인증서와 키가 생겼다(제품 compose 의 healthcheck 와 같은 명령)."""
+            return all(self.exec(f"sandbox-gw-{name}", "sh", "-c", area_gateway.healthcheck_command(name, ACME_URL), check=False).returncode == 0 for name in SERVICES)
 
-        self.wait("에코 상류가 인증서를 받아 준비", upstream_ready)
+        self.wait("영역 게이트웨이가 사설 CA 에서 인증서를 받아 준비", gateways_ready)
+
+    def recreate_gateways(self) -> None:
+        """영역 게이트웨이와 그 인증서 볼륨(메모리)을 지우고 다시 만든다. 새 신뢰 목록으로 새 인증서를 받는다(서버를 다시 켠 것과 같다)."""
+        self.compose("rm", "-sf", "sandbox-client", *self.gateway_services())
+        for name in SERVICES:
+            self.docker(["volume", "rm", "-f", f"{self.project}_sandbox-certs-{name}"])
+        self.start_test_services()
 
     def create_users(self) -> None:
         script = (

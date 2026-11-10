@@ -164,3 +164,75 @@ def test_certificates_are_read_through_file_sds_that_watches_the_folder(repo: Pa
     body = yaml.safe_load(sds["ingress_cert.yaml"])["resources"][0]["tls_certificate"]
     assert body["watched_directory"]["path"] == "/ingress-certs/certificates/ik/openit.internal"
     assert body["private_key"]["filename"].endswith("/openit.internal.key")
+
+
+def test_platform_in_egress_opens_the_issuer_host_and_port(repo: Path) -> None:
+    """계약 EgressTarget: 서비스 이름 platform 은 OIDC 발급자 주소의 호스트와 포트로 나가는 터널이다(토큰 엔드포인트와 JWKS)."""
+    cfg = platform_settings(repo)
+    plan = _plan(repo, {"survey-service": exposure([], ["model-runtime", "platform"])})
+    assert plan.egress[0].targets == (("model-runtime", 8443), (cfg.public_host, cfg.public_port))
+    config = gateway.build_envoy(cfg, plan, DeviceAllowlist(devices=[]), *KEYS)
+    egress = next(item for item in config["static_resources"]["listeners"] if item["name"].startswith("egress_"))
+    routes = egress["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"][0]["routes"]
+    allowed = [r["match"]["headers"][0]["string_match"]["exact"] for r in routes if "connect_matcher" in r["match"] and "headers" in r["match"]]
+    assert allowed == ["model-runtime:8443", f"{cfg.public_host}:{cfg.public_port}"]
+    clusters = {c["name"]: c for c in config["static_resources"]["clusters"]}
+    issuer_cluster = clusters["egress_survey_service_openit_internal_8443"]
+    assert issuer_cluster["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]["address"]["socket_address"] == {
+        "address": cfg.public_host,
+        "port_value": cfg.public_port,
+    }
+
+
+def test_platform_in_egress_follows_a_different_issuer_port(repo: Path) -> None:
+    cfg = platform_settings(repo, OPENIT_OIDC_ISSUER_URL="https://openit.internal/realms/openit")
+    plan = gateway.plan(cfg, {"model-runtime": exposure([], ["platform"])}, repo / "contracts", True)
+    assert plan.egress[0].targets == (("openit.internal", 443),)
+
+
+# ---------------------------------------------------------------- 브라우저의 한 출처(admin-console-005, 계약 9.0.0)
+
+ONE_ORIGIN = {
+    "admin-console": exposure([route("/console/", "HUMAN_OIDC")]),
+    "survey-service": exposure([route("/v1/results", "HUMAN_OIDC"), route("/v1/start-codes", "HUMAN_OIDC", ("POST",)), route("/v1/staff-alerts", "HUMAN_OIDC")]),
+    "model-runtime": exposure([route("/v1/model-status", "HUMAN_OIDC"), route("/v1/model-packages", "HUMAN_OIDC", ("GET",))]),
+}
+
+
+def test_screen_path_and_both_services_v1_paths_merge_on_one_origin(repo: Path) -> None:
+    """화면 접근 경로(admin-console 의 /console/)와 두 서비스의 /v1/ 경로가 한 출처의 한 라우트 표로 합쳐지고 모두 사람 인증(세션 확인)을 지난다."""
+    routes = _routes(_config(repo, ONE_ORIGIN))
+    served = {}
+    for entry in routes:
+        if "route" not in entry or "cluster" not in entry["route"] or not entry["route"]["cluster"].startswith("service_"):
+            continue
+        match = entry["match"]
+        served[match.get("safe_regex", {}).get("regex") or match["prefix"]] = entry
+    clusters = {key: entry["route"]["cluster"] for key, entry in served.items()}
+    assert clusters["/console/"] == "service_admin_console"
+    assert clusters["/v1/results"] == "service_survey_service" and clusters["/v1/start\\-codes"] == "service_survey_service"
+    assert clusters["/v1/model\\-status"] == "service_model_runtime" and clusters["/v1/model\\-packages"] == "service_model_runtime"
+    # 사람 인증 경로는 세션 확인(ext_authz)을 끄지 않는다. 화면 경로도 같다(oauth2-proxy 가 로그인으로 보낸다)
+    for key in ("/console/", "/v1/results", "/v1/model\\-status"):
+        assert "envoy.filters.http.ext_authz" not in served[key]["typed_per_filter_config"], key
+    # 한 출처의 한 가상 호스트에 모두 있다(경로로만 나뉜다)
+    config = _config(repo, ONE_ORIGIN)
+    hosts = config["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"]
+    assert len(hosts) == 1 and hosts[0]["domains"] == ["*"]
+    # 알림 스트림 경로는 전체 시간 제한을 끈다(admin-console-005 덧붙임)
+    stream = served["/v1/staff\\-alerts/stream"]
+    assert stream["route"]["timeout"] == "0s" and stream["route"]["idle_timeout"] == "45s"
+
+
+def test_the_same_path_opened_by_two_services_stops_start(repo: Path) -> None:
+    exposures = {"survey-service": exposure([route("/v1/results", "HUMAN_OIDC")]), "model-runtime": exposure([route("/v1/results", "HUMAN_OIDC")])}
+    with pytest.raises(pki.ConfigError, match="같은 공개 경로를 두 영역이 연다: GET /v1/results"):
+        _plan(repo, exposures)
+    clash = {"admin-console": exposure([route("/v1/results", "HUMAN_OIDC")]), "survey-service": exposure([route("/v1/results", "HUMAN_OIDC")])}
+    with pytest.raises(pki.ConfigError, match="같은 공개 경로"):
+        _plan(repo, clash)
+
+
+def test_services_with_disjoint_v1_prefixes_do_not_clash(repo: Path) -> None:
+    plan = _plan(repo, ONE_ORIGIN)
+    assert {spec.service for spec in plan.routes} == {"admin-console", "survey-service", "model-runtime"}

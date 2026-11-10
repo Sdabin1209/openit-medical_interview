@@ -9,7 +9,7 @@ import pytest
 from fakes.engine import FakeEngine
 from fakes.pki import make_pki
 from scenario.world import A_NEXT, ask, bank
-from support import MACHINE_TOKEN, Identity, make_app, settings_for
+from support import Identity, make_app, settings_for
 
 pytestmark = pytest.mark.anyio
 IDENTITY = Identity.new()
@@ -22,7 +22,7 @@ def client(tmp_path: Path, engine: FakeEngine | None = None) -> httpx.AsyncClien
 
 
 def machine() -> dict[str, str]:
-    return {"Authorization": f"Bearer {MACHINE_TOKEN}"}
+    return {"Authorization": f"Bearer {IDENTITY.machine_token()}"}
 
 
 def body(**override: Any) -> dict[str, Any]:  # noqa: ANN401
@@ -96,7 +96,7 @@ async def test_machine_token_cannot_activate(tmp_path: Path) -> None:
         response = await http.post(
             "/v1/model-activations", json={"package_digest": "sha256:" + "a" * 64, "reason": "x"}, headers=machine()
         )
-    assert response.status_code == 401  # 활성화는 사람(OIDC)만
+    assert response.status_code == 403  # 활성화는 사람(OIDC)만. 기계 토큰은 인증은 되지만 권한이 없다
 
 
 async def test_health_and_metrics(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 
 적재 전 검증: 매니페스트(artifactType, 목록표), 파일의 digest 와 크기, 모델 입출력 버전, model-runtime
 버전(MAJOR.MINOR).
-검증을 통과해야 어댑터를 추론 엔진에 올린다. 입력은 패키지 digest 와 레지스트리 포트, 출력은 적재된 모델이다.
+기반 모델은 서버의 프로파일이 정한 것과 같아야 한다. 검증을 통과해야 어댑터를 추론 엔진에 올린다. 입력은 패키지 digest 와 레지스트리 포트, 출력은 적재된 모델이다.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _major_minor(version: str) -> tuple[str, str]:
 
 
 async def inspect_package(
-    source: PackageSource, digest: str, workdir: Path, installed_version: str
+    source: PackageSource, digest: str, workdir: Path, installed_version: str, base_model: str
 ) -> InspectedPackage:
     """매니페스트와 목록표를 받아 계약과 맞춰 본다. 어긋나면 PackageInvalidError, 없으면 PackageNotFoundError."""
     raw = await source.fetch_manifest(digest)
@@ -119,6 +119,9 @@ async def inspect_package(
             raise PackageInvalidError("시스템 프롬프트 파일의 미디어 유형이 시스템 프롬프트 유형이 아니다")
     if manifest.model_io_version not in SUPPORTED_MODEL_IO:
         raise PackageInvalidError("이 서버가 아는 모델 통신이 없는 모델 입출력 버전이다")
+    if manifest.base_model.root != base_model:
+        # 왜: 어댑터는 학습한 기반 모델에만 맞는다. 이 서버의 엔진은 프로파일 표의 기반 모델 하나를 서빙한다(ADR 0007)
+        raise PackageInvalidError("패키지의 기반 모델이 이 서버의 프로파일이 정한 기반 모델과 다르다")
     if _major_minor(manifest.model_runtime_version.root) != _major_minor(installed_version):
         raise PackageInvalidError("패키지를 만든 model-runtime 의 MAJOR.MINOR 가 서빙 설치본과 다르다")
     return InspectedPackage(digest, oci, manifest)

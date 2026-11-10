@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class HealthCheckName(RootModel[str]):
@@ -118,6 +118,7 @@ class ProblemReason(StrEnum):
     PACKAGE_INVALID = 'PACKAGE_INVALID'
     ROLLBACK_TARGET_INVALID = 'ROLLBACK_TARGET_INVALID'
     RISK_DETECTION_DISABLED = 'RISK_DETECTION_DISABLED'
+    QUESTIONNAIRE_REQUIRED = 'QUESTIONNAIRE_REQUIRED'
 
 
 class ProblemTitle(RootModel[str]):
@@ -129,8 +130,15 @@ class ProblemTitle(RootModel[str]):
     """
 
 
-class ProblemType(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://openit/problems/OUTPUT_INVALID'])]
+class ProblemType(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://openit/problems/OUTPUT_INVALID'],
+            max_length=8000,
+            pattern='^[A-Za-z][A-Za-z0-9+.-]*:',
+        ),
+    ]
     """
     오류의 종류를 가리키는 절대 URI(scheme 이 있는 URI). 기본은 about:blank 다. 이 계약의 서버는 사유가 있으면 https://openit/problems/<ProblemReason 값> 을 쓴다
     """

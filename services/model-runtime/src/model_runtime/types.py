@@ -81,6 +81,13 @@ class PackageSource(Protocol):
         """파일(config 또는 layer)을 destination 에 받는다. 내용 검증은 받는 컴포넌트가 한다."""
         ...
 
+    async def list_manifests(self) -> Sequence[RawManifest]:
+        """저장소에 게시된 모델 패키지의 매니페스트들(OCI Distribution 의 태그 목록과 매니페스트 조회).
+
+        매니페스트의 digest 는 받은 바이트의 sha256 이다. 닿지 못하면 RegistryUnavailableError.
+        """
+        ...
+
 
 class AdapterRegistry(Protocol):
     """추론 엔진에 어댑터를 올리고 내리는 길(link 가 구현)."""
@@ -92,6 +99,14 @@ class AdapterRegistry(Protocol):
     async def unload_adapter(self, name: str) -> None:
         """name 의 어댑터를 내린다. 없는 이름이면 무시한다."""
         ...
+
+
+@dataclass(frozen=True)
+class PublishedPackage:
+    """레지스트리에 게시된 패키지 하나의 목록 항목(package_catalog 의 출력 재료)."""
+
+    digest: str
+    created_at: datetime  # 목록표(config)의 created_at. 최근 것이 먼저 나오게 하는 정렬 기준이다
 
 
 @dataclass(frozen=True)

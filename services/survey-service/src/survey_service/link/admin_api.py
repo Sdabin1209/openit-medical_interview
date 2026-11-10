@@ -61,6 +61,7 @@ def _version_body(stored: StoredQuestionSet) -> QuestionSetVersion:
             "content_hash": stored.content_hash,
             "uploaded_by": stored.uploaded_by,
             "created_at": stored.created_at.isoformat(),
+            "is_active": stored.is_active,
         }
     )
 

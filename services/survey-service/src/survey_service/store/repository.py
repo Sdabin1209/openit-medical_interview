@@ -98,7 +98,7 @@ class SqlTx:
 
     # ------------------------------------------------------------ 문항 세트
     @staticmethod
-    def _qsv(row: m.QuestionSetVersionRow) -> StoredQuestionSet:
+    def _qsv(row: m.QuestionSetVersionRow, active: frozenset[UUID] = frozenset()) -> StoredQuestionSet:
         return StoredQuestionSet(
             question_set_version_id=row.question_set_version_id,
             questionnaire_id=row.questionnaire_id,
@@ -108,7 +108,13 @@ class SqlTx:
             content_hash=row.content_hash,
             uploaded_by=row.uploaded_by,
             created_at=row.created_at,
+            is_active=row.question_set_version_id in active,
         )
+
+    async def _active_ids(self) -> frozenset[UUID]:
+        """지금 활성인 버전 식별자들. 왜 한 번에: 활성 표는 문진표마다 한 줄이라 작고, 목록의 줄마다 묻지 않는다."""
+        rows = await self._s.scalars(select(m.ActiveQuestionSetRow.question_set_version_id))
+        return frozenset(rows.all())
 
     async def _idempotent(self, operation: str, principal: str, key: str | None) -> str | None:
         if key is None:
@@ -129,7 +135,7 @@ class SqlTx:
         if known is not None:
             existing = await self._s.get(m.QuestionSetVersionRow, UUID(known))
             if existing is not None:
-                return self._qsv(existing)
+                return self._qsv(existing, await self._active_ids())
         last = await self._s.scalar(
             select(func.max(m.QuestionSetVersionRow.version_number)).where(
                 m.QuestionSetVersionRow.questionnaire_id == value.questionnaire_id
@@ -156,7 +162,7 @@ class SqlTx:
 
     async def get_question_set(self, question_set_version_id: UUID) -> StoredQuestionSet | None:
         row = await self._s.get(m.QuestionSetVersionRow, question_set_version_id)
-        return None if row is None else self._qsv(row)
+        return None if row is None else self._qsv(row, await self._active_ids())
 
     async def list_question_sets(
         self, questionnaire_id: str | None, limit: int, cursor: str | None
@@ -164,10 +170,11 @@ class SqlTx:
         stmt = select(m.QuestionSetVersionRow)
         if questionnaire_id is not None:
             stmt = stmt.where(m.QuestionSetVersionRow.questionnaire_id == questionnaire_id)
+        active = await self._active_ids()
         return await self._page(
             stmt, m.QuestionSetVersionRow.created_at, m.QuestionSetVersionRow.question_set_version_id,
             True, limit, cursor,
-            self._qsv, lambda r: r.question_set_version_id,
+            lambda r: self._qsv(r, active), lambda r: r.question_set_version_id,
             lambda r: r.created_at,
         )  # fmt: skip
 
@@ -204,7 +211,7 @@ class SqlTx:
             .where(m.ActiveQuestionSetRow.questionnaire_id == questionnaire_id)
         )
         row = await self._s.scalar(stmt)
-        return None if row is None else self._qsv(row)
+        return None if row is None else self._qsv(row, frozenset({row.question_set_version_id}))
 
     async def list_active_questionnaires(self) -> tuple[StoredQuestionSet, ...]:
         stmt = (
@@ -215,7 +222,8 @@ class SqlTx:
             )
             .order_by(m.QuestionSetVersionRow.questionnaire_id)
         )
-        return tuple(self._qsv(r) for r in (await self._s.scalars(stmt)).all())
+        rows = (await self._s.scalars(stmt)).all()
+        return tuple(self._qsv(r, frozenset({r.question_set_version_id})) for r in rows)
 
     # ------------------------------------------------------------ 시작 코드
     @staticmethod
@@ -647,7 +655,7 @@ class SqlTx:
     async def mark_expired_sessions(self, idle_cutoff: datetime) -> tuple[SessionRecord, ...]:
         """유휴 시간을 넘긴 진행 중 세션을 EXPIRED 로 바꾸고 바뀐 세션들을 돌려준다(끝난 때는 마지막 활동 시각)."""
         stmt = select(m.SessionRow).where(
-            m.SessionRow.status == SessionStatus.ACTIVE.value, m.SessionRow.last_activity_at < idle_cutoff
+            m.SessionRow.status == SessionStatus.ACTIVE.value, m.SessionRow.last_activity_at <= idle_cutoff
         )
         rows = list((await self._s.scalars(stmt.with_for_update())).all())
         for row in rows:

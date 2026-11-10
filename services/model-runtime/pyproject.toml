@@ -36,8 +36,8 @@ dev = [
 # 계약에서 타입을 만드는 설정(ADR 0020). 다시 만들기: 리포 루트에서 `uv run --project tools/checks openit-gen-contract services/model-runtime`
 [tool.openit.contract]
 openapi = ["model-runtime"]  # contracts/openapi/<이름>.yaml. 영역의 계약 파일이 있으면 그 이름으로 바꾼다
-# 왜 schemas 도: 작업이 직접 참조하지 않지만 이 영역의 컴포넌트가 읽는 계약 값(패키지 OCI 매니페스트, 토큰 클레임, 기계 토큰 표, 환경 입력)
-schemas = ["ModelPackageOciManifest", "UserIdentityClaims", "AccessTokenHeader", "MachineTokenTable", "ModelRuntimeEnv", "ProblemReason", "ActionExtraction", "ContainerInputs"]
+# 왜 schemas 도: 작업이 직접 참조하지 않지만 이 영역의 컴포넌트가 읽는 계약 값(패키지 OCI 매니페스트, 토큰 클레임, 호출자 표, 환경 입력, 이름 표, 노출 선언)
+schemas = ["ModelPackageOciManifest", "UserIdentityClaims", "AccessTokenHeader", "MachineTokenTable", "ModelRuntimeEnv", "ProblemReason", "ActionExtraction", "ContainerInputs", "Exposure", "HostsTable", "MachineIdentityClaims", "MachineOidcClientId"]
 
 [project.scripts]
 package-publish = "model_runtime.publish:main"  # 모델 패키지 게시 도구(관리 노드에서 실행)

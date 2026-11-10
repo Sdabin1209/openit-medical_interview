@@ -19,6 +19,32 @@ class AccessTokenType(StrEnum):
     application_at_jwt = 'application/at+jwt'
 
 
+class AcmeDirectoryUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://acme-v02.api.letsencrypt.org/directory'],
+            max_length=8000,
+            pattern='^https://',
+        ),
+    ]
+    """
+    ACME 서버의 디렉터리 주소(공개 입구 인증서를 공인 ACME CA 에서 받을 때)
+    """
+
+
+class AlertHeartbeatInterval(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['5m'], max_length=32, pattern='^([1-9][0-9]*(ms|s|m|h|d|w|y))+$'
+        ),
+    ]
+    """
+    서버 전체가 멈췄음을 수신처가 알아차리게 하는 생존 신호(Watchdog 경보)를 보내는 간격(Prometheus 기간 표기)
+    """
+
+
 class AlertReceiverUrl(RootModel[AnyUrl]):
     root: Annotated[AnyUrl, Field(examples=['mailto:alerts@example.org'])]
     """
@@ -40,6 +66,32 @@ class CaMode(StrEnum):
 
     self = 'self'
     organization = 'organization'
+
+
+class ConfigFilePath(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['/etc/openit/machine-tokens.json'], max_length=4096, pattern='^/'
+        ),
+    ]
+    """
+    비밀이 아닌 설정 파일 또는 폴더의 절대 경로
+    """
+
+
+class DatabaseUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['postgresql://survey-db:5432/survey'],
+            max_length=8000,
+            pattern='^postgresql://',
+        ),
+    ]
+    """
+    자기 영역 데이터베이스의 접속 주소(비밀번호는 넣지 않는다)
+    """
 
 
 class DeviceId(RootModel[str]):
@@ -164,6 +216,18 @@ class ListenPort(RootModel[int]):
     """
 
 
+class LogLevel(StrEnum):
+    """
+    표준 출력으로 내는 로그의 최소 수준
+    """
+
+    DEBUG = 'DEBUG'
+    INFO = 'INFO'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
+    CRITICAL = 'CRITICAL'
+
+
 class MachineClientName(RootModel[str]):
     root: Annotated[
         str,
@@ -178,6 +242,20 @@ class MachineClientName(RootModel[str]):
     """
 
 
+class MachineOidcClientId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['machine-survey-service'],
+            max_length=71,
+            pattern='^machine-[a-z]([a-z0-9-]{0,61}[a-z0-9])?$',
+        ),
+    ]
+    """
+    기계 호출자의 Keycloak 클라이언트 식별자(client_id 클레임). machine- 다음에 호출자 이름(MachineClientName)이 온다
+    """
+
+
 class MachineRole(StrEnum):
     """
     기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다
@@ -187,6 +265,15 @@ class MachineRole(StrEnum):
     risk_detector = 'risk-detector'
     inference_caller = 'inference-caller'
     case_reader = 'case-reader'
+
+
+class MachineSubjectId(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['0b8c7d3e-91a4-4c1f-8e55-3a6d2f4b7c10'], max_length=255)
+    ]
+    """
+    기계 호출자의 서비스 계정 식별자(토큰의 sub 값)
+    """
 
 
 class NumericDate(RootModel[int]):
@@ -205,8 +292,15 @@ class OidcClientId(RootModel[str]):
     """
 
 
-class OidcIssuerUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://platform/realms/openit'])]
+class OidcIssuerUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://platform/realms/openit'],
+            max_length=8000,
+            pattern='^https://',
+        ),
+    ]
     """
     사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다
     """
@@ -250,6 +344,20 @@ class ServiceName(StrEnum):
     platform = 'platform'
     kiosk_frontend = 'kiosk-frontend'
     admin_console = 'admin-console'
+
+
+class SmtpSmarthost(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['smtp.example.org:587'],
+            max_length=259,
+            pattern='^[A-Za-z0-9.-]{1,253}:(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})$',
+        ),
+    ]
+    """
+    감시 경보 메일을 내보낼 SMTP 서버의 호스트와 포트(호스트:포트)
+    """
 
 
 class TokenAudienceClaim1(RootModel[list[ServiceName]]):
@@ -379,9 +487,23 @@ class HostAddress(RootModel[HostName | Ipv4Address | Ipv6Address]):
     """
 
 
+class MachineRealmAccessClaim(BaseModel):
+    """
+    기계 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임). 역할은 기계 권한(MachineRole)이다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    roles: Annotated[list[MachineRole], Field(max_length=4)]
+    """
+    이 호출자에게 부여된 권한들
+    """
+
+
 class MachineTokenEntry(BaseModel):
     """
-    기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로
+    기계 호출자 하나와 그에게 허용한 권한, 그 호출자의 Keycloak 기계 클라이언트 비밀이 든 파일의 경로
     """
 
     model_config = ConfigDict(
@@ -391,19 +513,19 @@ class MachineTokenEntry(BaseModel):
     """
     호출자 이름
     """
+    client_secret_file: SecretFilePath
+    """
+    호출자의 Keycloak 기계 클라이언트 비밀 파일의 경로(클라이언트 ID 는 machine-<client>, 값은 이 표에 적지 않는다)
+    """
     roles: Annotated[list[MachineRole], Field(max_length=4)]
     """
     이 호출자에게 허용한 권한들
-    """
-    token_file: SecretFilePath
-    """
-    토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)
     """
 
 
 class MachineTokenTable(BaseModel):
     """
-    받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)
+    기계 호출자 표(호출자 이름, 권한, 클라이언트 비밀 파일의 경로. 비밀은 없다). platform 이 이 표로 Keycloak 기계 클라이언트와 그 서비스 계정의 역할을 만들고 배포가 파일로 준다
     """
 
     model_config = ConfigDict(
@@ -411,7 +533,111 @@ class MachineTokenTable(BaseModel):
     )
     tokens: Annotated[list[MachineTokenEntry], Field(max_length=4)]
     """
-    호출자별 권한과 토큰 파일
+    호출자별 권한과 클라이언트 비밀 파일
+    """
+
+
+class PlatformEnv(BaseModel):
+    """
+    deploy 가 platform 에 주는 환경 입력
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    OPENIT_ACME_DIRECTORY_URL: AcmeDirectoryUrl | None = None
+    """
+    ACME 서버 디렉터리 주소(공개 입구 인증서 방식이 acme-public 일 때 필수). 필요한 컴포넌트: gateway
+    """
+    OPENIT_ALERT_HEARTBEAT_INTERVAL: AlertHeartbeatInterval | None = None
+    """
+    생존 신호(Watchdog 경보)를 보내는 간격(선택). 필요한 컴포넌트: monitoring
+    """
+    OPENIT_ALERT_RECEIVER_URL: AlertReceiverUrl
+    """
+    감시 경보 수신처. 필요한 컴포넌트: monitoring
+    """
+    OPENIT_ALERT_SMTP_SMARTHOST: SmtpSmarthost | None = None
+    """
+    감시 경보 메일을 내보낼 SMTP 서버(OPENIT_ALERT_RECEIVER_URL 이 mailto 일 때 필수, 선택). 필요한 컴포넌트: monitoring
+    """
+    OPENIT_CA_MODE: CaMode
+    """
+    사설 CA 의 방식. 필요한 컴포넌트: ca
+    """
+    OPENIT_CA_PASSWORD_FILE: SecretFilePath
+    """
+    사설 CA(step-ca)의 키 암호 파일. 필요한 컴포넌트: ca
+    """
+    OPENIT_DEVICE_ALLOWLIST_FILE: ConfigFilePath
+    """
+    기기 허용 목록 파일(DeviceAllowlist 모양). 필요한 컴포넌트: gateway
+    """
+    OPENIT_DEVICE_CA_CERTIFICATE_FILE: ConfigFilePath
+    """
+    기기 인증서를 발급하는 조직 PKI 의 루트 인증서 파일. 필요한 컴포넌트: gateway
+    """
+    OPENIT_EXPOSURES_DIR: ConfigFilePath
+    """
+    영역들의 노출 선언(Exposure)을 모은 폴더. 공개 입구가 이것으로 경로를 구성하고 같은 공개 경로를 두 영역이 열면 시작하지 않는다. 필요한 컴포넌트: gateway
+    """
+    OPENIT_IDP_ADMIN_PASSWORD_FILE: SecretFilePath
+    """
+    사람 인증(Keycloak)의 초기 admin 계정 임시 비밀번호 파일. 필요한 컴포넌트: identity
+    """
+    OPENIT_IDP_DATABASE_PASSWORD_FILE: SecretFilePath
+    """
+    사람 인증 데이터베이스 비밀번호 파일. 필요한 컴포넌트: identity
+    """
+    OPENIT_IDP_DATABASE_URL: DatabaseUrl
+    """
+    사람 인증(Keycloak) 데이터베이스 접속 주소. 필요한 컴포넌트: identity
+    """
+    OPENIT_INGRESS_CERTIFICATE_FILE: ConfigFilePath | None = None
+    """
+    조직이 발급한 입구 인증서 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway
+    """
+    OPENIT_INGRESS_CERTIFICATE_MODE: IngressCertificateMode
+    """
+    공개 입구 인증서를 얻는 방식. 필요한 컴포넌트: gateway, ca
+    """
+    OPENIT_INGRESS_PRIVATE_KEY_FILE: SecretFilePath | None = None
+    """
+    조직이 발급한 입구 인증서의 개인키 파일(OPENIT_INGRESS_CERTIFICATE_MODE 가 organization 일 때 필수, 선택). 필요한 컴포넌트: gateway
+    """
+    OPENIT_LISTEN_PORT: ListenPort
+    """
+    공개 입구가 요청을 받는 포트. 필요한 컴포넌트: gateway
+    """
+    OPENIT_LOG_LEVEL: LogLevel | None = None
+    """
+    로그 수준. 필요한 컴포넌트: 모든 컴포넌트
+    """
+    OPENIT_MACHINE_TOKENS_FILE: ConfigFilePath
+    """
+    호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 입구가 기계 토큰 경로를 가르고 identity 가 Keycloak 기계 클라이언트와 역할을 만든다. 필요한 컴포넌트: gateway, identity
+    """
+    OPENIT_OIDC_ISSUER_URL: OidcIssuerUrl
+    """
+    사람 인증(OIDC) 발급자 주소. 서비스가 접근 토큰의 iss 를 확인할 때 쓴다. 필요한 컴포넌트: identity, identity_proxy, gateway
+    """
+    OPENIT_PUBLIC_NAMES: Annotated[
+        list[HostName] | None, Field(max_length=32, min_length=1)
+    ] = None
+    """
+    입구 인증서의 이름(SAN)이자 입구가 서비스하는 이름들. OPENIT_OIDC_ISSUER_URL 의 호스트가 이 안에 있어야 한다(선택). 필요한 컴포넌트: gateway, ca
+    """
+    OPENIT_SERVICE_PORT: ListenPort | None = None
+    """
+    입구와 감시가 영역 서비스(https://<서비스 이름>)에 접속하는 포트(선택). 모든 영역 서비스가 같은 포트를 쓰며, 서비스 컨테이너가 영역 안 평문 HTTP 로 듣는 OPENIT_LISTEN_PORT 와는 별개다(요청은 영역 게이트웨이가 받는다). 필요한 컴포넌트: gateway, monitoring
+    """
+    OPENIT_TLS_ROOT_CERTIFICATE_FILE: ConfigFilePath
+    """
+    영역 사이 TLS 의 루트 인증서 파일(모든 서비스에 OPENIT_ROOT_CERTIFICATE_FILE 로 나눠 준다). 필요한 컴포넌트: ca, gateway
+    """
+    OPENIT_TRUST_LIST_FILE: ConfigFilePath
+    """
+    신뢰할 CA 인증서 묶음 파일(조직 CA 방식이면 조직 CA 를 넣는다). 필요한 컴포넌트: gateway
     """
 
 
@@ -490,16 +716,55 @@ class ExternalEgressTarget(BaseModel):
     """
 
 
+class MachineIdentityClaims(BaseModel):
+    """
+    서비스가 기계 호출의 JWT 접근 토큰에서 반드시 확인하는 클레임(RFC 9068 의 필수 클레임과 기계 권한). 모양은 UserIdentityClaims 를 따르되 client_id 는 machine-<호출자 이름> 이고 역할은 MachineRole 이다. 서명은 IdP 공개 키(JWKS)로 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다
+    """
+
+    aud: TokenAudienceClaim
+    """
+    이 토큰을 받는 서비스. 자기 이름이 없으면 거절한다
+    """
+    client_id: MachineOidcClientId
+    """
+    토큰을 받은 기계 클라이언트
+    """
+    exp: NumericDate
+    """
+    토큰이 만료되는 때. 지난 토큰은 거절한다
+    """
+    iat: NumericDate
+    """
+    토큰을 발급한 때
+    """
+    iss: OidcIssuerUrl
+    """
+    토큰을 발급한 IdP 의 주소. 환경 입력의 발급자와 같아야 한다
+    """
+    jti: TokenId
+    """
+    토큰의 고유 식별자
+    """
+    realm_access: MachineRealmAccessClaim
+    """
+    부여된 기계 권한
+    """
+    sub: MachineSubjectId
+    """
+    기계 호출자의 서비스 계정 식별자
+    """
+
+
 class EgressTarget(RootModel[ServiceName | ExternalEgressTarget]):
     root: ServiceName | ExternalEgressTarget
     """
-    나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트)
+    나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트). 서비스 이름 platform 은 사람·기계 토큰의 발급자(OIDC 발급자 주소의 호스트와 포트)로 나가는 터널을 뜻한다. 발급자 주소는 설치처 값이라 선언에 못 박지 못한다. 토큰 검증(JWKS)이나 기계 토큰 발급이 필요한 서비스는 egress 에 platform 을 선언한다
     """
 
 
 class Exposure(BaseModel):
     """
-    영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다
+    영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다. 노출 선언은 경로와 대상만 정한다. 경로가 요구하는 역할의 정본은 OpenAPI 3.1 의 작업 security 요구이고 입구 설정 생성기가 노출 선언과 계약 작업의 인증 요구를 곱해 라우트를 만든다(입구가 읽는 것은 영역 코드가 아니라 헤드 소유 계약이다)
     """
 
     model_config = ConfigDict(

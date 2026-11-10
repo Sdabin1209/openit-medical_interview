@@ -28,7 +28,7 @@ from scenario.world import (
     bank,
     world,
 )
-from support import MACHINE_TOKEN, Identity, make_app, settings_for
+from support import Identity, make_app, settings_for
 
 pytestmark = pytest.mark.anyio
 
@@ -47,8 +47,8 @@ async def serving(
         yield client, app
 
 
-def machine() -> dict[str, str]:
-    return {"Authorization": f"Bearer {MACHINE_TOKEN}"}
+def machine(identity: Identity) -> dict[str, str]:
+    return {"Authorization": f"Bearer {identity.machine_token()}"}
 
 
 def human(identity: Identity, *roles: str, sub: str = "approver-1") -> dict[str, str]:
@@ -83,9 +83,9 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
 
         async with serving(w, identity) as (client, app):
             # 적재 전: 상태는 NOT_LOADED, 추론은 503 MODEL_NOT_LOADED
-            status = (await client.get("/v1/model-status", headers=machine())).json()
+            status = (await client.get("/v1/model-status", headers=machine(identity))).json()
             assert status == {"state": "NOT_LOADED"}
-            early = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine())
+            early = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
             assert (
                 early.status_code == 503
                 and early.json()["reason"] == "MODEL_NOT_LOADED"
@@ -108,7 +108,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             )
             assert accepted.status_code == 202 and accepted.json()["package_digest"] == first
             await settle(app)
-            status = (await client.get("/v1/model-status", headers=machine())).json()
+            status = (await client.get("/v1/model-status", headers=machine(identity))).json()
             assert (
                 status["state"] == "READY" and status["package_digest"] == first and status["activated_by"] == "user-7"
             )
@@ -121,7 +121,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             assert again.status_code == 200  # 이미 활성인 digest 의 활성화는 멱등
 
             # 추출(정상): 모델 입력 글자는 학습 데이터와 같은 직렬화다. 시스템 프롬프트는 패키지의 것이다
-            ok = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine())
+            ok = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
             assert ok.status_code == 200
             assert ok.json() == {"package_digest": first, "output": A_NEXT_GOLD}
             call = w.engine.calls[-1]
@@ -129,7 +129,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             assert call.temperature == 0.0 and call.response_format is None
 
             # 추출(고쳐 쓰기): 모델이 틀린 next_item 을 냈지만 순서표로 채워 낸다
-            fixed = await client.post("/v1/extractions", json=extraction_body(A_BAD), headers=machine())
+            fixed = await client.post("/v1/extractions", json=extraction_body(A_BAD), headers=machine(identity))
             assert fixed.status_code == 200 and fixed.json()["output"]["next_item"] == "Q8_2"
 
             # 추출(위반 → 출력 불가): 없는 칸을 낸 출력은 값을 지어내지 않고 503 OUTPUT_INVALID
@@ -142,7 +142,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
                     ],
                 }
             )
-            invalid = await client.post("/v1/extractions", json=extraction_body(A_SKIP), headers=machine())
+            invalid = await client.post("/v1/extractions", json=extraction_body(A_SKIP), headers=machine(identity))
             assert (
                 invalid.status_code == 503
                 and invalid.json()["reason"] == "OUTPUT_INVALID"
@@ -150,12 +150,14 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             )
 
             # 문항 은행 버전이 다르면 409
-            mismatch = await client.post("/v1/extractions", json=extraction_body(A_NEXT, version=2), headers=machine())
+            mismatch = await client.post(
+                "/v1/extractions", json=extraction_body(A_NEXT, version=2), headers=machine(identity)
+            )
             assert mismatch.status_code == 409 and mismatch.json()["reason"] == "QUESTION_BANK_VERSION_MISMATCH"
 
             # 응답 문장
             reply = await client.post(
-                "/v1/responses", json={"runtime_contract_version": 1, **B_REQUEST}, headers=machine()
+                "/v1/responses", json={"runtime_contract_version": 1, **B_REQUEST}, headers=machine(identity)
             )
             assert reply.status_code == 200 and reply.json() == {
                 "package_digest": first,
@@ -168,7 +170,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
 
             # 시작(START): 환자 말 없이 다음 문항의 topic 과 질문 문장으로 모델 입력을 만든다
             started = await client.post(
-                "/v1/responses", json={"runtime_contract_version": 1, **B_START}, headers=machine()
+                "/v1/responses", json={"runtime_contract_version": 1, **B_START}, headers=machine(identity)
             )
             assert started.status_code == 200
             assert w.engine.calls[-1].user == serialize_response_input(compose_response_from_request(B_START))
@@ -186,7 +188,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
                 "previous_question_id": "Q9_1",
             }
             await client.post(
-                "/v1/extractions", json=body, headers=machine()
+                "/v1/extractions", json=body, headers=machine(identity)
             )  # 엔진이 빈 답을 내므로 503. 보낸 입력을 본다
             sent = json.loads(w.engine.calls[-1].user)
             assert list(sent["state"]) == ["Q9_1.days", "Q8_2.duration_minutes", "Q9_2.duration_minutes"]
@@ -201,7 +203,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
                     "question_id": "Q99",
                     "values": [{**B_REQUEST["values"][0], "key": "Q99.x"}],
                 },
-                headers=machine(),
+                headers=machine(identity),
             )
             assert unknown.status_code == 400 and unknown.headers["content-type"] == "application/problem+json"
 
@@ -216,9 +218,9 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             assert status["package_digest"] == second and status["previous_package_digest"] == first
             assert (
                 w.engine.calls
-                and (await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine())).json()[
-                    "package_digest"
-                ]
+                and (
+                    await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
+                ).json()["package_digest"]
                 == second
             )
             assert w.engine.calls[-1].system == SYSTEM_A + " (둘째)"
@@ -244,7 +246,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             )
             assert back.status_code == 202
             await settle(app)
-            status = (await client.get("/v1/model-status", headers=machine())).json()
+            status = (await client.get("/v1/model-status", headers=machine(identity))).json()
             assert status["state"] == "READY" and status["package_digest"] == first and status["activated_by"] == "op-3"
             assert status["previous_package_digest"] == second
 
@@ -263,8 +265,8 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
         ]
         async with serving(w, identity) as (client, app):
             await settle(app)
-            status = (await client.get("/v1/model-status", headers=machine())).json()
+            status = (await client.get("/v1/model-status", headers=machine(identity))).json()
             assert status["state"] == "READY" and status["package_digest"] == first
             assert (
-                await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine())
+                await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
             ).status_code == 200

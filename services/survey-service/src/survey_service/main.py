@@ -5,6 +5,7 @@
 """
 
 import os
+import ssl
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -17,10 +18,12 @@ from starlette.types import Lifespan
 
 from survey_service.contract.models import DevicePlacementTable, SurveyServiceEnv
 from survey_service.link import admin_api, hospital_api, kiosk_api, problem, risk_in
-from survey_service.link.auth import Authenticator, JwksKeys, load_machine_credentials
+from survey_service.link.auth import MACHINE_CLIENT_PREFIX, Authenticator, JwksKeys, load_machine_callers
 from survey_service.link.health import ReadinessCheck, health_router
+from survey_service.link.machine_token import MachineTokenSource
 from survey_service.link.model_client import HttpModelClient
 from survey_service.link.push import WebPushNotifier
+from survey_service.link.tls import ClientTls
 from survey_service.settings import SERVICE, limits_of, load_env, read_secret
 from survey_service.store.engine import database_url, make_engine, migrate
 from survey_service.store.repository import SqlStore
@@ -66,23 +69,32 @@ def build(environ: Mapping[str, str] | None = None) -> FastAPI:
     limits = limits_of(env)
     proxy = str(env.OPENIT_EGRESS_PROXY.root)
     root = env.OPENIT_ROOT_CERTIFICATE_FILE.root
+    # 왜 발급자 호출도 터널로: IdP(JWKS, 토큰 엔드포인트)로 나가는 호출도 영역 게이트웨이의 CONNECT 터널만 지난다(D128,
+    # Exposure.egress 의 platform). 서버 검증은 루트 인증서로 한다
+    idp = httpx.AsyncClient(proxy=proxy, verify=ssl.create_default_context(cafile=root))
+    issuer = str(env.OPENIT_OIDC_ISSUER_URL.root)
+    tokens = MachineTokenSource(
+        issuer,
+        f"{MACHINE_CLIENT_PREFIX}{SERVICE.value}",
+        env.OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE.root,
+        client=idp,
+    )
     model = HttpModelClient(
         str(env.OPENIT_MODEL_RUNTIME_URL.root),
-        read_secret("OPENIT_MODEL_RUNTIME_TOKEN", source),
+        tokens,
         limits,
         egress_proxy=proxy,
-        root_certificate=root,
+        tls=ClientTls(root, env.OPENIT_TLS_CERTIFICATE_FILE.root, env.OPENIT_TLS_PRIVATE_KEY_FILE.root),
     )
     notifier = WebPushNotifier(
         env.OPENIT_VAPID_PRIVATE_KEY_FILE.root, str(env.OPENIT_VAPID_SUBJECT.root), egress_proxy=proxy
     )
-    idp = httpx.AsyncClient(verify=root)
     jwks_url = str(env.OPENIT_OIDC_JWKS_URL.root) if env.OPENIT_OIDC_JWKS_URL is not None else None
     authenticator = Authenticator(
-        issuer=str(env.OPENIT_OIDC_ISSUER_URL.root),
+        issuer=issuer,
         audience=env.OPENIT_OIDC_AUDIENCE.value,
-        key_for=JwksKeys(str(env.OPENIT_OIDC_ISSUER_URL.root), jwks_url, client=idp),
-        machines=load_machine_credentials(env.OPENIT_MACHINE_TOKENS_FILE.root),
+        key_for=JwksKeys(issuer, jwks_url, client=idp),
+        machines=load_machine_callers(env.OPENIT_MACHINE_TOKENS_FILE.root),
     )
     runtime = Runtime(
         store=store,

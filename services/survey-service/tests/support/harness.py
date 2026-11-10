@@ -28,7 +28,7 @@ from survey_service.contract.models import (
     ResponseResult,
     SurveyServiceEnv,
 )
-from survey_service.link.auth import Authenticator, MachineCredential
+from survey_service.link.auth import Authenticator
 from survey_service.main import create_app
 from survey_service.settings import limits_of
 from survey_service.store.engine import make_engine, migrate
@@ -128,20 +128,22 @@ class Keys:
         exp_in: int = 600,
         issuer: str = ISSUER,
         now: float | None = None,
+        client_id: str = "admin-console",
     ) -> str:
         issued = int(now if now is not None else time.time())
         claims = {
             "iss": issuer, "aud": audience, "sub": sub, "exp": issued + exp_in, "iat": issued, "jti": uuid.uuid4().hex,
-            "client_id": "admin-console", "realm_access": {"roles": roles},
+            "client_id": client_id, "realm_access": {"roles": roles},
         }  # fmt: skip
         return jwt.encode(claims, self.private, algorithm="RS256", headers={"typ": typ, "kid": "k1"})
 
 
-MACHINES = (
-    MachineCredential("hospital", frozenset({"result-reader"}), b"hospital-token"),
-    MachineCredential("risk-engine", frozenset({"risk-detector"}), b"risk-token"),
-    MachineCredential("model-lab", frozenset({"case-reader"}), b"lab-token"),
-)
+# 받는 쪽의 호출자 표(MachineTokenTable 의 호출자 이름 -> 허용 역할)
+MACHINES = {
+    "hospital": frozenset({"result-reader"}),
+    "risk-engine": frozenset({"risk-detector"}),
+    "model-lab": frozenset({"case-reader"}),
+}
 
 
 def xfcc(device: str) -> dict[str, str]:
@@ -168,9 +170,10 @@ class Harness:
     def human(self, *roles: str, sub: str = "user-1") -> dict[str, str]:
         return {"Authorization": f"Bearer {self.keys.token(list(roles), sub=sub)}"}
 
-    @staticmethod
-    def machine(name: str) -> dict[str, str]:
-        token = next(c.token for c in MACHINES if c.client == name).decode()
+    def machine(self, name: str, *roles: str, **claims: Any) -> dict[str, str]:
+        """기계 호출자의 JWT 접근 토큰(client credentials 로 받은 것, client_id machine-<이름>). 역할을 안 주면 표의 역할이다."""
+        granted = list(roles) if roles else sorted(MACHINES.get(name, frozenset()))
+        token = self.keys.token(granted, sub=f"service-account-{name}", client_id=f"machine-{name}", **claims)
         return {"Authorization": f"Bearer {token}"}
 
 
@@ -199,7 +202,7 @@ async def build_harness(
             "OPENIT_ROOT_CERTIFICATE_FILE": "/tmp/root.pem", "OPENIT_TLS_CERTIFICATE_FILE": "/tmp/tls.pem",
             "OPENIT_TLS_PRIVATE_KEY_FILE": "/tmp/tls.key", "OPENIT_LISTEN_PORT": "8080",
             "OPENIT_DATABASE_URL": "postgresql://survey@db/survey", "OPENIT_DATABASE_PASSWORD_FILE": "/tmp/pw",
-            "OPENIT_MODEL_RUNTIME_URL": "https://model-runtime", "OPENIT_MODEL_RUNTIME_TOKEN_FILE": "/tmp/t",
+            "OPENIT_MODEL_RUNTIME_URL": "https://model-runtime", "OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE": "/tmp/t",
             "OPENIT_MACHINE_TOKENS_FILE": "/tmp/m.json", "OPENIT_VAPID_PRIVATE_KEY_FILE": "/tmp/v.pem",
             "OPENIT_VAPID_SUBJECT": "mailto:ops@example.org", "OPENIT_EGRESS_PROXY": "http://127.0.0.1:3128",
         }

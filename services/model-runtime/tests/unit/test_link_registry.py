@@ -7,37 +7,13 @@ import pytest
 from fakes.pki import make_pki
 from fakes.registry import FakeRegistry
 from fakes.servers import run_server
-from model_runtime.components.package_publish import AdapterFiles, BuiltPackage, build_package, pack_adapter_folder
 from model_runtime.link.publish_registry import OciPackagePublisher, PublishError
 from model_runtime.link.registry import OciPackageSource
 from model_runtime.types import PackageNotFoundError, RegistryUnavailableError
-from package_factory import EVALUATION, SERVING, sha
-from support import REGISTRY_PASSWORD, REGISTRY_USER, adapter_folder
+from package_factory import REPO, built, sha
+from support import REGISTRY_PASSWORD, REGISTRY_USER
 
 pytestmark = pytest.mark.anyio
-REPO = "openit/model-package"
-
-
-def built(tmp: Path) -> BuiltPackage:
-    adapters: dict[str, AdapterFiles] = {}
-    for role in ("LORA_A", "LORA_B"):
-        archive = tmp / f"{role}.tar"
-        pack_adapter_folder(adapter_folder(tmp, role, role.encode()), archive)
-        prompt = tmp / f"{role}.txt"
-        prompt.write_text(role, encoding="utf-8")
-        adapters[role] = AdapterFiles(archive, prompt, SERVING)
-    return build_package(
-        adapters=adapters,
-        base_model="Qwen/Qwen3-8B",
-        runtime_contract_version=1,
-        model_io_version="model-io-v2",
-        model_runtime_version="0.1.0",
-        dataset_version_id=EVALUATION["dataset_version_id"],
-        training_run_ids=[],
-        evaluation=EVALUATION,
-        created_at="2026-11-10T09:00:00+00:00",
-        workdir=tmp / "pkg",
-    )
 
 
 async def test_push_then_pull_by_digest(tmp_path: Path) -> None:

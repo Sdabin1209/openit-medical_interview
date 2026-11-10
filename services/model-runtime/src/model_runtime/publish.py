@@ -166,7 +166,7 @@ async def run_publish(args: argparse.Namespace) -> str:
     prompts = {"LORA_A": Path(args.system_prompt_a), "LORA_B": Path(args.system_prompt_b)}
     folders = {"LORA_A": Path(args.adapter_a), "LORA_B": Path(args.adapter_b)}
     tag = uuid.uuid4().hex[:8]
-    engine = VllmEngine(args.engine_url)
+    engine = VllmEngine(args.engine_url, args.base_model)
     names = {role: f"publish-{role.lower()}-{tag}" for role in folders}
     try:
         for role, folder in folders.items():

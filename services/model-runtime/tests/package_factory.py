@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from model_runtime.components.package_publish import AdapterFiles, build_package, pack_adapter_folder
+from model_runtime.components.package_publish import AdapterFiles, BuiltPackage, build_package, pack_adapter_folder
 from model_runtime.types import PackageNotFoundError, RawManifest
-from support import adapter_folder
+from support import BASE_MODEL, adapter_folder
 
+REPO = "openit/model-package"
 SERVING = {"max_new_tokens": 1208, "temperature": 0.0, "constrained_decoding": False}
 EVALUATION: dict[str, Any] = {
     "dataset_version_id": "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90",
@@ -33,6 +34,9 @@ class MemorySource:
             raise PackageNotFoundError
         return RawManifest(digest, self.manifests[digest])
 
+    async def list_manifests(self) -> list[RawManifest]:
+        return [RawManifest(digest, content) for digest, content in self.manifests.items()]
+
     async def download_blob(self, digest: str, destination: Path) -> None:
         self.downloads.append(digest)
         if digest not in self.blobs:
@@ -53,6 +57,8 @@ def publish_memory(
     mutate_manifest: Callable[[dict[str, Any]], None] | None = None,
     prompts: tuple[str, str] = ("프롬프트 A", "프롬프트 B"),
     seed: str = "x",
+    created_at: str = "2026-11-10T09:31:00+00:00",
+    base_model: str = BASE_MODEL,
 ) -> str:
     """패키지를 만들어 source 에 넣고 매니페스트 digest 를 돌려준다. mutate_* 는 계약을 어기는 변형을 넣는다."""
     folders = {
@@ -68,14 +74,14 @@ def publish_memory(
         files[role] = AdapterFiles(archive, prompt, SERVING)
     package = build_package(
         adapters=files,
-        base_model="Qwen/Qwen3-8B",
+        base_model=base_model,
         runtime_contract_version=1,
         model_io_version="model-io-v2",
         model_runtime_version=version,
         dataset_version_id=EVALUATION["dataset_version_id"],
         training_run_ids=[str(uuid.uuid4()), str(uuid.uuid4())],
         evaluation=EVALUATION,
-        created_at="2026-11-10T09:31:00+00:00",
+        created_at=created_at,
         workdir=work / f"pkg-{seed}",
     )
     config = json.loads(package.config.path.read_bytes())
@@ -94,3 +100,25 @@ def publish_memory(
     for layer in package.layers:
         source.blobs[layer.digest] = layer.path.read_bytes()
     return digest
+
+
+def built(tmp: Path, seed: str = "") -> BuiltPackage:
+    adapters: dict[str, AdapterFiles] = {}
+    for role in ("LORA_A", "LORA_B"):
+        archive = tmp / f"{role}.tar"
+        pack_adapter_folder(adapter_folder(tmp, role, (role + seed).encode()), archive)
+        prompt = tmp / f"{role}.txt"
+        prompt.write_text(role, encoding="utf-8")
+        adapters[role] = AdapterFiles(archive, prompt, SERVING)
+    return build_package(
+        adapters=adapters,
+        base_model="Qwen/Qwen3-8B",
+        runtime_contract_version=1,
+        model_io_version="model-io-v2",
+        model_runtime_version="0.1.0",
+        dataset_version_id=EVALUATION["dataset_version_id"],
+        training_run_ids=[],
+        evaluation=EVALUATION,
+        created_at="2026-11-10T09:00:00+00:00",
+        workdir=tmp / "pkg",
+    )

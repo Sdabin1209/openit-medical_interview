@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from enum import IntEnum, StrEnum
-from typing import Annotated, Literal
+from ipaddress import IPv4Address, IPv6Address
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel
@@ -81,6 +82,13 @@ class AlertStreamHeartbeatSeconds(RootModel[Literal[15]]):
     """
 
 
+class ArgvElement(RootModel[str]):
+    root: Annotated[str, Field(examples=['/usr/local/bin/openit-run'], max_length=4096)]
+    """
+    시작 프로세스 명령줄의 요소 하나
+    """
+
+
 class AuthenticateChallenge(RootModel[str]):
     root: Annotated[str, Field(examples=['Bearer realm="openit"'], max_length=8000)]
     """
@@ -109,6 +117,18 @@ class BlankReason(StrEnum):
     UNASKED = 'UNASKED'
 
 
+class CapabilityName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['CAP_NET_BIND_SERVICE'], max_length=40, pattern='^CAP_[A-Z_]+$'
+        ),
+    ]
+    """
+    컨테이너에 더하는 Linux capability 의 이름(추가 권한). 기본은 모두 뺀 상태에서 더한다
+    """
+
+
 class CaseId(RootModel[UUID]):
     root: Annotated[UUID, Field(examples=['3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90'])]
     """
@@ -135,8 +155,24 @@ class ConfigFilePath(RootModel[str]):
     """
 
 
-class DatabaseUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['postgresql://survey-db:5432/survey'])]
+class ContainerPath(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['/var/lib/openit/cache'], max_length=4096, pattern='^/')
+    ]
+    """
+    컨테이너 안의 절대 경로
+    """
+
+
+class DatabaseUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['postgresql://survey-db:5432/survey'],
+            max_length=8000,
+            pattern='^postgresql://',
+        ),
+    ]
     """
     자기 영역 데이터베이스의 접속 주소(비밀번호는 넣지 않는다)
     """
@@ -167,6 +203,28 @@ class EgressProxyUrl(RootModel[AnyUrl]):
     """
 
 
+class EnvKind(StrEnum):
+    """
+    환경 입력의 종류
+    """
+
+    VALUE = 'VALUE'
+    SECRET_FILE = 'SECRET_FILE'
+    FILE_PATH = 'FILE_PATH'
+
+
+class EnvVarName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['OPENIT_LISTEN_PORT'], max_length=63, pattern='^[A-Z_][A-Z0-9_]*$'
+        ),
+    ]
+    """
+    환경 변수의 이름
+    """
+
+
 class EventSequence(RootModel[int]):
     root: Annotated[int, Field(examples=[42], ge=0, le=9007199254740991)]
     """
@@ -179,6 +237,18 @@ class ExplainStreakLimit(RootModel[int]):
     """
     한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
     """
+
+
+class ExposureAudience(StrEnum):
+    """
+    경로를 누구에게 여는지
+    """
+
+    HUMAN_OIDC = 'HUMAN_OIDC'
+    DEVICE_MTLS = 'DEVICE_MTLS'
+    MACHINE_TOKEN = 'MACHINE_TOKEN'
+    EXTERNAL_MACHINE_TOKEN = 'EXTERNAL_MACHINE_TOKEN'
+    DENIED = 'DENIED'
 
 
 class ExtractClientLimitSeconds(RootModel[Literal[21]]):
@@ -222,8 +292,15 @@ class FhirAbsentReason(StrEnum):
     not_asked = 'not-asked'
 
 
-class FhirCanonicalBaseUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://example.org/fhir/Questionnaire'])]
+class FhirCanonicalBaseUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://example.org/fhir/Questionnaire'],
+            max_length=8000,
+            pattern='^[A-Za-z][A-Za-z0-9+.-]*:',
+        ),
+    ]
     """
     문진표의 정본 URL 을 만드는 기준 주소. 문진표의 canonical URL 은 이 주소 뒤에 슬래시와 문진표 식별자를 붙인 값이다. 설치처마다 다르다
     """
@@ -345,6 +422,31 @@ class HealthStatus(StrEnum):
     fail = 'fail'
 
 
+class HostName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['inference.example.org'],
+            max_length=253,
+            pattern='^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]{0,61}[A-Za-z0-9])$',
+        ),
+    ]
+    """
+    서버를 가리키는 DNS 호스트 이름(예를 들어 survey-service 나 inference.example)
+    """
+
+
+class HttpMethodName(StrEnum):
+    """
+    경로에 허용하는 HTTP 메서드
+    """
+
+    GET = 'GET'
+    POST = 'POST'
+    PUT = 'PUT'
+    DELETE = 'DELETE'
+
+
 class HttpStatus(RootModel[int]):
     root: Annotated[int, Field(examples=[503], ge=400, le=599)]
     """
@@ -403,6 +505,27 @@ class InterventionDecision(BaseModel):
     """
 
 
+class Ipv4Address(RootModel[IPv4Address]):
+    root: Annotated[IPv4Address, Field(examples=['192.0.2.10'])]
+    """
+    IPv4 주소(점으로 구분한 십진 표기)
+    """
+
+
+class Ipv6Address(RootModel[IPv6Address]):
+    root: Annotated[IPv6Address, Field(examples=['2001:db8::10'])]
+    """
+    IPv6 주소(콜론 표기, IPv4 가 섞인 표기 포함)
+    """
+
+
+class IsRequired(RootModel[bool]):
+    root: bool
+    """
+    환경 입력이 없으면 서비스가 시작하지 않는지(참이면 필수 입력)
+    """
+
+
 class JobExitCode(IntEnum):
     """
     잡이 끝나며 내는 종료 코드
@@ -455,7 +578,7 @@ class JwsAlgorithmName(RootModel[str]):
 class KioskIdleResetSeconds(RootModel[Literal[60]]):
     root: Annotated[Literal[60], Field(ge=60, le=60)]
     """
-    키오스크가 환자의 입력 없이 기다리다 세션을 초기화하는 시간(초). 멈춘 세션은 만료하지 않는다
+    유휴 만료의 시간(초). 서버는 ACTIVE 세션의 마지막 활동(startSession, submitTurn, requestStaffCall 호출) 뒤 이만큼 지나면 그 세션을 EXPIRED 로 본다. 키오스크도 입력 없이 이만큼 기다리면 화면을 초기화하며 이는 화면 동작이라 서버에 알리지 않아도 된다(알리려면 endSession). 멈춘(PAUSED) 세션은 만료하지 않는다
     """
 
 
@@ -513,6 +636,20 @@ class MachineClientName(RootModel[str]):
     """
 
 
+class MachineOidcClientId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['machine-survey-service'],
+            max_length=71,
+            pattern='^machine-[a-z]([a-z0-9-]{0,61}[a-z0-9])?$',
+        ),
+    ]
+    """
+    기계 호출자의 Keycloak 클라이언트 식별자(client_id 클레임). machine- 다음에 호출자 이름(MachineClientName)이 온다
+    """
+
+
 class MachineRole(StrEnum):
     """
     기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다
@@ -522,6 +659,15 @@ class MachineRole(StrEnum):
     risk_detector = 'risk-detector'
     inference_caller = 'inference-caller'
     case_reader = 'case-reader'
+
+
+class MachineSubjectId(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['0b8c7d3e-91a4-4c1f-8e55-3a6d2f4b7c10'], max_length=255)
+    ]
+    """
+    기계 호출자의 서비스 계정 식별자(토큰의 sub 값)
+    """
 
 
 class MinimumModelIoVersion(RootModel[Literal['model-io-v3']]):
@@ -653,18 +799,27 @@ class OidcClientId(RootModel[str]):
     """
 
 
-class OidcIssuerUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://platform/realms/openit'])]
+class OidcIssuerUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://platform/realms/openit'],
+            max_length=8000,
+            pattern='^https://',
+        ),
+    ]
     """
     사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다
     """
 
 
-class OidcJwksUrl(RootModel[AnyUrl]):
+class OidcJwksUrl(RootModel[str]):
     root: Annotated[
-        AnyUrl,
+        str,
         Field(
-            examples=['https://platform/realms/openit/protocol/openid-connect/certs']
+            examples=['https://platform/realms/openit/protocol/openid-connect/certs'],
+            max_length=8000,
+            pattern='^https://',
         ),
     ]
     """
@@ -716,6 +871,13 @@ class PageLimit(RootModel[int]):
     """
 
 
+class PathPersistent(RootModel[bool]):
+    root: bool
+    """
+    쓰는 경로의 내용이 컨테이너를 다시 만들어도 남아야 하는지(참이면 유지되는 볼륨, 거짓이면 임시 저장소)
+    """
+
+
 class PauseReason(StrEnum):
     """
     세션이 멈춘 까닭. 직원 화면과 지표가 구분한다
@@ -725,8 +887,11 @@ class PauseReason(StrEnum):
     STAFF_CALL = 'STAFF_CALL'
 
 
-class PeerBaseUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://model-runtime'])]
+class PeerBaseUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(examples=['https://model-runtime'], max_length=8000, pattern='^https://'),
+    ]
     """
     이웃 서비스의 기준 주소(항상 TLS)
     """
@@ -803,6 +968,7 @@ class ProblemReason(StrEnum):
     PACKAGE_INVALID = 'PACKAGE_INVALID'
     ROLLBACK_TARGET_INVALID = 'ROLLBACK_TARGET_INVALID'
     RISK_DETECTION_DISABLED = 'RISK_DETECTION_DISABLED'
+    QUESTIONNAIRE_REQUIRED = 'QUESTIONNAIRE_REQUIRED'
 
 
 class ProblemTitle(RootModel[str]):
@@ -814,10 +980,32 @@ class ProblemTitle(RootModel[str]):
     """
 
 
-class ProblemType(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://openit/problems/OUTPUT_INVALID'])]
+class ProblemType(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://openit/problems/OUTPUT_INVALID'],
+            max_length=8000,
+            pattern='^[A-Za-z][A-Za-z0-9+.-]*:',
+        ),
+    ]
     """
     오류의 종류를 가리키는 절대 URI(scheme 이 있는 URI). 기본은 about:blank 다. 이 계약의 서버는 사유가 있으면 https://openit/problems/<ProblemReason 값> 을 쓴다
+    """
+
+
+class ProcessDeclaration(BaseModel):
+    """
+    시작 프로세스 하나의 실행 규칙. 서비스의 진입점이면 job 이 없고 잡이면 그 잡의 이름이 있다. 첫 요소는 절대 경로다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    argv: list[Any] | None = None
+    job: JobName | None = None
+    """
+    이 규칙이 실행하는 잡(서비스의 진입점이면 없다)
     """
 
 
@@ -936,6 +1124,13 @@ class QuestionSetVersionId(RootModel[UUID]):
     root: Annotated[UUID, Field(examples=['3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90'])]
     """
     문진표 한 벌의 확정된 버전 하나의 식별자
+    """
+
+
+class QuestionSetVersionIsActive(RootModel[bool]):
+    root: Annotated[bool, Field(examples=[True])]
+    """
+    문항 세트 버전이 그 문진표의 지금 활성 버전이면 참. 문진표마다 활성 버전은 하나이고 활성화하면 이전 활성 버전은 거짓이 된다
     """
 
 
@@ -1102,6 +1297,20 @@ class RiskSourceName(RootModel[str]):
     root: Annotated[str, Field(examples=['risk-engine'], max_length=63)]
     """
     위험 신호를 낸 감지기의 이름
+    """
+
+
+class RoutePathPrefix(RootModel[str]):
+    root: Annotated[str, Field(examples=['/v1/results'], max_length=8000, pattern='^/')]
+    """
+    노출하는 경로의 앞부분(항상 /로 시작)
+    """
+
+
+class RunAsUid(RootModel[int]):
+    root: Annotated[int, Field(examples=[10001], ge=1, le=4294967294)]
+    """
+    이미지가 실행되는 숫자 사용자 ID(root 가 아니다)
     """
 
 
@@ -1314,6 +1523,27 @@ class SurveyTurnLimitSeconds(RootModel[Literal[50]]):
     """
 
 
+class SysctlName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['net.ipv4.ip_unprivileged_port_start'],
+            max_length=255,
+            pattern='^[a-z0-9_]+(\\.[a-z0-9_]+)+$',
+        ),
+    ]
+    """
+    컨테이너에 주입하는 sysctl 의 이름(점으로 이은 소문자 키)
+    """
+
+
+class SysctlValue(RootModel[str]):
+    root: Annotated[str, Field(examples=['0'], max_length=255)]
+    """
+    sysctl 에 주는 값(글자로 쓴다)
+    """
+
+
 class TimeBudgetTable(BaseModel):
     """
     영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다
@@ -1340,7 +1570,7 @@ class TimeBudgetTable(BaseModel):
     """
     kiosk_idle_reset: KioskIdleResetSeconds
     """
-    키오스크가 입력 없이 기다리다 세션을 초기화하는 시간(초)
+    서버가 마지막 활동 뒤 ACTIVE 세션을 만료로 보는 시간(초). 키오스크 화면 초기화도 같은 시간이다
     """
     kiosk_progress_notice: KioskProgressNoticeSeconds
     """
@@ -1563,6 +1793,28 @@ class WebPushPayload(BaseModel):
     """
 
 
+class WritablePath(BaseModel):
+    """
+    컨테이너가 쓰는 경로 하나(경로, 유지 여부, 쓰는 사용자). 루트 파일시스템은 읽기 전용이다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    owner_uid: RunAsUid
+    """
+    그 경로에 쓰는 사용자
+    """
+    path: ContainerPath
+    """
+    쓰는 경로
+    """
+    persistent: PathPersistent
+    """
+    유지 여부
+    """
+
+
 class YesNoAnswer(RootModel[bool]):
     root: bool
     """
@@ -1651,6 +1903,50 @@ class DevicePlacementTable(BaseModel):
     placements: Annotated[list[DevicePlacement], Field(max_length=1000)]
     """
     기기별 기본 문진표 배치들
+    """
+
+
+class EnvDeclaration(BaseModel):
+    """
+    이미지가 받는 환경 입력 하나의 선언
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    kind: EnvKind
+    """
+    입력의 종류
+    """
+    name: EnvVarName
+    """
+    환경 변수 이름
+    """
+    required: IsRequired
+    """
+    없으면 시작하지 않는 입력인지
+    """
+
+
+class ExposureRoute(BaseModel):
+    """
+    영역이 노출하는 경로 하나와 그 대상
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    audience: ExposureAudience
+    """
+    이 경로를 여는 대상
+    """
+    methods: Annotated[list[HttpMethodName], Field(max_length=4, min_length=1)]
+    """
+    허용하는 메서드들
+    """
+    path_prefix: RoutePathPrefix
+    """
+    노출하는 경로의 앞부분
     """
 
 
@@ -1816,6 +2112,13 @@ class HealthReport(BaseModel):
     """
 
 
+class HostAddress(RootModel[HostName | Ipv4Address | Ipv6Address]):
+    root: HostName | Ipv4Address | Ipv6Address
+    """
+    서버의 호스트 이름 또는 IP 주소
+    """
+
+
 class JobDeclaration(BaseModel):
     """
     영역이 선언하는 잡 하나(이름과 시간 상한)
@@ -1904,9 +2207,23 @@ class JobsDeclaration(BaseModel):
     """
 
 
+class MachineRealmAccessClaim(BaseModel):
+    """
+    기계 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임). 역할은 기계 권한(MachineRole)이다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    roles: Annotated[list[MachineRole], Field(max_length=4)]
+    """
+    이 호출자에게 부여된 권한들
+    """
+
+
 class MachineTokenEntry(BaseModel):
     """
-    기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로
+    기계 호출자 하나와 그에게 허용한 권한, 그 호출자의 Keycloak 기계 클라이언트 비밀이 든 파일의 경로
     """
 
     model_config = ConfigDict(
@@ -1916,19 +2233,19 @@ class MachineTokenEntry(BaseModel):
     """
     호출자 이름
     """
+    client_secret_file: SecretFilePath
+    """
+    호출자의 Keycloak 기계 클라이언트 비밀 파일의 경로(클라이언트 ID 는 machine-<client>, 값은 이 표에 적지 않는다)
+    """
     roles: Annotated[list[MachineRole], Field(max_length=4)]
     """
     이 호출자에게 허용한 권한들
-    """
-    token_file: SecretFilePath
-    """
-    토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)
     """
 
 
 class MachineTokenTable(BaseModel):
     """
-    받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)
+    기계 호출자 표(호출자 이름, 권한, 클라이언트 비밀 파일의 경로. 비밀은 없다). platform 이 이 표로 Keycloak 기계 클라이언트와 그 서비스 계정의 역할을 만들고 배포가 파일로 준다
     """
 
     model_config = ConfigDict(
@@ -1936,7 +2253,7 @@ class MachineTokenTable(BaseModel):
     )
     tokens: Annotated[list[MachineTokenEntry], Field(max_length=4)]
     """
-    호출자별 권한과 토큰 파일
+    호출자별 권한과 클라이언트 비밀 파일
     """
 
 
@@ -2380,7 +2697,7 @@ class SessionEnded(BaseModel):
     """
     status: SessionStatus
     """
-    끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE)
+    끝난 뒤 상태(ENDED_PARTIAL 또는 ENDED_COMPLETE. 이미 유휴로 만료된 세션이면 EXPIRED)
     """
 
 
@@ -2394,7 +2711,7 @@ class SessionStartRequest(BaseModel):
     )
     questionnaire_id: QuestionnaireId | None = None
     """
-    환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다
+    환자가 고른 문진표. 코드에 문진표가 묶여 있지 않고 기기 배치도 없을 때만 쓴다. 키오스크는 먼저 이 칸 없이 보내고 서버가 422 QUESTIONNAIRE_REQUIRED 로 답했을 때만 환자가 고른 값을 더해 다시 보낸다
     """
     start_code: StartCodeValue
     """
@@ -2646,7 +2963,7 @@ class SurveyServiceEnv(BaseModel):
     """
     OPENIT_LISTEN_PORT: ListenPort
     """
-    요청을 받을 포트. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api
+    영역 안 평문 HTTP 로 요청을 받을 포트. 서비스 컨테이너는 영역 전용 내부 네트워크에서 이 포트를 들으며 영역 게이트웨이만 닿는다(TLS 는 게이트웨이가 끝낸다). 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api
     """
     OPENIT_LOG_LEVEL: LogLevel | None = None
     """
@@ -2654,11 +2971,11 @@ class SurveyServiceEnv(BaseModel):
     """
     OPENIT_MACHINE_TOKENS_FILE: ConfigFilePath
     """
-    이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_hospital_api, link_risk_in, 실패 사례를 내보내는 link_admin_api
+    이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 필요한 컴포넌트: link_hospital_api, link_risk_in, 실패 사례를 내보내는 link_admin_api
     """
-    OPENIT_MODEL_RUNTIME_TOKEN_FILE: SecretFilePath
+    OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE: SecretFilePath
     """
-    model-runtime 에 보일 기계 토큰 파일. 필요한 컴포넌트: link_model_client
+    model-runtime 을 부를 기계 토큰을 받는 데 쓰는 이 서비스의 Keycloak 기계 클라이언트(machine-survey-service) 비밀 파일. 토큰은 OAuth 2.0 client credentials(RFC 6749 4.4)로 발급자(OPENIT_OIDC_ISSUER_URL)에서 받는다. 필요한 컴포넌트: link_model_client
     """
     OPENIT_MODEL_RUNTIME_URL: PeerBaseUrl
     """
@@ -2666,15 +2983,15 @@ class SurveyServiceEnv(BaseModel):
     """
     OPENIT_OIDC_AUDIENCE: ServiceName
     """
-    이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_admin_api
+    이 서비스의 이름. 사람·기계 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in
     """
     OPENIT_OIDC_ISSUER_URL: OidcIssuerUrl
     """
-    사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_admin_api
+    사람·기계 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절하고 model-runtime 을 부를 기계 토큰도 이 발급자에서 받는다. 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in, link_model_client
     """
     OPENIT_OIDC_JWKS_URL: OidcJwksUrl | None = None
     """
-    발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_admin_api
+    발급자의 서명 공개 키 집합 주소(없으면 발급자의 디스커버리 문서에서 얻는다). 필요한 컴포넌트: link_admin_api, link_hospital_api, link_risk_in
     """
     OPENIT_ROOT_CERTIFICATE_FILE: ConfigFilePath
     """
@@ -2682,11 +2999,11 @@ class SurveyServiceEnv(BaseModel):
     """
     OPENIT_TLS_CERTIFICATE_FILE: ConfigFilePath
     """
-    이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api, link_model_client
+    이 서비스가 이웃을 부를 때 보이는 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 영역 게이트웨이의 인증서 에이전트(ACME, RFC 8555)가 발급·갱신해 영역 안 공유 폴더에 둔다. 서비스는 TLS 를 끝내지 않는다(서버 쪽 TLS 와 클라이언트 인증서 검증은 영역 게이트웨이가 한다). 필요한 컴포넌트: link_model_client
     """
     OPENIT_TLS_PRIVATE_KEY_FILE: SecretFilePath
     """
-    이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_kiosk_api, link_admin_api, link_hospital_api
+    이 서비스의 클라이언트 인증서에 짝인 개인키 파일(인증서와 같이 영역 게이트웨이의 인증서 에이전트가 발급·갱신해 영역 안 공유 폴더에 둔다). 필요한 컴포넌트: link_model_client
     """
     OPENIT_VAPID_PRIVATE_KEY_FILE: SecretFilePath
     """
@@ -2727,6 +3044,24 @@ class SurveyServiceEnv(BaseModel):
     ] = 300
     """
     시작 코드 유효 시간. 필요한 컴포넌트: start_code
+    """
+
+
+class Sysctl(BaseModel):
+    """
+    컨테이너에 주입하는 sysctl 하나(이름과 값)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    name: SysctlName
+    """
+    sysctl 이름
+    """
+    value: SysctlValue
+    """
+    sysctl 값
     """
 
 
@@ -2802,6 +3137,58 @@ class ActiveQuestionnaireList(BaseModel):
     questionnaires: Annotated[list[QuestionnaireSummary], Field(max_length=100)]
     """
     문진표 요약들
+    """
+
+
+class ContainerInputs(BaseModel):
+    """
+    영역 밖에서 컨테이너에 주입하는 것 전체의 선언(실행 사용자, 환경 입력, 쓰는 경로, 추가 권한, sysctls, 시작 프로세스 명령줄)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    capabilities: Annotated[list[CapabilityName], Field(max_length=41)]
+    """
+    더하는 추가 권한들(기본은 없다)
+    """
+    env: Annotated[list[EnvDeclaration], Field(max_length=23)]
+    """
+    받는 환경 입력들
+    """
+    processes: Annotated[list[ProcessDeclaration], Field(max_length=12, min_length=1)]
+    """
+    시작 프로세스들(서비스의 진입점 하나와 잡마다 하나)
+    """
+    run_as_uid: RunAsUid
+    """
+    실행 사용자
+    """
+    sysctls: Annotated[list[Sysctl], Field(max_length=16)]
+    """
+    주입하는 sysctl 들
+    """
+    writable_paths: Annotated[list[WritablePath], Field(max_length=16)]
+    """
+    쓰는 경로들(루트 파일시스템은 읽기 전용이다)
+    """
+
+
+class ExternalEgressTarget(BaseModel):
+    """
+    영역 밖(설치처 밖 포함)의 나가는 호출 상대 하나. 호스트는 설치처 설정에서 온다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    host: HostAddress
+    """
+    상대의 호스트 이름 또는 IP 주소
+    """
+    port: ListenPort
+    """
+    상대의 포트
     """
 
 
@@ -2900,6 +3287,45 @@ class FlowRule(BaseModel):
     """
 
 
+class MachineIdentityClaims(BaseModel):
+    """
+    서비스가 기계 호출의 JWT 접근 토큰에서 반드시 확인하는 클레임(RFC 9068 의 필수 클레임과 기계 권한). 모양은 UserIdentityClaims 를 따르되 client_id 는 machine-<호출자 이름> 이고 역할은 MachineRole 이다. 서명은 IdP 공개 키(JWKS)로 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다
+    """
+
+    aud: TokenAudienceClaim
+    """
+    이 토큰을 받는 서비스. 자기 이름이 없으면 거절한다
+    """
+    client_id: MachineOidcClientId
+    """
+    토큰을 받은 기계 클라이언트
+    """
+    exp: NumericDate
+    """
+    토큰이 만료되는 때. 지난 토큰은 거절한다
+    """
+    iat: NumericDate
+    """
+    토큰을 발급한 때
+    """
+    iss: OidcIssuerUrl
+    """
+    토큰을 발급한 IdP 의 주소. 환경 입력의 발급자와 같아야 한다
+    """
+    jti: TokenId
+    """
+    토큰의 고유 식별자
+    """
+    realm_access: MachineRealmAccessClaim
+    """
+    부여된 기계 권한
+    """
+    sub: MachineSubjectId
+    """
+    기계 호출자의 서비스 계정 식별자
+    """
+
+
 class QuestionBank(BaseModel):
     """
     한 문진표의 문항 정의 전체(문항 은행)
@@ -2978,7 +3404,7 @@ class QuestionSetUpload(BaseModel):
 
 class QuestionSetVersion(BaseModel):
     """
-    올린 문항 세트의 한 버전. 한 번 저장하면 바뀌지 않는다
+    올린 문항 세트의 한 버전. 내용은 한 번 저장하면 바뀌지 않고 활성 여부(is_active)만 활성화에 따라 바뀐다
     """
 
     model_config = ConfigDict(
@@ -2995,6 +3421,10 @@ class QuestionSetVersion(BaseModel):
     created_at: Timestamp
     """
     버전을 저장한 때
+    """
+    is_active: QuestionSetVersionIsActive
+    """
+    이 버전이 그 문진표의 지금 활성 버전인지
     """
     question_set_version_id: QuestionSetVersionId
     """
@@ -3283,6 +3713,31 @@ class DeidentifiedTrace(BaseModel):
     utterance: DeidentifiedUtterance | None = None
     """
     비식별을 마친 발화
+    """
+
+
+class EgressTarget(RootModel[ServiceName | ExternalEgressTarget]):
+    root: ServiceName | ExternalEgressTarget
+    """
+    나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트). 서비스 이름 platform 은 사람·기계 토큰의 발급자(OIDC 발급자 주소의 호스트와 포트)로 나가는 터널을 뜻한다. 발급자 주소는 설치처 값이라 선언에 못 박지 못한다. 토큰 검증(JWKS)이나 기계 토큰 발급이 필요한 서비스는 egress 에 platform 을 선언한다
+    """
+
+
+class Exposure(BaseModel):
+    """
+    영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다. 노출 선언은 경로와 대상만 정한다. 경로가 요구하는 역할의 정본은 OpenAPI 3.1 의 작업 security 요구이고 입구 설정 생성기가 노출 선언과 계약 작업의 인증 요구를 곱해 라우트를 만든다(입구가 읽는 것은 영역 코드가 아니라 헤드 소유 계약이다)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    egress: Annotated[list[EgressTarget], Field(max_length=32)]
+    """
+    나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)
+    """
+    routes: Annotated[list[ExposureRoute], Field(max_length=29)]
+    """
+    노출 경로들
     """
 
 

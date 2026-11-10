@@ -78,6 +78,12 @@ def router(rt: Runtime) -> APIRouter:
             await raise_result_ready(tx, refreshed, content_of_title(await content_for(tx, refreshed)))
         return refreshed
 
+    async def touch(tx: Tx, current: SessionRecord) -> SessionRecord:
+        """활동(startSession·submitTurn·requestStaffCall)의 시각을 남긴다(유휴 만료의 기준, KioskIdleResetSeconds)."""
+        touched = current.model_copy(update={"last_activity_at": rt.now()})
+        await tx.save_session(touched)
+        return touched
+
     async def content_for(tx: Tx, current: SessionRecord) -> QuestionSetContent:
         stored = await tx.get_question_set(current.question_set_version_id)
         if stored is None:  # 왜 일어날 수 없나: 세션이 가리키는 버전은 지우지 않는다(한 번 저장하면 바뀌지 않는다)
@@ -160,9 +166,8 @@ def router(rt: Runtime) -> APIRouter:
                 if not active:
                     raise ApiError(503, retry_after=rt.limits.retry_after_seconds)
                 if len(active) != 1:
-                    raise ApiError(
-                        400, errors=[("/questionnaire_id", "활성 문진표가 둘 이상이라 고르는 값이 필요하다")]
-                    )
+                    # 왜 422 이고 코드를 쓰지 않음: 계약 startSession. 키오스크가 고른 값을 더해 같은 코드로 다시 보낸다
+                    raise ApiError(422, reason=ProblemReason.QUESTIONNAIRE_REQUIRED)
                 wanted = next(iter(active)).questionnaire_id
             stored = await tx.active_question_set(wanted)
         if stored is None:
@@ -214,6 +219,9 @@ def router(rt: Runtime) -> APIRouter:
             current = await expire(tx, await load_owned(tx, session_id, who.subject, lock=True))
             if current.status is not SessionStatus.ACTIVE or current.current_item_id is None:
                 raise ApiError(409, reason=ProblemReason.SESSION_NOT_ACTIVE, retry_after=rt.limits.retry_after_seconds)
+            asked_item = current.current_item_id  # 왜 따로 두나: touch 가 만든 사본은 문항이 있다는 좁힘을 잃는다
+            # 왜 touch: 만료 판정을 통과한 submitTurn 은 활동이다(계약). 실패 신호로 끝나도 활동이다
+            current = await touch(tx, current)
             content = await content_for(tx, current)
             started = trace.begin(current, turn_id, utterance, rt.now())
             stale = rt.now() - timedelta(seconds=rt.limits.turn_seconds)
@@ -235,7 +243,7 @@ def router(rt: Runtime) -> APIRouter:
                     lambda: rt.model.extract(turn.extraction_request(current, content, utterance))
                 )
                 extraction, digest = extracted.output, extracted.package_digest.root
-                skip_target = question_bank.next_after(content, current.current_item_id, answers_of(current))
+                skip_target = question_bank.next_after(content, asked_item, answers_of(current))
                 transition = session.apply_extraction(
                     current, extraction, skip_target=skip_target, reask_limit=rt.limits.reask_limit, now=rt.now()
                 )
@@ -360,6 +368,9 @@ def router(rt: Runtime) -> APIRouter:
             current = await expire(tx, await load_owned(tx, session_id, who.subject, lock=True))
             if current.status not in (SessionStatus.ACTIVE, SessionStatus.PAUSED):
                 raise ApiError(409, reason=ProblemReason.SESSION_NOT_ACTIVE, retry_after=rt.limits.retry_after_seconds)
+            current = await touch(
+                tx, current
+            )  # 왜: requestStaffCall 은 세션의 활동이다(계약). 멈추면 멈춘 때가 새 기준이다
             open_call = await tx.open_alert(session_id, AlertKind.CALL_STAFF)
             if open_call is not None:
                 created, fresh = open_call, False

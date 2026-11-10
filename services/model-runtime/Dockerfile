@@ -27,12 +27,17 @@ ARG VERSION
 ARG CONTRACTS_VERSION
 ARG SOURCE_URL
 ARG SERVICE
+# 왜 ARG: 라벨의 원본은 영역 폴더의 exposure.json(Exposure)·inputs.json(ContainerInputs)이다. deploy build 가 한 줄 JSON 으로 넘긴다.
+# 이 영역에는 잡이 없어 JOBS 인자와 io.openit.jobs 라벨이 없다(계약 JobsDeclaration 은 잡을 가진 이미지만)
+ARG EXPOSURE
+ARG INPUTS
 LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
       io.openit.contracts="${CONTRACTS_VERSION}" \
-      io.openit.inputs='{"run_as_uid":10001,"env":[{"name":"OPENIT_ROOT_CERTIFICATE_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_TLS_CERTIFICATE_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_TLS_PRIVATE_KEY_FILE","kind":"SECRET_FILE","required":true},{"name":"OPENIT_LISTEN_PORT","kind":"VALUE","required":true},{"name":"OPENIT_LOG_LEVEL","kind":"VALUE","required":false},{"name":"OPENIT_EGRESS_PROXY","kind":"VALUE","required":false},{"name":"OPENIT_OIDC_ISSUER_URL","kind":"VALUE","required":true},{"name":"OPENIT_OIDC_JWKS_URL","kind":"VALUE","required":false},{"name":"OPENIT_OIDC_AUDIENCE","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_URL","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_REPOSITORY","kind":"VALUE","required":true},{"name":"OPENIT_REGISTRY_CREDENTIALS_FILE","kind":"SECRET_FILE","required":true},{"name":"OPENIT_MACHINE_TOKENS_FILE","kind":"FILE_PATH","required":true},{"name":"OPENIT_MODEL_PROFILE","kind":"VALUE","required":true},{"name":"OPENIT_MODEL_CACHE_DIR","kind":"FILE_PATH","required":true},{"name":"OPENIT_HOSTS_TABLE_FILE","kind":"FILE_PATH","required":false}],"writable_paths":[{"path":"/var/lib/openit/model-runtime","persistent":true,"owner_uid":10001}],"capabilities":[],"sysctls":[],"processes":[{"argv":["/app/.venv/bin/model-runtime"]}]}'
+      io.openit.exposure="${EXPOSURE}" \
+      io.openit.inputs="${INPUTS}"
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 # 왜: 유지되는 폴더(활성화 기록, 받은 패키지)는 이미지가 소유자를 정해 둔다. 볼륨을 처음 붙일 때 이 소유자를 물려받는다
@@ -42,10 +47,9 @@ COPY --from=build /app/.venv /app/.venv
 COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER 10001:10001
-EXPOSE 8443
-# 왜 루프백 18081: 영역 사이 포트는 mTLS 를 요구해 인증서 없이 볼 수 없다. serve.py 가 컨테이너 안에서만 닿는 건강 확인 포트를 따로 연다.
-# slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다
+# 왜 OPENIT_LISTEN_PORT: 포트는 deploy 가 정하는 환경 입력이라 이미지에 못 박지 않는다(EXPOSE 도 두지 않는다). TLS 는 영역
+# 게이트웨이가 끝내고 이 서비스는 평문 HTTP 라 인증서 없이 /healthz 를 본다. slim 이미지에 curl 이 없어 파이썬 표준 라이브러리를 쓴다
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
-  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/healthz', timeout=2).status == 200 else 1)"]
+  CMD ["python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:' + os.environ['OPENIT_LISTEN_PORT'] + '/healthz', timeout=2).status == 200 else 1)"]
 # 왜 절대 경로: 계약 ContainerInputs.processes 의 argv 첫 요소는 절대 경로다(D134). inputs.json 이 같은 선언을 가진다
 CMD ["/app/.venv/bin/model-runtime"]

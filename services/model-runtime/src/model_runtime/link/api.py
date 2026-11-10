@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, Header, Path, Request
+from fastapi import APIRouter, FastAPI, Header, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ValidationError
@@ -17,6 +17,8 @@ from pydantic import BaseModel, ValidationError
 from model_runtime.contract.models import (
     ActivationRequest,
     ExtractionRequest,
+    PageCursor,
+    PageLimit,
     ProblemDetails,
     ResponseGenerationRequest,
     RollbackCommand,
@@ -112,6 +114,18 @@ def api_router(runtime: Runtime, auth: Authenticator) -> APIRouter:
     async def get_model_status(authorization: Annotated[str | None, Header()] = None) -> Response:  # pyright: ignore[reportUnusedFunction]
         await auth.require(authorization, ["inference-caller"], ["operator", "release-approver"])
         return JSONResponse(runtime.status().model_dump(mode="json", exclude_none=True))
+
+    @router.get("/v1/model-packages", tags=["activation"])
+    async def list_model_packages(  # pyright: ignore[reportUnusedFunction]
+        authorization: Annotated[str | None, Header()] = None,
+        limit: Annotated[str | None, Query()] = None,
+        cursor: Annotated[str | None, Query()] = None,
+    ) -> Response:
+        await auth.require(authorization, human_roles=["operator", "release-approver"])
+        # 왜 계약 모델로 확인하나: 한도와 커서 길이는 계약(PageLimit, PageCursor)이 정한다. 코드에 같은 숫자를 두지 않는다
+        page_limit = None if limit is None else _validated(PageLimit, limit).root
+        page_cursor = None if cursor is None else _validated(PageCursor, cursor).root
+        return JSONResponse(await runtime.list_packages(page_limit, page_cursor))
 
     @router.get("/v1/model-packages/{package_digest}", tags=["activation"])
     async def get_model_package(  # pyright: ignore[reportUnusedFunction]

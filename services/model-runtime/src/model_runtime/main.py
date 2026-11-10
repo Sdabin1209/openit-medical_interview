@@ -15,20 +15,18 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from model_runtime.components.release import Release
-from model_runtime.contract.models import LogLevel, ModelProfileName, OciRepositoryName, ServiceName
+from model_runtime.contract.models import InferenceEngineUrl, LogLevel, ModelProfileName, OciRepositoryName, ServiceName
 from model_runtime.link.api import api_router, install_error_handlers
-from model_runtime.link.auth import Authenticator, JwksCache, MachineTokens, OidcVerifier
+from model_runtime.link.auth import Authenticator, CallerTable, JwksCache, OidcVerifier
 from model_runtime.link.engine import VllmEngine
 from model_runtime.link.health import ReadinessCheck, health_router
-from model_runtime.link.registry import OciPackageSource
+from model_runtime.link.hosts import install_hosts_table, read_hosts_table
+from model_runtime.link.registry import OciPackageSource, basic_credentials
 from model_runtime.link.runtime import Runtime
+from model_runtime.store.profiles import load_profile
 from model_runtime.store.release_log import ReleaseLogFile
 from model_runtime.types import AdapterRegistry, ChatEngine, PackageSource
 
-# 왜 상수: 추론 엔진은 이 영역 안의 별도 컨테이너다. 계약 ModelRuntimeEnv 에 엔진 주소 입력이 없어 영역 안 고정 이름을
-# 쓴다.
-# 환경 변수로 받는 이름은 스키마에 있는 것만 허용된다(워크스페이스 규칙). 변경 요청 model-runtime-003
-INFERENCE_ENGINE_URL = "http://inference-engine:8000"
 SERVICE_NAME = ServiceName(
     "model-runtime"
 )  # 건강 응답(HealthReport.service)에 실리는 이 서비스의 이름. 계약 ServiceName 의 값
@@ -63,12 +61,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENIT_", extra="ignore")
 
     root_certificate_file: Path = Field(description="신뢰할 사설 CA 의 루트 인증서 파일(영역 사이 TLS 의 신뢰 앵커).")
-    tls_certificate_file: Path = Field(description="이 서비스의 인증서 파일(mTLS 서버·클라이언트 인증서).")
-    tls_private_key_file: Path = Field(description="이 서비스의 TLS 개인키 파일.")
-    listen_port: int = Field(ge=1, le=65535, description="요청을 받을 포트.")
+    tls_certificate_file: Path = Field(
+        description="이 서비스가 이웃(레지스트리)을 부를 때 보이는 클라이언트 인증서 파일."
+    )
+    tls_private_key_file: Path = Field(description="클라이언트 인증서에 짝인 개인키 파일.")
+    listen_port: int = Field(
+        ge=1, le=65535, description="영역 안 평문 HTTP 로 요청을 받을 포트(TLS 는 영역 게이트웨이가 끝낸다)."
+    )
     log_level: LogLevel = Field(default=LogLevel.INFO, description="로그 수준.")
     egress_proxy: str | None = Field(default=None, description="나가는 호출이 지나는 게이트웨이 터널 주소.")
-    oidc_issuer_url: str = Field(description="사람 접근 토큰의 허용 발급자(iss).")
+    oidc_issuer_url: str = Field(description="사람·기계 접근 토큰의 허용 발급자(iss).")
     oidc_jwks_url: str | None = Field(
         default=None, description="발급자의 서명 공개 키 집합 주소. 없으면 디스커버리 문서에서 얻는다."
     )
@@ -76,17 +78,21 @@ class Settings(BaseSettings):
     registry_url: str = Field(description="모델 패키지를 digest 로 받을 레지스트리 주소(OCI Distribution).")
     registry_repository: OciRepositoryName = Field(description="모델 패키지가 올라 있는 레지스트리 저장소 이름.")
     registry_credentials_file: Path = Field(
-        description="레지스트리에서 받을 때 보일 자격 파일. 내용은 `사용자:비밀번호` 한 줄."
+        description="레지스트리에서 받을 때 보일 자격 파일. 내용은 `사용자:비밀번호` 한 줄(HTTP 기본 인증, RFC 7617)."
     )
-    machine_tokens_file: Path = Field(description="이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable).")
-    model_profile: ModelProfileName = Field(description="GPU 크기별 프로파일 이름.")
+    machine_tokens_file: Path = Field(
+        description="이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable, 비밀 없음)."
+    )
+    model_profile: ModelProfileName = Field(
+        description="GPU 크기별 프로파일 이름. 영역 안 프로파일 표(profiles.json)의 이름."
+    )
     model_cache_dir: Path = Field(
         description="유지되는 폴더. 기반 모델 가중치와 이 서비스의 상태(활성화 기록, 받은 패키지)가 든다."
     )
     hosts_table_file: Path | None = Field(
-        default=None,
-        description="다른 서버에서 레지스트리를 찾는 이름 표 파일(형식 미정, 변경 요청 model-runtime-003).",
+        default=None, description="다른 서버의 레지스트리와 이웃을 찾는 이름 표 파일(HostsTable). 같은 서버면 없다."
     )
+    inference_engine_url: InferenceEngineUrl = Field(description="영역 안 추론 엔진(vLLM 의 OpenAI 호환 서버) 주소.")
 
 
 @dataclass
@@ -103,16 +109,19 @@ class Dependencies:
 
 def default_dependencies(settings: Settings) -> Dependencies:
     """설정에서 실제 부품을 만든다. 비밀은 파일에서 읽는다."""
-    user, _, password = read_secret("OPENIT_REGISTRY_CREDENTIALS").partition(":")
+    closers: list[Callable[[], object]] = []
+    if settings.hosts_table_file is not None:
+        closers.append(install_hosts_table(read_hosts_table(settings.hosts_table_file)))
     source = OciPackageSource(
         settings.registry_url,
         settings.registry_repository.root,
-        (user, password) if password else None,
+        basic_credentials(read_secret("OPENIT_REGISTRY_CREDENTIALS")),
         settings.root_certificate_file,
         settings.egress_proxy,
+        (settings.tls_certificate_file, settings.tls_private_key_file),
     )
     http = httpx.AsyncClient(verify=str(settings.root_certificate_file), proxy=settings.egress_proxy, timeout=10.0)
-    engine = VllmEngine(INFERENCE_ENGINE_URL)
+    engine = VllmEngine(settings.inference_engine_url.root, load_profile(settings.model_profile.root).base_model.root)
     oidc = OidcVerifier(
         JwksCache(http, settings.oidc_issuer_url, settings.oidc_jwks_url),
         settings.oidc_issuer_url,
@@ -122,9 +131,9 @@ def default_dependencies(settings: Settings) -> Dependencies:
         source=source,
         chat=engine,
         adapters=engine,
-        authenticator=Authenticator(MachineTokens(settings.machine_tokens_file), oidc),
+        authenticator=Authenticator(CallerTable(settings.machine_tokens_file), oidc),
         engine_ready=engine.healthy,
-        closers=[source.close],
+        closers=[source.close, *closers],
     )
 
 
@@ -144,6 +153,7 @@ def create_app(
         adapters=resolved.adapters,
         workdir=state_dir,
         installed_version=version("openit-model_runtime"),
+        base_model=load_profile(settings.model_profile.root).base_model.root,
         registry=registry,
         clock=clock,
     )
@@ -166,11 +176,6 @@ def create_app(
     install_error_handlers(app)
     app.state.runtime = runtime
     checks: dict[str, ReadinessCheck] = {"store": store_writable, "engine": resolved.engine_ready}
-    app.state.health = (
-        SERVICE_NAME,
-        checks,
-        registry,
-    )  # serve.py 가 같은 점검으로 루프백 건강 확인 앱을 만든다
     app.include_router(health_router(SERVICE_NAME, checks, registry))
     app.include_router(api_router(runtime, resolved.authenticator))
     return app

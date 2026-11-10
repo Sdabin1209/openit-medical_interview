@@ -27,11 +27,19 @@ ARG VERSION
 ARG CONTRACTS_VERSION
 ARG SOURCE_URL
 ARG SERVICE
+# 왜 JOBS·EXPOSURE·INPUTS 인자: 라벨 io.openit.jobs·exposure·inputs 의 원본은 영역 폴더의 jobs.json·exposure.json·inputs.json 이다.
+# deploy build 가 파일을 한 줄 JSON 으로 읽어 넘긴다. 같은 내용을 여기에 복사하면 두 곳이 어긋난다(ADR 0016)
+ARG JOBS
+ARG EXPOSURE
+ARG INPUTS
 LABEL org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.version="${VERSION}" \
       io.openit.service="${SERVICE}" \
-      io.openit.contracts="${CONTRACTS_VERSION}"
+      io.openit.contracts="${CONTRACTS_VERSION}" \
+      io.openit.jobs="${JOBS}" \
+      io.openit.exposure="${EXPOSURE}" \
+      io.openit.inputs="${INPUTS}"
 # 왜: 고정 uid/gid 는 읽기 전용 루트와 볼륨 권한을 예측 가능하게 한다
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /app/.venv /app/.venv
@@ -40,7 +48,9 @@ COPY THIRD_PARTY_NOTICES /usr/share/doc/openit/THIRD_PARTY_NOTICES
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER 10001:10001
 EXPOSE 8080
+# 왜 평문 HTTP: 서비스는 TLS 를 끝내지 않는다. 영역 전용 내부 네트워크에서 평문 HTTP 로 듣고 영역 게이트웨이만 닿는다(계약 9.0.0, ADR 0015).
 # 왜: slim 이미지에 curl 이 없어 파이썬 표준 라이브러리로 /healthz 를 본다. 포트는 환경 입력 OPENIT_LISTEN_PORT 다(기본 8080)
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
   CMD ["python", "-c", "import os,urllib.request,sys; port=os.environ.get('OPENIT_LISTEN_PORT','8080'); sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/healthz' % port, timeout=2).status == 200 else 1)"]
-CMD ["python", "-m", "survey_service"]
+# 왜 절대 경로: 계약 ContainerInputs.processes 의 argv 첫 요소는 절대 경로다(D134). inputs.json 의 서비스 진입점과 같다
+CMD ["/app/.venv/bin/python", "-m", "survey_service"]

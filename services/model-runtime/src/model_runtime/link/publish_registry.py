@@ -19,6 +19,11 @@ from model_runtime.components.package_publish import BuiltPackage
 _MANIFEST_TYPE = "application/vnd.oci.image.manifest.v1+json"
 
 
+def package_tag(digest: str) -> str:
+    """패키지 digest 를 태그로 옮긴 이름(`sha256-<16진수>`). 태그 목록으로 패키지를 찾게 한다(link/registry.py)."""
+    return digest.replace(":", "-")
+
+
 class PublishError(Exception):
     """레지스트리에 올리지 못했다. 메시지에 자격과 주소의 비밀 부분은 싣지 않는다."""
 
@@ -59,10 +64,21 @@ class OciPackagePublisher:
                 headers={"Content-Type": _MANIFEST_TYPE},
                 data=package.manifest,
             )
+            # 왜 같은 바이트를 태그로도 올리나: 레지스트리는 태그 없이는 목록을 주지 않는다(OCI Distribution `tags/list`).
+            # 태그는 digest 에서 정해져 어떤 매니페스트도 가리키지 못하게 바뀌지 않는다
+            tagged = self._client.get_container(f"{self._hostname}/{self._repository}:{package_tag(package.digest)}")
+            tag_reply = self._client.do_request(
+                f"{self._client.prefix}://{tagged.manifest_url()}",
+                "PUT",
+                headers={"Content-Type": _MANIFEST_TYPE},
+                data=package.manifest,
+            )
         except (requests.RequestException, ValueError) as error:
             raise PublishError("레지스트리에 닿지 못했거나 인증이 거절되었다") from error
-        if reply.status_code not in (200, 201):
-            raise PublishError(f"매니페스트 올리기를 레지스트리가 {reply.status_code} 로 거절했다")
+        if reply.status_code not in (200, 201) or tag_reply.status_code not in (200, 201):
+            raise PublishError(
+                f"매니페스트 올리기를 레지스트리가 {reply.status_code}·{tag_reply.status_code} 로 거절했다"
+            )
         confirmed = reply.headers.get("Docker-Content-Digest")
         if confirmed is not None and confirmed != package.digest:
             raise PublishError("레지스트리가 확인한 매니페스트 digest 가 보낸 것과 다르다")

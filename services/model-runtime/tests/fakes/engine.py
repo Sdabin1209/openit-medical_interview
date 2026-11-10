@@ -33,6 +33,7 @@ class FakeEngine:
     loaded: dict[str, str] = field(default_factory=lambda: dict[str, str]())
     calls: list[Call] = field(default_factory=lambda: list[Call]())
     healthy: bool = True
+    base_model: str = "Qwen/Qwen3-8B"  # 엔진이 서빙하는 기반 모델(vLLM 의 `--model`)
     refuse_load: bool = False
     unloaded: list[str] = field(default_factory=lambda: list[str]())
 
@@ -42,6 +43,11 @@ class FakeEngine:
         @app.get("/health")
         async def health() -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
             return PlainTextResponse("", status_code=200 if self.healthy else 503)
+
+        @app.get("/v1/models")
+        async def models() -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+            names = [self.base_model, *self.loaded]
+            return JSONResponse({"object": "list", "data": [{"id": name, "object": "model"} for name in names]})
 
         @app.post("/v1/load_lora_adapter")
         async def load(request: Request) -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]

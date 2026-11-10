@@ -25,9 +25,9 @@ tests:
       - series: 'probe_ssl_earliest_cert_expiry{job="openit-tls",instance="org-fine:8443",renewal="organization"}'
         values: "5184000+0x400"
       # 영역 지표: 하나는 읽히고 하나는 읽히지 않는다
-      - series: 'up{job="openit-areas",instance="survey-service:8443"}'
+      - series: 'up{job="openit-areas",instance="survey-service:9100"}'
         values: "1+0x400"
-      - series: 'up{job="openit-areas",instance="model-runtime:8443"}'
+      - series: 'up{job="openit-areas",instance="model-runtime:9100"}'
         values: "0+0x400"
     alert_rule_test:
       # 값은 만료의 절대 시각(초)이고 시험의 time() 은 0 에서 시작한다. soon 은 남은 시간이 2시간 미만이라 5분 뒤부터 경보다
@@ -53,9 +53,9 @@ tests:
       - eval_time: 10m
         alertname: OpenitAreaDown
         exp_alerts:
-          - exp_labels: { severity: critical, job: openit-areas, instance: "model-runtime:8443" }
+          - exp_labels: { severity: critical, job: openit-areas, instance: "model-runtime:9100" }
             exp_annotations:
-              summary: "model-runtime:8443 의 /metrics 를 읽지 못한다"
+              summary: "model-runtime:9100 의 /metrics 를 읽지 못한다"
       # 생존 신호는 늘 켜져 있다
       - eval_time: 10m
         alertname: Watchdog

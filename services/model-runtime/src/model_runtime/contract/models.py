@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from ipaddress import IPv4Address, IPv6Address
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -166,6 +167,18 @@ class EnvVarName(RootModel[str]):
     """
 
 
+class ExposureAudience(StrEnum):
+    """
+    경로를 누구에게 여는지
+    """
+
+    HUMAN_OIDC = 'HUMAN_OIDC'
+    DEVICE_MTLS = 'DEVICE_MTLS'
+    MACHINE_TOKEN = 'MACHINE_TOKEN'
+    EXTERNAL_MACHINE_TOKEN = 'EXTERNAL_MACHINE_TOKEN'
+    DENIED = 'DENIED'
+
+
 class ExtraMetricName(RootModel[str]):
     root: Annotated[str, Field(examples=['turn_count'], max_length=63)]
     """
@@ -226,6 +239,31 @@ class HealthStatus(StrEnum):
     fail = 'fail'
 
 
+class HostName(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['inference.example.org'],
+            max_length=253,
+            pattern='^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]{0,61}[A-Za-z0-9])$',
+        ),
+    ]
+    """
+    서버를 가리키는 DNS 호스트 이름(예를 들어 survey-service 나 inference.example)
+    """
+
+
+class HttpMethodName(StrEnum):
+    """
+    경로에 허용하는 HTTP 메서드
+    """
+
+    GET = 'GET'
+    POST = 'POST'
+    PUT = 'PUT'
+    DELETE = 'DELETE'
+
+
 class HttpStatus(RootModel[int]):
     root: Annotated[int, Field(examples=[503], ge=400, le=599)]
     """
@@ -244,6 +282,34 @@ class ImageRevision(RootModel[str]):
     ]
     """
     이미지를 만든 소스의 커밋 해시(소문자 16진수)
+    """
+
+
+class InferenceEngineUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['http://inference-engine:8000'],
+            max_length=8000,
+            pattern='^https?://',
+        ),
+    ]
+    """
+    영역 안 추론 엔진(vLLM 의 OpenAI 호환 서버)의 기준 주소. 영역 안 컨테이너 사이 호출이라 http 와 https 를 모두 허용한다
+    """
+
+
+class Ipv4Address(RootModel[IPv4Address]):
+    root: Annotated[IPv4Address, Field(examples=['192.0.2.10'])]
+    """
+    IPv4 주소(점으로 구분한 십진 표기)
+    """
+
+
+class Ipv6Address(RootModel[IPv6Address]):
+    root: Annotated[IPv6Address, Field(examples=['2001:db8::10'])]
+    """
+    IPv6 주소(콜론 표기, IPv4 가 섞인 표기 포함)
     """
 
 
@@ -319,6 +385,20 @@ class MachineClientName(RootModel[str]):
     """
 
 
+class MachineOidcClientId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['machine-survey-service'],
+            max_length=71,
+            pattern='^machine-[a-z]([a-z0-9-]{0,61}[a-z0-9])?$',
+        ),
+    ]
+    """
+    기계 호출자의 Keycloak 클라이언트 식별자(client_id 클레임). machine- 다음에 호출자 이름(MachineClientName)이 온다
+    """
+
+
 class MachineRole(StrEnum):
     """
     기계 토큰에 부여하는 권한 이름. 작업마다 받는 영역이 요구한다
@@ -328,6 +408,15 @@ class MachineRole(StrEnum):
     risk_detector = 'risk-detector'
     inference_caller = 'inference-caller'
     case_reader = 'case-reader'
+
+
+class MachineSubjectId(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['0b8c7d3e-91a4-4c1f-8e55-3a6d2f4b7c10'], max_length=255)
+    ]
+    """
+    기계 호출자의 서비스 계정 식별자(토큰의 sub 값)
+    """
 
 
 class MetricGroupName(RootModel[str]):
@@ -426,10 +515,17 @@ class ModelPackageBlobMediaType(StrEnum):
     )
 
 
+class ModelPackageIsActive(RootModel[bool]):
+    root: Annotated[bool, Field(examples=[False])]
+    """
+    모델 패키지가 지금 활성 패키지(ModelStatus.package_digest)이면 참
+    """
+
+
 class ModelProfileName(RootModel[str]):
     root: Annotated[str, Field(examples=['rtx4090-24g'], max_length=63)]
     """
-    추론 서버의 GPU 크기별 프로파일 이름(기반 모델과 서빙 크기를 고른다)
+    추론 서버의 GPU 크기별 프로파일 이름. 이름이 가리키는 표(기반 모델, 서빙 크기)는 model-runtime 영역 안의 값이라 영역이 소유하고 이 계약에 싣지 않는다
     """
 
 
@@ -502,18 +598,27 @@ class OidcClientId(RootModel[str]):
     """
 
 
-class OidcIssuerUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://platform/realms/openit'])]
+class OidcIssuerUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://platform/realms/openit'],
+            max_length=8000,
+            pattern='^https://',
+        ),
+    ]
     """
     사람 인증(OIDC) 발급자의 주소. 설치처마다 다르다
     """
 
 
-class OidcJwksUrl(RootModel[AnyUrl]):
+class OidcJwksUrl(RootModel[str]):
     root: Annotated[
-        AnyUrl,
+        str,
         Field(
-            examples=['https://platform/realms/openit/protocol/openid-connect/certs']
+            examples=['https://platform/realms/openit/protocol/openid-connect/certs'],
+            max_length=8000,
+            pattern='^https://',
         ),
     ]
     """
@@ -549,6 +654,22 @@ class OutOfSchemaNote(RootModel[str]):
     """
 
 
+class PageCursor(RootModel[str]):
+    root: Annotated[
+        str, Field(examples=['eyJrIjoiM2YyYjhjMWUiLCJzIjoiYWJjIn0'], max_length=96)
+    ]
+    """
+    다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다
+    """
+
+
+class PageLimit(RootModel[int]):
+    root: Annotated[int, Field(examples=[30], ge=1, le=100)] = 30
+    """
+    한 번에 받을 항목의 최대 개수
+    """
+
+
 class PathPersistent(RootModel[bool]):
     root: bool
     """
@@ -556,8 +677,11 @@ class PathPersistent(RootModel[bool]):
     """
 
 
-class PeerBaseUrl(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://model-runtime'])]
+class PeerBaseUrl(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(examples=['https://model-runtime'], max_length=8000, pattern='^https://'),
+    ]
     """
     이웃 서비스의 기준 주소(항상 TLS)
     """
@@ -634,6 +758,7 @@ class ProblemReason(StrEnum):
     PACKAGE_INVALID = 'PACKAGE_INVALID'
     ROLLBACK_TARGET_INVALID = 'ROLLBACK_TARGET_INVALID'
     RISK_DETECTION_DISABLED = 'RISK_DETECTION_DISABLED'
+    QUESTIONNAIRE_REQUIRED = 'QUESTIONNAIRE_REQUIRED'
 
 
 class ProblemTitle(RootModel[str]):
@@ -645,8 +770,15 @@ class ProblemTitle(RootModel[str]):
     """
 
 
-class ProblemType(RootModel[AnyUrl]):
-    root: Annotated[AnyUrl, Field(examples=['https://openit/problems/OUTPUT_INVALID'])]
+class ProblemType(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            examples=['https://openit/problems/OUTPUT_INVALID'],
+            max_length=8000,
+            pattern='^[A-Za-z][A-Za-z0-9+.-]*:',
+        ),
+    ]
     """
     오류의 종류를 가리키는 절대 URI(scheme 이 있는 URI). 기본은 about:blank 다. 이 계약의 서버는 사유가 있으면 https://openit/problems/<ProblemReason 값> 을 쓴다
     """
@@ -831,6 +963,13 @@ class RollbackCommand(BaseModel):
     target_package_digest: OciDigest
     """
     되돌아갈 모델 패키지. 이전에 활성이었던 패키지여야 한다
+    """
+
+
+class RoutePathPrefix(RootModel[str]):
+    root: Annotated[str, Field(examples=['/v1/results'], max_length=8000, pattern='^/')]
+    """
+    노출하는 경로의 앞부분(항상 /로 시작)
     """
 
 
@@ -1213,6 +1352,28 @@ class EnvDeclaration(BaseModel):
     """
 
 
+class ExposureRoute(BaseModel):
+    """
+    영역이 노출하는 경로 하나와 그 대상
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    audience: ExposureAudience
+    """
+    이 경로를 여는 대상
+    """
+    methods: Annotated[list[HttpMethodName], Field(max_length=4, min_length=1)]
+    """
+    허용하는 메서드들
+    """
+    path_prefix: RoutePathPrefix
+    """
+    노출하는 경로의 앞부분
+    """
+
+
 class FlowCondition(BaseModel):
     """
     분기가 선택되는 조건(칸 값과 비교)
@@ -1294,9 +1455,48 @@ class HealthReport(BaseModel):
     """
 
 
+class HostAddress(RootModel[HostName | Ipv4Address | Ipv6Address]):
+    root: HostName | Ipv4Address | Ipv6Address
+    """
+    서버의 호스트 이름 또는 IP 주소
+    """
+
+
+class HostsTableEntry(BaseModel):
+    """
+    이름 표의 줄 하나. 호스트 이름을 주소로 찾게 한다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    address: HostAddress
+    """
+    그 이름이 가리키는 서버의 주소
+    """
+    name: HostName
+    """
+    찾을 호스트 이름(영역 이름이나 레지스트리 이름)
+    """
+
+
+class MachineRealmAccessClaim(BaseModel):
+    """
+    기계 접근 토큰 안의 역할 묶음(Keycloak realm_access 클레임). 역할은 기계 권한(MachineRole)이다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    roles: Annotated[list[MachineRole], Field(max_length=4)]
+    """
+    이 호출자에게 부여된 권한들
+    """
+
+
 class MachineTokenEntry(BaseModel):
     """
-    기계 호출자 하나와 그에게 허용한 권한, 토큰이 든 파일의 경로
+    기계 호출자 하나와 그에게 허용한 권한, 그 호출자의 Keycloak 기계 클라이언트 비밀이 든 파일의 경로
     """
 
     model_config = ConfigDict(
@@ -1306,19 +1506,19 @@ class MachineTokenEntry(BaseModel):
     """
     호출자 이름
     """
+    client_secret_file: SecretFilePath
+    """
+    호출자의 Keycloak 기계 클라이언트 비밀 파일의 경로(클라이언트 ID 는 machine-<client>, 값은 이 표에 적지 않는다)
+    """
     roles: Annotated[list[MachineRole], Field(max_length=4)]
     """
     이 호출자에게 허용한 권한들
-    """
-    token_file: SecretFilePath
-    """
-    토큰 값이 든 파일의 경로(값은 이 표에 적지 않는다)
     """
 
 
 class MachineTokenTable(BaseModel):
     """
-    받는 영역이 기계 호출자를 가르는 표(배포가 파일로 준다)
+    기계 호출자 표(호출자 이름, 권한, 클라이언트 비밀 파일의 경로. 비밀은 없다). platform 이 이 표로 Keycloak 기계 클라이언트와 그 서비스 계정의 역할을 만들고 배포가 파일로 준다
     """
 
     model_config = ConfigDict(
@@ -1326,7 +1526,7 @@ class MachineTokenTable(BaseModel):
     )
     tokens: Annotated[list[MachineTokenEntry], Field(max_length=4)]
     """
-    호출자별 권한과 토큰 파일
+    호출자별 권한과 클라이언트 비밀 파일
     """
 
 
@@ -1391,9 +1591,31 @@ class ModelPackageOciManifest(BaseModel):
     """
 
 
+class ModelPackageSummary(BaseModel):
+    """
+    게시된 모델 패키지 하나의 요약(식별자, 게시한 때, 활성 여부). 목록표와 평가 보고서는 getModelPackage 로 읽는다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    is_active: ModelPackageIsActive
+    """
+    지금 활성인 패키지인지
+    """
+    package_digest: OciDigest
+    """
+    패키지의 매니페스트 digest
+    """
+    published_at: Timestamp | None = None
+    """
+    게시한 때(OCI 매니페스트의 주석 org.opencontainers.image.created 가 있으면 그 값이고 없으면 없다)
+    """
+
+
 class ModelRuntimeEnv(BaseModel):
     """
-    deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다)
+    deploy 가 model-runtime 에 주는 환경 입력(추론 서버가 다른 서버에 있어도 같다). 어댑터 폴더 규칙: model-runtime 은 패키지의 어댑터 폴더를 푼 경로를 추론 엔진에 알려 주고 vLLM 의 LoRA 어댑터 경로(lora_path)는 엔진 컨테이너가 보는 경로이므로, 엔진 컨테이너는 그 폴더(ContainerInputs.writable_paths 에 선언한 유지되는 경로)를 model-runtime 과 같은 경로로 읽기 전용 마운트한다(배치 규칙이며 OPENIT_MODEL_CACHE_DIR 와 별개다)
     """
 
     model_config = ConfigDict(
@@ -1405,11 +1627,15 @@ class ModelRuntimeEnv(BaseModel):
     """
     OPENIT_HOSTS_TABLE_FILE: ConfigFilePath | None = None
     """
-    다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(다른 서버일 때만). 필요한 컴포넌트: link_registry
+    다른 서버에서 survey-service 와 레지스트리를 찾는 이름 표 파일(HostsTable 모양, 다른 서버일 때만). 필요한 컴포넌트: link_registry
+    """
+    OPENIT_INFERENCE_ENGINE_URL: InferenceEngineUrl
+    """
+    영역 안 추론 엔진의 주소. 엔진 컨테이너는 어댑터 폴더를 model-runtime 과 같은 경로로 읽기 전용 마운트한다(ModelRuntimeEnv 의 어댑터 폴더 규칙). 필요한 컴포넌트: inference
     """
     OPENIT_LISTEN_PORT: ListenPort
     """
-    요청을 받을 포트. 필요한 컴포넌트: link_api
+    영역 안 평문 HTTP 로 요청을 받을 포트. 서비스 컨테이너는 영역 전용 내부 네트워크에서 이 포트를 들으며 영역 게이트웨이만 닿는다(TLS 는 게이트웨이가 끝낸다). 필요한 컴포넌트: link_api
     """
     OPENIT_LOG_LEVEL: LogLevel | None = None
     """
@@ -1417,7 +1643,7 @@ class ModelRuntimeEnv(BaseModel):
     """
     OPENIT_MACHINE_TOKENS_FILE: ConfigFilePath
     """
-    이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양). 필요한 컴포넌트: link_api
+    이 서비스를 부르는 기계 호출자 표 파일(MachineTokenTable 모양, 비밀은 없다). 필요한 컴포넌트: link_api
     """
     OPENIT_MODEL_CACHE_DIR: ConfigFilePath
     """
@@ -1425,15 +1651,15 @@ class ModelRuntimeEnv(BaseModel):
     """
     OPENIT_MODEL_PROFILE: ModelProfileName
     """
-    GPU 크기별 프로파일 이름. 필요한 컴포넌트: inference
+    GPU 크기별 프로파일 이름. 이름이 가리키는 표(기반 모델, 서빙 크기)는 model-runtime 영역 안의 값이고 영역이 소유한다. 필요한 컴포넌트: inference
     """
     OPENIT_OIDC_AUDIENCE: ServiceName
     """
-    이 서비스의 이름. 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api
+    이 서비스의 이름. 사람·기계 접근 토큰의 aud 에 이 이름이 있어야 받는다. 필요한 컴포넌트: link_api
     """
     OPENIT_OIDC_ISSUER_URL: OidcIssuerUrl
     """
-    활성화 승인과 롤백을 호출하는 사람 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api
+    활성화 승인과 롤백을 호출하는 사람 접근 토큰과 기계 접근 토큰의 허용 발급자(iss). 다른 발급자의 토큰은 거절한다. 필요한 컴포넌트: link_api
     """
     OPENIT_OIDC_JWKS_URL: OidcJwksUrl | None = None
     """
@@ -1441,7 +1667,7 @@ class ModelRuntimeEnv(BaseModel):
     """
     OPENIT_REGISTRY_CREDENTIALS_FILE: SecretFilePath
     """
-    레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 필요한 컴포넌트: link_registry
+    레지스트리에서 받을 때 보일 자격 파일(읽기 권한). 내용은 한 줄 사용자:비밀번호 이고 OCI Distribution 의 HTTP 기본 인증(RFC 7617)에 쓴다. 필요한 컴포넌트: link_registry
     """
     OPENIT_REGISTRY_REPOSITORY: OciRepositoryName
     """
@@ -1453,15 +1679,15 @@ class ModelRuntimeEnv(BaseModel):
     """
     OPENIT_ROOT_CERTIFICATE_FILE: ConfigFilePath
     """
-    신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_api, link_registry
+    신뢰할 사설 CA(또는 조직 CA)의 루트 인증서 파일. 영역 사이 TLS 의 신뢰 앵커다. 필요한 컴포넌트: link_registry
     """
     OPENIT_TLS_CERTIFICATE_FILE: ConfigFilePath
     """
-    이 서비스의 인증서 파일(영역 사이 mTLS 의 서버·클라이언트 인증서, 사설 CA 가 발급). 필요한 컴포넌트: link_api, link_registry
+    이 서비스가 이웃을 부를 때 보이는 클라이언트 인증서 파일(영역 사이 mTLS, 사설 CA 가 발급). 영역 게이트웨이의 인증서 에이전트(ACME, RFC 8555)가 발급·갱신해 영역 안 공유 폴더에 둔다. 서비스는 TLS 를 끝내지 않는다(서버 쪽 TLS 와 클라이언트 인증서 검증은 영역 게이트웨이가 한다). 필요한 컴포넌트: link_registry
     """
     OPENIT_TLS_PRIVATE_KEY_FILE: SecretFilePath
     """
-    이 서비스의 TLS 개인키 파일. 필요한 컴포넌트: link_api
+    이 서비스의 클라이언트 인증서에 짝인 개인키 파일(인증서와 같이 영역 게이트웨이의 인증서 에이전트가 발급·갱신해 영역 안 공유 폴더에 둔다). 필요한 컴포넌트: link_registry
     """
 
 
@@ -1917,6 +2143,24 @@ class EvaluationReport(BaseModel):
     """
 
 
+class ExternalEgressTarget(BaseModel):
+    """
+    영역 밖(설치처 밖 포함)의 나가는 호출 상대 하나. 호스트는 설치처 설정에서 온다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    host: HostAddress
+    """
+    상대의 호스트 이름 또는 IP 주소
+    """
+    port: ListenPort
+    """
+    상대의 포트
+    """
+
+
 class ExtractedValue(BaseModel):
     """
     LoRA-A 가 이번 말에서 뽑은 칸 값 하나. status 와 save 의 짝, value 가 null 인 status 는 이 스키마가 아니라 ActionExtractionRules(SAVE_RULE)가 정한다
@@ -1991,6 +2235,77 @@ class FlowRule(BaseModel):
     item_id: QuestionItemId
     """
     이 규칙이 다음을 정하는 문항
+    """
+
+
+class HostsTable(BaseModel):
+    """
+    deploy 가 model-runtime 에 파일로 주는 이름 표(다른 서버에 있는 survey-service 와 레지스트리를 찾는다). 다른 서버일 때만 준다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    hosts: Annotated[list[HostsTableEntry], Field(max_length=6)]
+    """
+    이름과 주소의 줄들
+    """
+
+
+class MachineIdentityClaims(BaseModel):
+    """
+    서비스가 기계 호출의 JWT 접근 토큰에서 반드시 확인하는 클레임(RFC 9068 의 필수 클레임과 기계 권한). 모양은 UserIdentityClaims 를 따르되 client_id 는 machine-<호출자 이름> 이고 역할은 MachineRole 이다. 서명은 IdP 공개 키(JWKS)로 검증하고 그 밖의 클레임은 허용한다. 열린 객체라 allOf 로 객체 유형만 요구한다
+    """
+
+    aud: TokenAudienceClaim
+    """
+    이 토큰을 받는 서비스. 자기 이름이 없으면 거절한다
+    """
+    client_id: MachineOidcClientId
+    """
+    토큰을 받은 기계 클라이언트
+    """
+    exp: NumericDate
+    """
+    토큰이 만료되는 때. 지난 토큰은 거절한다
+    """
+    iat: NumericDate
+    """
+    토큰을 발급한 때
+    """
+    iss: OidcIssuerUrl
+    """
+    토큰을 발급한 IdP 의 주소. 환경 입력의 발급자와 같아야 한다
+    """
+    jti: TokenId
+    """
+    토큰의 고유 식별자
+    """
+    realm_access: MachineRealmAccessClaim
+    """
+    부여된 기계 권한
+    """
+    sub: MachineSubjectId
+    """
+    기계 호출자의 서비스 계정 식별자
+    """
+
+
+class ModelPackageList(BaseModel):
+    """
+    레지스트리에 게시된 모델 패키지 목록 한 쪽
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    items: Annotated[list[ModelPackageSummary], Field(max_length=100)]
+    """
+    모델 패키지들(최근 것이 먼저)
+    """
+    next_cursor: PageCursor | None = None
+    """
+    다음 쪽 커서
     """
 
 
@@ -2139,6 +2454,31 @@ class ActionExtraction(BaseModel):
     values: ExtractedValues
     """
     뽑은 칸 값들
+    """
+
+
+class EgressTarget(RootModel[ServiceName | ExternalEgressTarget]):
+    root: ServiceName | ExternalEgressTarget
+    """
+    나가는 호출 상대 하나(이 계약의 서비스 또는 영역 밖의 호스트와 포트). 서비스 이름 platform 은 사람·기계 토큰의 발급자(OIDC 발급자 주소의 호스트와 포트)로 나가는 터널을 뜻한다. 발급자 주소는 설치처 값이라 선언에 못 박지 못한다. 토큰 검증(JWKS)이나 기계 토큰 발급이 필요한 서비스는 egress 에 platform 을 선언한다
+    """
+
+
+class Exposure(BaseModel):
+    """
+    영역이 선언하는 노출 경로와 나가는 호출 상대. deploy 가 이것으로 게이트웨이 구성을 만들고, 경로가 겹치면 시작하지 않는다. 노출 선언은 경로와 대상만 정한다. 경로가 요구하는 역할의 정본은 OpenAPI 3.1 의 작업 security 요구이고 입구 설정 생성기가 노출 선언과 계약 작업의 인증 요구를 곱해 라우트를 만든다(입구가 읽는 것은 영역 코드가 아니라 헤드 소유 계약이다)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    egress: Annotated[list[EgressTarget], Field(max_length=32)]
+    """
+    나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)
+    """
+    routes: Annotated[list[ExposureRoute], Field(max_length=29)]
+    """
+    노출 경로들
     """
 
 

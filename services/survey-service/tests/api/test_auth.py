@@ -98,3 +98,57 @@ async def test_device_header_is_required_and_parsed(harness: Harness) -> None:
         ).status_code == 401
         ok = await c.get("/v1/sessions/00000000-0000-4000-8000-000000000001/state", headers=xfcc("kiosk-01"))
         assert ok.status_code == 404  # 인증은 통과하고 세션이 없다
+
+
+async def test_machine_caller_is_a_jwt_checked_against_the_caller_table(harness: Harness) -> None:
+    """기계 호출자: JWT(client credentials)의 서명·aud·exp 와 realm_access.roles, 호출자 표(ADR 0014)."""
+    h = harness
+    async with h.client() as c:
+        ok = await c.get("/v1/results", headers=h.machine("hospital"))
+        assert ok.status_code == 200
+        # 표에 없는 호출자는 신원은 맞아도 권한이 없다
+        assert (await c.get("/v1/results", headers=h.machine("stranger", "result-reader"))).status_code == 403
+        # 토큰의 역할이 표보다 넓어도 표가 허용한 역할만 남는다(교집합)
+        wide = h.machine("hospital", "result-reader", "risk-detector", "case-reader")
+        assert (await c.get("/v1/results", headers=wide)).status_code == 200
+        assert (await c.get("/v1/case-exports", headers=wide)).status_code == 403
+        assert (
+            await c.post("/v1/risk-signals", json={}, headers=wide)
+        ).status_code == 403  # risk-detector 는 표에 없다
+        # 표가 허용해도 토큰의 역할에 없으면 권한이 없다
+        assert (await c.get("/v1/results", headers=h.machine("hospital", "case-reader"))).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "case", ["wrong_audience", "expired", "wrong_issuer", "wrong_typ", "not_machine_prefix", "unknown_role"]
+)
+async def test_bad_machine_tokens_are_401(harness: Harness, case: str) -> None:
+    h = harness
+    now = time.time()
+    token = {
+        "wrong_audience": lambda: h.keys.token(
+            ["result-reader"], client_id="machine-hospital", audience="model-runtime"
+        ),
+        "expired": lambda: h.keys.token(["result-reader"], client_id="machine-hospital", exp_in=-10, now=now - 100),
+        "wrong_issuer": lambda: h.keys.token(["result-reader"], client_id="machine-hospital", issuer="https://evil/r"),
+        "wrong_typ": lambda: h.keys.token(["result-reader"], client_id="machine-hospital", typ="JWT"),
+        # 기계 역할을 가졌지만 클라이언트 ID 가 machine-<이름> 이 아니면 기계 토큰도 사람 토큰도 아니다
+        "not_machine_prefix": lambda: h.keys.token(["result-reader"], client_id="hospital"),
+        "unknown_role": lambda: h.keys.token(["result-reader", "superuser"], client_id="machine-hospital"),
+    }[case]()
+    async with h.client() as c:
+        r = await c.get("/v1/results", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401, r.text
+
+
+async def test_the_old_fixed_token_is_no_longer_accepted(harness: Harness) -> None:
+    async with harness.client() as c:
+        r = await c.get("/v1/results", headers={"Authorization": "Bearer hospital-token"})
+    assert r.status_code == 401
+
+
+async def test_human_token_on_a_machine_only_route_is_403_and_machine_on_a_human_route_is_403(harness: Harness) -> None:
+    h = harness
+    async with h.client() as c:
+        assert (await c.post("/v1/risk-signals", json={}, headers=h.human("staff"))).status_code == 403
+        assert (await c.get("/v1/staff-alerts", headers=h.machine("hospital"))).status_code == 403

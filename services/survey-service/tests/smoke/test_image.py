@@ -61,7 +61,7 @@ def _logs(cid: str) -> str:
 
 
 def _root_certificate() -> bytes:
-    """시험용 자체 서명 루트 인증서(PEM). 서비스는 이것을 영역 사이 TLS 의 신뢰 앵커로 읽는다."""
+    """시험용 자체 서명 루트 인증서(PEM). 서비스는 이것을 나가는 호출(이웃, 발급자)의 신뢰 앵커로 읽는다."""
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "openit-smoke-root")])
     now = datetime.datetime.now(datetime.UTC)
@@ -104,10 +104,12 @@ def container() -> Iterator[str]:
     key = ec.generate_private_key(ec.SECP256R1()).private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     )
-    machine_token = _secret(folder, "machine_hospital_token", secrets.token_hex(16))
+    machine_secret = _secret(folder, "machine_hospital_secret", secrets.token_hex(16))
     files = {
         "OPENIT_DATABASE_PASSWORD_FILE": _secret(folder, "database_password", password),
-        "OPENIT_MODEL_RUNTIME_TOKEN_FILE": _secret(folder, "model_runtime_token", secrets.token_hex(16)),
+        "OPENIT_MODEL_RUNTIME_CLIENT_SECRET_FILE": _secret(
+            folder, "model_runtime_client_secret", secrets.token_hex(16)
+        ),
         "OPENIT_VAPID_PRIVATE_KEY_FILE": _secret(folder, "vapid_private_key", key),
         "OPENIT_TLS_PRIVATE_KEY_FILE": _secret(folder, "tls_private_key", "unused"),
         "OPENIT_TLS_CERTIFICATE_FILE": _secret(folder, "tls_certificate", "unused"),
@@ -115,7 +117,9 @@ def container() -> Iterator[str]:
         "OPENIT_MACHINE_TOKENS_FILE": _secret(
             folder,
             "machine_tokens.json",
-            json.dumps({"tokens": [{"client": "hospital", "roles": ["result-reader"], "token_file": machine_token}]}),
+            json.dumps(
+                {"tokens": [{"client": "hospital", "roles": ["result-reader"], "client_secret_file": machine_secret}]}
+            ),
         ),
     }
     env = {
@@ -220,3 +224,6 @@ def test_root_filesystem_is_read_only(container: str) -> None:
 def test_image_labels(container: str) -> None:
     labels = json.loads(_docker("inspect", "-f", "{{json .Config.Labels}}", container))
     assert labels["io.openit.service"] == "survey-service" and labels["io.openit.contracts"]
+    # 라벨의 원본은 영역 폴더의 선언 파일이다(deploy build 가 인자로 넘긴다, ADR 0016)
+    for label, filename in (("jobs", "jobs.json"), ("exposure", "exposure.json"), ("inputs", "inputs.json")):
+        assert json.loads(labels[f"io.openit.{label}"]) == json.loads((ROOT / filename).read_text(encoding="utf-8"))

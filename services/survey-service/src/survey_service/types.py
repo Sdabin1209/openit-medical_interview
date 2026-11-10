@@ -97,6 +97,9 @@ class StoredQuestionSet(_Value):
     content_hash: str = Field(description="내용의 SHA-256(소문자 16진수 64자)")
     uploaded_by: str = Field(description="올린 사람(OIDC sub)")
     created_at: datetime = Field(description="저장한 때")
+    is_active: bool = Field(
+        default=False, description="그 문진표의 지금 활성 버전인지(저장한 내용이 아니라 활성화에 따라 바뀐다)"
+    )
 
 
 # ---------------------------------------------------------------- 시작 코드

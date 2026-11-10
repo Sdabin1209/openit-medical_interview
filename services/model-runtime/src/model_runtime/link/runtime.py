@@ -17,6 +17,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from model_runtime.components.inference import call_engine
 from model_runtime.components.output_guard import guard
+from model_runtime.components.package_catalog import CursorError, PackageCatalog
 from model_runtime.components.package_loader import (
     InspectedPackage,
     describe_digest_dir,
@@ -72,6 +73,7 @@ class Runtime:
         adapters: AdapterRegistry,
         workdir: Path,
         installed_version: str,
+        base_model: str,
         registry: CollectorRegistry,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -81,6 +83,10 @@ class Runtime:
         self._adapters = adapters
         self._workdir = workdir
         self._installed_version = installed_version
+        self._base_model = (
+            base_model  # 프로파일 표가 정한 이 서버의 기반 모델(ADR 0007). 다른 기반 모델의 패키지는 적재하지 않는다
+        )
+        self._catalog = PackageCatalog(source, workdir)
         self._clock = clock
         self._serving: LoadedPackage | None = None
         self._resident: list[LoadedPackage] = []
@@ -222,7 +228,9 @@ class Runtime:
 
     async def _inspect(self, digest: str) -> InspectedPackage:
         try:
-            return await inspect_package(self._source, digest, self._folder(digest), self._installed_version)
+            return await inspect_package(
+                self._source, digest, self._folder(digest), self._installed_version, self._base_model
+            )
         except PackageNotFoundError as error:
             raise ServiceFault(404, "모델 패키지를 찾을 수 없다", "레지스트리에 그 digest 의 패키지가 없다") from error
         except PackageInvalidError as error:
@@ -231,6 +239,17 @@ class Runtime:
             ) from error
         except RegistryUnavailableError as error:
             raise ServiceFault(503, "레지스트리에 닿지 못했다", "모델 패키지를 받지 못했다", retry_after=5) from error
+
+    async def list_packages(self, limit: int | None, cursor: str | None) -> Mapping[str, Any]:
+        """레지스트리에 게시된 패키지 목록 한 쪽(계약 ModelPackageList). 활성 여부는 활성화 기록과 맞춘다."""
+        try:
+            return await self._catalog.page(self._release.view().package_digest, limit, cursor)
+        except CursorError as error:
+            raise ServiceFault(400, "요청이 계약을 어겼다", "커서가 이 목록의 것이 아니다") from error
+        except RegistryUnavailableError as error:
+            raise ServiceFault(
+                503, "레지스트리에 닿지 못했다", "모델 패키지 목록을 받지 못했다", retry_after=5
+            ) from error
 
     async def describe(self, digest: str) -> ModelPackageManifest:
         """레지스트리의 모델 패키지 목록표(평가 보고서 포함). 적재하거나 활성화하지 않는다."""
@@ -272,7 +291,7 @@ class Runtime:
         package: LoadedPackage | None = None
         try:
             ready = inspected or await inspect_package(
-                self._source, digest, self._folder(digest), self._installed_version
+                self._source, digest, self._folder(digest), self._installed_version, self._base_model
             )
             package = await load_package(self._source, self._adapters, ready, self._folder(digest))
             if restored:

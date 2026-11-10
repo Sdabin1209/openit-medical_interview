@@ -6,31 +6,32 @@
 
 ## 1. 하는 일
 
-- **gateway(Envoy):** 공개 TLS 를 끝낸다(인증서 방식: `private`, `organization`, `acme-public`). 키오스크 기기 인증서를 검증하고(mTLS, 조직 PKI 루트, 허용 목록) 서비스에 `X-Forwarded-Client-Cert` 로 넘기며 클라이언트가 보낸 같은 헤더는 지운다. 각 영역의 노출 선언(`Exposure`)과 계약 OpenAPI 의 작업 인증 요구에서 라우트를 만들고 대상(`ExposureAudience`)마다 인증을 건다. 나가는 호출은 `Exposure.egress` 에 선언한 상대에게만 CONNECT 터널로 이어 준다.
+- **gateway(Envoy):** 공개 TLS 를 끝낸다(인증서 방식: `private`, `organization`, `acme-public`). 키오스크 기기 인증서를 검증하고(mTLS, 조직 PKI 루트, 허용 목록) 서비스에 `X-Forwarded-Client-Cert` 로 넘기며 클라이언트가 보낸 같은 헤더는 지운다. 각 영역의 노출 선언(`Exposure`)과 계약 OpenAPI 의 작업 인증 요구에서 라우트를 만들고 대상(`ExposureAudience`)마다 인증을 건다. 나가는 호출은 `Exposure.egress` 에 선언한 상대에게만 CONNECT 터널로 이어 준다(서비스 이름 `platform` 은 OIDC 발급자의 호스트·포트다).
+- **영역 게이트웨이(Caddy, 영역마다 하나):** 서비스 영역 앞에서 TLS 를 끝낸다. 사설 CA 에서 ACME 로 서비스 이름의 인증서를 받고, 클라이언트 인증서를 요구해 검증하고(`area_mtls`), 입구(SAN `gateway`)의 요청에서만 `X-Forwarded-Client-Cert` 를 서비스에 넘기며, `/healthz`·`/readyz`·`/metrics` 를 영역 안 감시용 평문 포트로 이어 준다. 서비스는 영역 내부 네트워크에서 평문 HTTP 다. [설명](caddy/area-gateway.md), [ADR 0007](docs/adr/0007-영역-게이트웨이.md).
 - **identity(Keycloak):** realm `openit` 을 파일로 가져온다. 사람 역할은 계약 `UserRole`, 기계 클라이언트는 `MachineRole`, 접근 토큰은 RFC 9068 프로파일이다.
-- **identity_proxy(oauth2-proxy):** 화면 경로의 로그인 앞단. 입구가 세션을 묻는다.
+- **identity_proxy(oauth2-proxy):** 화면 경로의 로그인 앞단. 입구가 세션을 묻는다. `/oauth2/userinfo` 의 `groups` 는 사람의 `UserRole` 이다(Keycloak 클라이언트 매퍼).
 - **ca(step-ca):** 사설 CA(ACME). 루트·중간 CA 교체 명령(`./deploy ca rotate`, `rotate-root`).
-- **monitoring:** 인증서 만료 감시, 영역 `/metrics` 수집, 경보 수신(Watchdog 생존 신호 포함).
+- **monitoring:** 인증서 만료 감시, 영역 `/metrics` 수집(영역 게이트웨이의 평문 감시 포트), 경보 수신(Watchdog 생존 신호 포함).
 - **registry:** `deploy/compose.yaml` 의 `registry`·`registry-store`(ADR 0013).
 
 ## 2. 받는 계약·내는 계약
 
 | | 계약 | 쪽 |
 |---|---|---|
-| 받는다 | `Exposure`(이미지 라벨 `io.openit.exposure`), `DeviceAllowlist`, `MachineTokenTable`, `PlatformEnv`(설치 설정), 계약 OpenAPI 의 작업 `security` | 영역·deploy |
-| 낸다 | `X-Forwarded-Client-Cert`(`ForwardedClientCertValue`), 사람·기계 접근 토큰(`AccessTokenHeader`, `UserIdentityClaims`), 서비스 인증서(`OPENIT_TLS_*`, 이 영역은 CA 만 맡고 발급 방식은 ACME), `OPENIT_EGRESS_PROXY` 값(`deploy/generated/gateway/egress-proxies.json`) | 흐름 N12, N13 |
+| 받는다 | `Exposure`(이미지 라벨 `io.openit.exposure`), `DeviceAllowlist`, `MachineTokenTable`(칸 `client_secret_file`), `PlatformEnv`(설치 설정, 선택 입력 여섯 포함), 계약 OpenAPI 의 작업 `security` | 영역·deploy |
+| 낸다 | `X-Forwarded-Client-Cert`(`ForwardedClientCertValue`), 사람·기계 접근 토큰(`AccessTokenHeader`, `UserIdentityClaims`, `MachineIdentityClaims`), 서비스 인증서(`OPENIT_TLS_*`, 이 영역은 CA 만 맡고 발급 방식은 ACME), `OPENIT_EGRESS_PROXY` 값(`deploy/generated/gateway/egress-proxies.json`) | 흐름 N12, N13 |
 
-계약이 부족하거나 틀렸다고 본 것은 `docs/change-requests/platform-001.md`~`003` 에 있다.
+변경 요청 platform-001~003 은 계약 9.0.0 이 답했다([계약 README 9.0.0](../contracts/README.md)). 그 뒤에 본 것은 [platform-004](../docs/change-requests/platform-004.md) 에 있다.
 
 ## 3. 컴포넌트(생성기 모듈)
 
 | 컴포넌트 | 모듈 | 입력 → 출력 |
 |---|---|---|
-| gateway | `gateway.py`(라우트·Envoy), `ingress.py`(입구 인증서 에이전트 Caddyfile) | 노출 선언, 허용 목록, 계약 OpenAPI, 설치 설정 → `envoy.yaml`, `Caddyfile`, `egress-proxies.json` |
+| gateway | `gateway.py`(라우트·Envoy), `ingress.py`(입구 인증서 에이전트 Caddyfile), `area_gateway.py`·`caddy/area-gateway.Caddyfile`(영역 게이트웨이) | 노출 선언, 허용 목록, 계약 OpenAPI, 설치 설정 → `envoy.yaml`, `Caddyfile`, `egress-proxies.json` |
 | identity, identity_proxy | `identity.py` | 기계 호출자 표, 설치 설정 → `openit-realm.json` |
 | ca | `pki.py` | 설치 설정 → `ca.json`, 신뢰 목록, 인증서 검증 |
 | monitoring | `monitoring.py`, `monitoring/`(규칙·규칙 시험) | 노출 선언, 설치 설정 → 감시 대상·`alertmanager.yml` |
-| (공통) | `settings.py`, `generate.py` | 설치 설정 해석·검증, 모든 생성 파일 |
+| (공통) | `settings.py`, `generate.py` | 설치 설정 해석·검증(계약 `PlatformEnv` 의 칸 타입), 모든 생성 파일 |
 
 `contract/models.py` 는 `uv run --project tools/checks openit-gen-contract platform` 이 계약에서 생성한다(손으로 고치지 않는다).
 
@@ -62,5 +63,6 @@ uv run pytest -m sandbox tests/scenario   # 샌드박스 종단 시험(docker, 1
 - [0004 사람 인증: Keycloak realm 과 oauth2-proxy](docs/adr/0004-사람-인증-keycloak-realm과-oauth2-proxy.md)
 - [0005 감시: 경보 수신과 영역 지표](docs/adr/0005-감시-경보-수신과-영역-지표.md)
 - [0006 루트 CA 교체 명령](docs/adr/0006-루트-ca-교체-명령.md)
+- [0007 영역 게이트웨이](docs/adr/0007-영역-게이트웨이.md)
 
 리포 전체의 관련 ADR: [0008 기반 compose 서비스](../docs/adr/0008-기반-compose-서비스-구성.md), [0013 관리 노드와 부트스트랩](../docs/adr/0013-관리-노드와-부트스트랩-순서.md), [0014 인증서 수명과 자동 갱신](../docs/adr/0014-인증서-수명과-자동-갱신.md), [0015 신뢰 구성](../docs/adr/0015-신뢰-구성.md).

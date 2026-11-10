@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from openit_platform import generate, ingress, monitoring
+from openit_platform import area_gateway, generate, ingress, monitoring
 
 from .helpers import exposure, platform_settings
 
@@ -25,8 +25,18 @@ def test_organization_certificate_is_labeled_for_the_manual_rule(repo: Path, tmp
 
 def test_area_targets_follow_exposures(repo: Path) -> None:
     text = monitoring.area_targets(platform_settings(repo), {"survey-service": exposure([]), "model-runtime": exposure([])})
-    assert [row["targets"][0] for row in yaml.safe_load(text)] == ["model-runtime:8443", "survey-service:8443"]
+    assert [row["targets"][0] for row in yaml.safe_load(text)] == ["model-runtime:9100", "survey-service:9100"]  # 영역 게이트웨이의 평문 감시 포트
     assert monitoring.area_targets(platform_settings(repo), {}) == "[]\n"
+
+
+def test_areas_are_scraped_on_the_plain_monitor_port_not_the_tls_port(repo: Path) -> None:
+    """영역 /metrics 는 영역 게이트웨이의 평문 감시 포트(TLS 포트와 별개)로 긁는다. prometheus.yml 의 scheme 도 http 다."""
+    cfg = platform_settings(repo)
+    rows = yaml.safe_load(monitoring.area_targets(cfg, {"survey-service": exposure([])}))
+    assert rows[0]["targets"] == [f"survey-service:{area_gateway.MONITOR_PORT}"] and str(cfg.service_port) not in rows[0]["targets"][0]
+    prometheus = yaml.safe_load((repo / "platform" / "monitoring" / "prometheus.yml").read_text(encoding="utf-8"))
+    job = next(item for item in prometheus["scrape_configs"] if item["job_name"] == "openit-areas")
+    assert job["scheme"] == "http" and "tls_config" not in job
 
 
 def test_webhook_url_goes_to_a_file_not_the_config(repo: Path) -> None:

@@ -1,13 +1,13 @@
-"""link_api 의 인증: 기계 토큰(bearer)과 사람 접근 토큰(OIDC JWT, RFC 9068).
+"""link_api 의 인증: 사람과 기계 호출자 모두 IdP 가 낸 JWT 접근 토큰(RFC 9068)을 받는다(ADR 0005).
 
-영역 사이 mTLS(area_mtls)는 TLS 연결에서 서버가 요구한다(serve.py). 여기서는 연결 위에서 토큰을 확인한다.
+영역 사이 mTLS(area_mtls)는 영역 게이트웨이가 끝낸다. 여기서는 평문 연결로 온 토큰을 확인한다. 사람과 기계는 같은 검증
+코드(OidcVerifier)를 지나고, client_id 가 machine- 로 시작하면 기계 호출자로 본다(계약 MachineOidcClientId).
 401 은 토큰이 없거나 틀림, 403 은 인증은 됐으나 역할이 없음이다(D58(2)). 환경 값과 비밀 값은 오류 응답에 넣지 않는다.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hmac
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,8 +17,15 @@ from typing import Any, cast
 import httpx2 as httpx
 import jwt
 from jwt import InvalidTokenError, PyJWK
+from pydantic import ValidationError
 
-from model_runtime.contract.models import AccessTokenType, MachineTokenTable
+from model_runtime.contract.models import (
+    AccessTokenType,
+    MachineIdentityClaims,
+    MachineRole,
+    MachineTokenTable,
+    UserRole,
+)
 from model_runtime.types import ServiceFault
 
 # 왜 비대칭만: RFC 9068 4 는 none 을 거절하라고 한다. 공유 비밀(HS*)은 발급자와 자원 서버가 같은 비밀을 가져야 해서
@@ -53,37 +60,25 @@ def bearer_token(authorization: str | None) -> str:
     return token.strip()
 
 
-@dataclass(frozen=True)
-class _MachineClient:
-    name: str
-    roles: frozenset[str]
-    token: bytes
+_MACHINE_CLIENT_PREFIX = "machine-"  # 계약 MachineOidcClientId 의 접두어(client_id = machine-<호출자 이름>)
 
 
-class MachineTokens:
-    """기계 호출자 표(MachineTokenTable)와 토큰 파일. 토큰 값은 파일에서만 읽고 오류에 싣지 않는다(D84)."""
+class CallerTable:
+    """기계 호출자 표(MachineTokenTable, 비밀 없음). client_id 로 호출자를 찾고 허용한 역할을 알려 준다.
+
+    왜 표를 읽나: 토큰의 역할(realm_access)은 IdP 가 낸 값이고, 이 서비스가 어느 호출자에게 어느 역할을 허용하는지는
+    표가 정한다. 토큰의 역할과 표의 허용이 모두 있어야 통과시킨다(IdP 설정이 어긋나도 표 밖의 호출자는 못 들어온다).
+    표의 client_secret_file 은 토큰을 받는 쪽(호출자)의 비밀이라 이 서비스는 읽지 않는다.
+    """
 
     def __init__(self, table_file: Path) -> None:
         table = MachineTokenTable.model_validate_json(table_file.read_text(encoding="utf-8"))
-        clients: list[_MachineClient] = []
-        for entry in table.tokens:
-            token = Path(entry.token_file.root).read_text(encoding="utf-8").strip()
-            if not token:
-                raise ValueError(f"기계 호출자 {entry.client.root} 의 토큰 파일이 비었다")
-            clients.append(_MachineClient(entry.client.root, frozenset(r.value for r in entry.roles), token.encode()))
-        self._clients = clients
+        self._roles = {entry.client.root: frozenset(role.value for role in entry.roles) for entry in table.tokens}
 
-    def authenticate(self, token: str) -> tuple[str, frozenset[str]]:
-        """토큰이 호출자 표에 있으면 (이름, 역할들). 모두 비교해 시간으로 어느 것이 맞는지 새지 않게
-        한다(hmac.compare_digest)."""
-        supplied = token.encode()
-        matched: _MachineClient | None = None
-        for client in self._clients:
-            if hmac.compare_digest(client.token, supplied):
-                matched = client
-        if matched is None:
-            raise unauthorized("기계 토큰이 틀렸다")
-        return matched.name, matched.roles
+    def allowed_roles(self, client_id: str) -> frozenset[str]:
+        """client_id(machine-<이름>)의 호출자가 표에서 허용받은 역할들. 표에 없으면 비어 있다."""
+        name = client_id.removeprefix(_MACHINE_CLIENT_PREFIX)
+        return self._roles.get(name, frozenset())
 
 
 class JwksCache:
@@ -182,26 +177,38 @@ class Caller:
     subject: str | None = None
 
 
-class Authenticator:
-    """작업마다 허용하는 신원을 확인한다(계약 security 요구)."""
+def _known_roles(claims: Mapping[str, Any], known: type[MachineRole] | type[UserRole]) -> frozenset[str]:
+    """토큰의 역할 중 계약이 아는 것만. Keycloak 은 계약 밖 기본 역할(offline_access 등)도 같은 클레임에 싣는다."""
+    return OidcVerifier.roles_of(claims) & {role.value for role in known}
 
-    def __init__(self, machines: MachineTokens, oidc: OidcVerifier) -> None:
-        self._machines = machines
+
+class Authenticator:
+    """작업마다 허용하는 신원을 확인한다(계약 security 요구). 사람과 기계 모두 JWT 를 같은 검증기로 확인한다."""
+
+    def __init__(self, callers: CallerTable, oidc: OidcVerifier) -> None:
+        self._callers = callers
         self._oidc = oidc
 
     async def require(
         self, authorization: str | None, machine_roles: Sequence[str] = (), human_roles: Sequence[str] = ()
     ) -> Caller:
         """machine_roles 중 하나를 가진 기계 토큰 또는 human_roles 중 하나를 가진 사람 토큰을 받는다."""
-        token = bearer_token(authorization)
-        if token.count(".") == 2 and human_roles:  # JWT 는 점 둘(RFC 7519 3)
-            claims = await self._oidc.verify(token)
-            if not set(human_roles) & OidcVerifier.roles_of(claims):
-                raise forbidden("필요한 역할이 없다")
-            return Caller("human", str(claims["client_id"]), str(claims["sub"]))
-        if not machine_roles:
-            raise unauthorized("이 작업은 사람 접근 토큰만 받는다")
-        name, roles = self._machines.authenticate(token)
-        if not set(machine_roles) & roles:
+        claims = await self._oidc.verify(bearer_token(authorization))
+        client_id = str(claims["client_id"])
+        if client_id.startswith(_MACHINE_CLIENT_PREFIX):
+            return self._machine(claims, client_id, machine_roles)
+        if not set(human_roles) & _known_roles(claims, UserRole):
+            raise forbidden("필요한 역할이 없다")
+        return Caller("human", client_id, str(claims["sub"]))
+
+    def _machine(self, claims: Mapping[str, Any], client_id: str, required: Sequence[str]) -> Caller:
+        # 왜 역할을 걸러 넣나: 계약 MachineRealmAccessClaim 은 MachineRole 만 허용하지만 실제 토큰은 기본 역할도 싣는다
+        shaped = {**claims, "realm_access": {"roles": sorted(_known_roles(claims, MachineRole))}}
+        try:
+            identity = MachineIdentityClaims.model_validate(shaped)
+        except ValidationError as error:
+            raise unauthorized("기계 토큰의 클레임이 계약과 다르다") from error
+        granted = {role.value for role in identity.realm_access.roles} & self._callers.allowed_roles(client_id)
+        if not set(required) & granted:
             raise forbidden("필요한 권한이 없다")
-        return Caller("machine", name)
+        return Caller("machine", client_id.removeprefix(_MACHINE_CLIENT_PREFIX))

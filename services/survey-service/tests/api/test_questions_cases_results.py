@@ -3,7 +3,9 @@
 import copy
 import uuid
 from datetime import timedelta
+from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy import select
 from tests.support.flows import activate, idem, start, turn_body
@@ -239,3 +241,38 @@ async def test_results_filters_fhir_errors_and_access_log(harness: Harness) -> N
         # 읽은 호출자와 때가 접근 기록에 남는다: 성공한 읽기(부분 결과 FHIR 한 번)만 남고 거절·없음은 남지 않는다
         rows = (await connection.execute(select(ResultAccessRow.reader_kind, ResultAccessRow.reader))).all()
     assert [tuple(r) for r in rows] == [("MACHINE", "hospital")]
+
+
+async def test_is_active_follows_activation(harness: Harness) -> None:
+    """admin-console-004: 목록·상세·올리기 응답의 is_active 는 그 문진표의 지금 활성 버전만 참이다."""
+    h = harness
+    author = h.human("author")
+    async with h.client() as c:
+        v1 = (await c.post("/v1/question-set-versions", json=question_set(), headers={**author, **idem()})).json()
+        v2 = (await c.post("/v1/question-set-versions", json=question_set(), headers={**author, **idem()})).json()
+        other = (
+            await c.post("/v1/question-set-versions", json=question_set("other", "다른"), headers={**author, **idem()})
+        ).json()
+        assert [v["is_active"] for v in (v1, v2, other)] == [False, False, False]
+
+        async def actives() -> dict[int, bool]:
+            page = (
+                await c.get("/v1/question-set-versions", params={"questionnaire_id": "national-health"}, headers=author)
+            ).json()
+            return {item["version_number"]: item["is_active"] for item in page["items"]}
+
+        assert await actives() == {1: False, 2: False}
+        await c.post(f"/v1/question-set-versions/{v1['question_set_version_id']}/activation", headers=author)
+        assert await actives() == {1: True, 2: False}
+        await c.post(f"/v1/question-set-versions/{v2['question_set_version_id']}/activation", headers=author)
+        await c.post(f"/v1/question-set-versions/{other['question_set_version_id']}/activation", headers=author)
+        assert await actives() == {1: False, 2: True}  # 활성화하면 이전 활성 버전은 거짓이다. 다른 문진표는 따로다
+
+        async def got(v: dict[str, Any]) -> httpx.Response:
+            return await c.get(f"/v1/question-set-versions/{v['question_set_version_id']}", headers=author)
+
+        assert [(await got(v)).json()["is_active"] for v in (v1, v2, other)] == [False, True, True]
+        replay_key = idem()
+        again = await c.post("/v1/question-set-versions", json=question_set(), headers={**author, **replay_key})
+        replay = await c.post("/v1/question-set-versions", json=question_set(), headers={**author, **replay_key})
+        assert again.json() == replay.json() and replay.json()["is_active"] is False

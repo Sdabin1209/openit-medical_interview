@@ -3,6 +3,7 @@
 
 import base64
 import hashlib
+import json
 import re
 import uuid
 from typing import Any
@@ -27,11 +28,23 @@ class FakeRegistry:
         @app.api_route("/v2/{rest:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
         async def handle(request: Request, rest: str) -> Response:  # pyright: ignore[reportUnusedFunction]
             self.requests.append((request.method, rest))
-            if request.headers.get("authorization") != self.expected:
+            if self.expected and request.headers.get("authorization") != self.expected:
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="registry"'})
             return await self._route(request, rest)
 
         return app
+
+    def _tag_list(self, request: Request, name: str) -> Response:
+        """OCI Distribution Spec 의 태그 목록: 사전순, `n` 쪽 크기와 `last` 이어받기, 더 있으면 Link rel=next."""
+        tags = sorted(self.tags)
+        last = request.query_params.get("last")
+        if last:
+            tags = [tag for tag in tags if tag > last]
+        size = int(request.query_params.get("n", "0")) or len(tags)
+        page, more = tags[:size], len(tags) > size
+        headers = {"Link": f'</v2/{name}/tags/list?last={page[-1]}&n={size}>; rel="next"'} if more else {}
+        body = json.dumps({"name": name, "tags": page})
+        return Response(body, media_type="application/json", headers=headers)
 
     async def _route(self, request: Request, rest: str) -> Response:
         method = request.method
@@ -57,6 +70,9 @@ class FakeRegistry:
                 return Response(status_code=400, content=b'{"errors":[{"code":"DIGEST_INVALID"}]}')
             self.blobs[digest] = body
             return Response(status_code=201, headers={"Docker-Content-Digest": digest})
+        listing = re.fullmatch(r"(?P<name>.+)/tags/list", rest)
+        if listing and method == "GET":
+            return self._tag_list(request, listing["name"])
         manifest = re.fullmatch(r"(?P<name>.+)/manifests/(?P<ref>.+)", rest)
         if manifest:
             ref = manifest["ref"]

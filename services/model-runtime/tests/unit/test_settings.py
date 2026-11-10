@@ -25,8 +25,8 @@ def test_settings_read_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     pki = make_pki(tmp_path / "pki")
     expected = settings_for(tmp_path, pki, "https://registry")
     monkeypatch.setenv("OPENIT_ROOT_CERTIFICATE_FILE", str(pki.root))
-    monkeypatch.setenv("OPENIT_TLS_CERTIFICATE_FILE", str(pki.server_cert))
-    monkeypatch.setenv("OPENIT_TLS_PRIVATE_KEY_FILE", str(pki.server_key))
+    monkeypatch.setenv("OPENIT_TLS_CERTIFICATE_FILE", str(pki.client_cert))
+    monkeypatch.setenv("OPENIT_TLS_PRIVATE_KEY_FILE", str(pki.client_key))
     monkeypatch.setenv("OPENIT_LISTEN_PORT", "8443")
     monkeypatch.setenv("OPENIT_OIDC_ISSUER_URL", expected.oidc_issuer_url)
     monkeypatch.setenv("OPENIT_OIDC_AUDIENCE", "model-runtime")
@@ -34,10 +34,12 @@ def test_settings_read_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     monkeypatch.setenv("OPENIT_REGISTRY_REPOSITORY", "openit/model-package")
     monkeypatch.setenv("OPENIT_REGISTRY_CREDENTIALS_FILE", str(expected.registry_credentials_file))
     monkeypatch.setenv("OPENIT_MACHINE_TOKENS_FILE", str(expected.machine_tokens_file))
-    monkeypatch.setenv("OPENIT_MODEL_PROFILE", "p")
+    monkeypatch.setenv("OPENIT_MODEL_PROFILE", "rtx4090-24g")
+    monkeypatch.setenv("OPENIT_INFERENCE_ENGINE_URL", "http://inference-engine:8000")
     monkeypatch.setenv("OPENIT_MODEL_CACHE_DIR", str(tmp_path))
     loaded = Settings()  # pyright: ignore[reportCallIssue]
     assert loaded.listen_port == 8443 and loaded.registry_repository.root == "openit/model-package"
+    assert loaded.inference_engine_url.root == "http://inference-engine:8000"
 
 
 def test_unknown_audience_is_rejected(tmp_path: Path) -> None:

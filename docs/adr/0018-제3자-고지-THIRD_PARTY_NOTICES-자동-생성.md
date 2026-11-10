@@ -17,7 +17,7 @@ MIT·BSD·ISC·Apache-2.0 같은 허용형 라이선스는 사용을 막지 않�
   - 저작권 표시: 라이선스 전문과 NOTICE에서 `Copyright (c)·©` 또는 연도가 있는 `Copyright` 줄을 뽑는다. 하나도 없으면 "없다"와 패키지 메타데이터의 저자를 그대로 적는다(지어내지 않는다).
   - 파일이 없는 패키지: 생성이 실패한다. 사람이 `tools/checks/notices-overrides.toml`에 대체 전문을 근거(reason)와 함께 적어야 통과한다. 대체는 라이선스 식별자가 같을 때만 적용되고, 패키지가 파일을 실으면 쓰지 않는다. 지금 항목은 `react-remove-scroll-bar`(npm 타르볼에 LICENSE 파일 없음, 직접 확인) 하나다.
 - **결정성:** 패키지는 (이름 소문자, 버전)으로 정렬하고 시각·경로·환경 값을 넣지 않는다. 같은 잠금 파일이면 같은 파일이다(Python 예시 두 번 생성해 바이트 비교로 확인).
-- **이미지 안의 자리:** `/usr/share/doc/openit/THIRD_PARTY_NOTICES`(서비스·화면 모두, FHS의 문서 폴더). 화면은 번들된 JavaScript가 브라우저로 배포되므로 `/usr/share/nginx/html/THIRD_PARTY_NOTICES.txt`에도 둔다(`/THIRD_PARTY_NOTICES.txt`로 받아 볼 수 있다). Dockerfile의 마지막 단계(이미지에 남는 단계)에서 영역 폴더의 파일을 `COPY`한다.
+- **이미지 안의 자리:** `/usr/share/doc/openit/THIRD_PARTY_NOTICES`(서비스·화면 모두, FHS의 문서 폴더). 화면은 번들된 JavaScript가 브라우저로 배포되므로 `/usr/share/nginx/html/THIRD_PARTY_NOTICES.txt`에도 둔다(영역의 경로 접두어 아래 `/console/THIRD_PARTY_NOTICES.txt`·`/kiosk/THIRD_PARTY_NOTICES.txt` 로 받아 볼 수 있다, 2026-11-11 화면 경로 접두어). Dockerfile의 마지막 단계(이미지에 남는 단계)에서 영역 폴더의 파일을 `COPY`한다.
 - **점검 두 단계:**
   1. `openit-check notices`(`openit-check all`에 들어간다): services/·web/의 모든 영역에 대해 ① 잠금 파일이 있고 ② `THIRD_PARTY_NOTICES`가 있고 ③ 그것이 잠금 파일에서 다시 만든 것과 글자까지 같고(어긋나면 잠금 파일에만 있는 패키지와 고지에만 있는 패키지 개수를 알린다) ④ Dockerfile 마지막 단계가 정해진 경로로 `COPY`하고 ⑤ `.dockerignore`가 그 파일을 빼지 않는지 본다. `templates/`의 Dockerfile도 ④를 본다.
   2. `deploy/deploy build`가 이미지를 만든 뒤, 1단계를 다시 확인하고 이미지에서 `docker create`·`docker cp`로(이미지를 실행하지 않는다) 고지를 꺼내 영역의 파일과 바이트까지 같은지 본다(`openit-notices image`). 파일이 없거나 다르면 빌드가 실패하고 `images.lock`에 digest를 쓰지 않는다. docker 호출은 `deploy/dockerenv.py`의 격리 설정을 쓴다. Trivy 검사 앞에서 돈다.

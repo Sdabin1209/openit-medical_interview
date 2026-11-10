@@ -25,7 +25,8 @@ _JSON_SCHEMA_NAME = "ActionExtraction"
 class VllmEngine:
     """vLLM OpenAI 호환 서버 하나와 이야기한다."""
 
-    def __init__(self, base_url: str, http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, base_url: str, base_model: str, http_client: httpx.AsyncClient | None = None) -> None:
+        self._base_model = base_model  # 프로파일 표의 기반 모델. 엔진이 이 모델을 서빙해야 준비된 것이다(ADR 0007)
         self._http = http_client or httpx.AsyncClient(
             timeout=None
         )  # 왜 None: 시간 상한은 inference 컴포넌트가 계약 값으로 건다
@@ -67,10 +68,19 @@ class VllmEngine:
         return content
 
     async def healthy(self) -> bool:
-        """엔진이 살아 있는가(vLLM 의 `/health`). /readyz 의 engine 점검이 쓴다."""
+        """엔진이 살아 있고 프로파일의 기반 모델을 서빙하는가. /readyz 의 engine 점검이 쓴다.
+
+        살아 있음은 vLLM 의 `/health`, 기반 모델은 OpenAI 호환 `GET /v1/models` 의 모델 목록으로 본다(엔진은 시작할 때 정한
+        기반 모델 하나를 서빙하고 런타임에 바꿀 수 없어서, 이 서비스가 엔진에 기반 모델을 알릴 길은 없고 확인만 할 수 있다).
+        """
         try:
-            return (await self._http.get(f"{self._base_url}/health")).status_code == HTTPStatus.OK
-        except httpx.HTTPError:
+            if (await self._http.get(f"{self._base_url}/health")).status_code != HTTPStatus.OK:
+                return False
+            listed = await self._http.get(f"{self._base_url}/v1/models")
+            return listed.status_code == HTTPStatus.OK and any(
+                item.get("id") == self._base_model for item in listed.json().get("data", [])
+            )
+        except (httpx.HTTPError, ValueError, AttributeError):
             return False
 
     async def load_adapter(self, name: str, path: Path) -> None:

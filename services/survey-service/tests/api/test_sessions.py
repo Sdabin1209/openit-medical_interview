@@ -53,9 +53,13 @@ async def test_code_ttl_and_questionnaire_choice(harness: Harness) -> None:
         listing = await c.get("/v1/questionnaires", headers=KIOSK)
         assert {q["questionnaire_id"] for q in listing.json()["questionnaires"]} == {"a-set", "b-set"}
         code = await issue(h, c)
-        # 활성 문진표가 둘 이상이면 환자가 고르는 값이 필요하다
+        # 활성 문진표가 둘 이상이면 환자가 고르는 값이 필요하다: 422 QUESTIONNAIRE_REQUIRED, 코드는 쓰지 않은 것이다
         h.model.will_respond("안녕하세요")
-        assert (await c.post("/v1/sessions", json={"start_code": code}, headers=KIOSK)).status_code == 400
+        required = await c.post("/v1/sessions", json={"start_code": code}, headers=KIOSK)
+        assert required.status_code == 422 and required.json()["reason"] == "QUESTIONNAIRE_REQUIRED"
+        for _ in range(h.runtime.limits.start_failure_limit + 2):  # 실패 시도로 세지 않으므로 한도(429)에 닿지 않는다
+            again = await c.post("/v1/sessions", json={"start_code": code}, headers=KIOSK)
+            assert again.status_code == 422 and again.json()["reason"] == "QUESTIONNAIRE_REQUIRED"
         chosen = await c.post("/v1/sessions", json={"start_code": code, "questionnaire_id": "b-set"}, headers=KIOSK)
         assert chosen.status_code == 201 and chosen.json()["questionnaire_id"] == "b-set"
         # 코드에 묶인 문진표가 요청보다 앞선다

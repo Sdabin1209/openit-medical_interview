@@ -14,8 +14,8 @@ from .helpers import platform_settings
 TABLE = MachineTokenTable.model_validate(
     {
         "tokens": [
-            {"client": "hospital", "roles": ["result-reader"], "token_file": "/run/secrets/a"},
-            {"client": "model-lab", "roles": ["case-reader"], "token_file": "/run/secrets/b"},
+            {"client": "hospital", "roles": ["result-reader"], "client_secret_file": "/run/secrets/a"},
+            {"client": "model-lab", "roles": ["case-reader"], "client_secret_file": "/run/secrets/b"},
         ]
     }
 )
@@ -88,6 +88,20 @@ def test_same_input_same_output(repo: Path) -> None:
 def test_machine_table_file_is_validated(tmp_path: Path) -> None:
     path = tmp_path / "machine-callers.json"
     assert identity.load_machine_table(path).tokens == []  # 파일이 없으면 호출자가 없다
-    path.write_text('{"tokens":[{"client":"Bad_Name","roles":["result-reader"],"token_file":"/x"}]}', encoding="utf-8")
+    path.write_text('{"tokens":[{"client":"Bad_Name","roles":["result-reader"],"client_secret_file":"/x"}]}', encoding="utf-8")
     with pytest.raises(pki.ConfigError, match="계약을 어겼다"):
         identity.load_machine_table(path)
+
+
+def test_oauth2_proxy_client_gives_realm_roles_as_the_groups_claim(repo: Path) -> None:
+    """admin-console-001: oauth2-proxy 의 /oauth2/userinfo groups 는 ID 토큰의 groups 클레임이다. 표준 매퍼(User Realm Role)가 realm 역할을 낸다."""
+    realm = _realm(repo)
+    clients = {client["clientId"]: client for client in realm["clients"]}
+    mapper = next(m for m in clients["oauth2-proxy"]["protocolMappers"] if m["name"] == "groups")
+    assert mapper["protocolMapper"] == "oidc-usermodel-realm-role-mapper" and mapper["protocol"] == "openid-connect"
+    config = mapper["config"]
+    assert config["claim.name"] == "groups" and config["multivalued"] == "true" and config["jsonType.label"] == "String"
+    assert {config[key] for key in ("access.token.claim", "id.token.claim", "userinfo.token.claim")} == {"true"}
+    # 범위가 UserRole 로 제한되어 있어(fullScopeAllowed 거짓) groups 에도 UserRole 만 나온다. 기계 클라이언트에는 이 매퍼가 없다
+    assert clients["oauth2-proxy"]["fullScopeAllowed"] is False
+    assert all(m["name"] != "groups" for name, client in clients.items() if name != "oauth2-proxy" for m in client["protocolMappers"])

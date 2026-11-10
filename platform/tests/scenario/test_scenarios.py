@@ -1,4 +1,4 @@
-"""platform 종단 시험(샌드박스): 기기 인증서, XFCC, 사람 OIDC, 기계 토큰, 나가는 터널, 감시, 인증서 갱신, 루트 교체.
+"""platform 종단 시험(샌드박스): 기기 인증서, XFCC, 영역 게이트웨이, 사람 OIDC, 기계 토큰, 나가는 터널, 감시, 인증서 갱신, 루트 교체.
 
 끝 조건(브리프): 기기 인증서 있는 요청만 키오스크 경로 통과, 없는 요청 거부, XFCC 위조 헤더 제거, OIDC 토큰 없는 직원 경로 거부, 기계 토큰 역할별 허용·거부.
 실행: `cd platform && uv run pytest -m sandbox tests/scenario` (docker 필요, 10분 안팎).
@@ -17,16 +17,18 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator
 
+from openit_platform import area_gateway
 from openit_platform.contract.models import UserRole
 
 from .client import Client, Response, login_form
-from .sandbox import KC_PASSWORD, REPO, Sandbox
+from .sandbox import ACME_URL, CLIENT_CERT_AREA, KC_PASSWORD, REPO, Sandbox
 
 pytestmark = pytest.mark.sandbox
 
 HOST = "openit.internal"
 BASE = f"https://{HOST}:8443"
 TOKEN_URL = f"{BASE}/realms/openit/protocol/openid-connect/token"
+SERVICE_NAMES = ("survey-service", "model-runtime", "admin-console", "kiosk-frontend")
 CONTRACT = yaml.safe_load((REPO / "contracts" / "components.yaml").read_text(encoding="utf-8"))
 
 
@@ -82,7 +84,7 @@ def test_device_certificate_on_allowlist_passes_and_service_sees_xfcc(box: Sandb
     assert echo["service"] == "survey-service" and echo["path"] == "/v1/sessions/s1/state"
     assert 'Subject="CN=kiosk-01"' in echo["xfcc"] and echo["xfcc"].startswith("Hash=")  # 계약 ForwardedClientCertValue: 기기 ID 는 Subject 의 CN
     contract_validator("ForwardedClientCertValue").validate(echo["xfcc"])
-    assert echo["client_san"] == "gateway"  # 입구가 영역 서비스에 사설 CA 의 클라이언트 인증서를 보였다(영역 사이 mTLS)
+    # 입구가 영역 게이트웨이에 사설 CA 의 클라이언트 인증서(SAN gateway)를 보였고(영역 사이 mTLS) 게이트웨이가 XFCC 를 평문 상류에 넘겼다
     assert client(box, "kiosk-01").get("/kiosk/index.html").status == 200  # 키오스크 화면 경로도 기기 인증서로 열린다
 
 
@@ -142,6 +144,22 @@ def test_login_gives_services_an_rfc9068_token_with_contract_claims(box: Sandbox
     assert {"survey-service", "model-runtime", "admin-console"} <= set(claims["aud"])
 
 
+def test_userinfo_groups_carry_only_the_users_contract_roles(box: Sandbox) -> None:
+    """admin-console-001: 화면이 읽는 oauth2-proxy 의 /oauth2/userinfo 의 groups 가 사람의 realm 역할(UserRole)만 준다."""
+    allowed = {role.value for role in UserRole}
+    for user, role in (("staff-1", "staff"), ("clinician-1", "clinician")):
+        session, _ = login(box, user)
+        response = session.get("/oauth2/userinfo")
+        assert response.status == 200, response.body[:200]
+        info = json.loads(response.body)
+        # 왜 role: 접두어를 따로 보나: keycloak-oidc 제공자는 realm_access.roles 를 `role:<이름>` 으로 groups 에 더 붙인다(확인한 동작). 화면은 UserRole 값만 남긴다
+        bare = [group for group in info["groups"] if not group.startswith("role:")]
+        assert bare == [role] and set(bare) <= allowed, info  # offline_access·default-roles-openit 같은 Keycloak 기본 역할이 없다
+        assert set(info["groups"]) <= {role, f"role:{role}"}, info
+        assert info["preferredUsername"] == user
+    assert client(box).get("/oauth2/userinfo").status == 401  # 세션이 없으면 열리지 않는다
+
+
 def test_roles_decide_the_staff_paths(box: Sandbox) -> None:
     staff, _ = login(box, "staff-1")
     assert staff.request("POST", f"{BASE}/v1/start-codes", body="{}").status == 200  # staff 역할이 요구된다
@@ -184,6 +202,8 @@ def test_machine_token_claims_follow_rfc9068(box: Sandbox) -> None:
     assert header["typ"] == "at+jwt" and claims["client_id"] == "machine-hospital" and claims["aud"] == "survey-service"
     assert claims["realm_access"]["roles"] == ["result-reader"]
     contract_validator("TokenAudienceClaim").validate(claims["aud"])
+    contract_validator("MachineIdentityClaims").validate(claims)  # 계약 9.0.0: 기계 접근 토큰의 필수 클레임과 MachineRole 만 담긴 realm_access
+    assert claims["sub"] and claims["iss"] == f"{BASE}/realms/openit"
 
 
 def test_token_for_another_audience_is_not_accepted(box: Sandbox) -> None:
@@ -209,35 +229,104 @@ def test_login_endpoints_of_the_realm_are_public(box: Sandbox) -> None:
 # ---------------------------------------------------------------- 나가는 터널(CONNECT)
 
 
-def connect(box: Sandbox, target: str) -> tuple[int, str]:
-    proxy = json.loads((box.deploy_dir / "generated" / "gateway" / "egress-proxies.json").read_text(encoding="utf-8"))["survey-service"]
-    result = box.exec(
-        "sandbox-client",
-        "curl",
-        "-sS",
-        "--max-time",
-        "15",
-        "--cacert",
-        "/etc/openit/trust-list.pem",
-        "--proxytunnel",
-        "-x",
-        proxy,
-        "-o",
-        "/dev/null",
-        "-w",
-        "%{http_code}",
-        f"https://{target}/",
-        check=False,
-    )
+def curl_in_client(box: Sandbox, *args: str, stdin: str | None = None) -> tuple[int, str]:
+    result = box.exec("sandbox-client", "curl", "-sS", "--max-time", "15", "--cacert", "/etc/openit/trust-list.pem", *args, check=False, stdin=stdin)
     return result.returncode, result.stdout + result.stderr
+
+
+def own_certificate(area: str = CLIENT_CERT_AREA) -> list[str]:
+    """영역 게이트웨이가 받아 영역 안 공유 폴더에 둔 클라이언트 인증서와 키(서비스가 읽기 전용으로 보는 것과 같다)."""
+    cert, key = area_gateway.certificate_paths(area, ACME_URL)
+    return ["--cert", cert, "--key", key]
+
+
+def egress_proxy(box: Sandbox) -> str:
+    return json.loads((box.deploy_dir / "generated" / "gateway" / "egress-proxies.json").read_text(encoding="utf-8"))["survey-service"]
+
+
+def connect(box: Sandbox, target: str) -> tuple[int, str]:
+    return curl_in_client(box, *own_certificate(), "--proxytunnel", "-x", egress_proxy(box), "-o", "/dev/null", "-w", "%{http_code}", f"https://{target}/")
 
 
 def test_egress_goes_only_to_declared_targets(box: Sandbox) -> None:
     code, out = connect(box, "model-runtime:8443")
-    assert code == 0 and out.strip().endswith("200"), out  # 선언한 상대(Exposure.egress)
+    assert code == 0 and out.strip().endswith("200"), out  # 선언한 상대(Exposure.egress). 이웃의 영역 게이트웨이에 자기 클라이언트 인증서를 보인다
     for target in ("survey-service:8443", "admin-console:8443", "example.org:443"):
         code, out = connect(box, target)
         assert code != 0 and "CONNECT tunnel failed, response 403" in out, (target, out)
+
+
+def test_service_reaches_the_token_endpoint_and_jwks_through_the_egress_tunnel(box: Sandbox) -> None:
+    """Exposure.egress 의 platform: 발급자의 호스트·포트로 CONNECT 가 열린다. 디스커버리 -> 토큰 엔드포인트(client credentials) -> JWKS 가 그 길을 쓴다."""
+    proxy = ["--proxytunnel", "-x", egress_proxy(box)]
+    code, out = curl_in_client(box, *proxy, f"{BASE}/realms/openit/.well-known/openid-configuration")
+    assert code == 0, out
+    discovery = json.loads(out)
+    assert discovery["issuer"] == f"{BASE}/realms/openit"
+    body = urlencode({"grant_type": "client_credentials", "client_id": "machine-hospital", "client_secret": box.machine_secret("hospital")})
+    code, out = curl_in_client(box, *proxy, "--data-binary", "@-", "-H", "Content-Type: application/x-www-form-urlencoded", discovery["token_endpoint"], stdin=body)
+    assert code == 0, out[:300]
+    token = json.loads(out)["access_token"]
+    _, claims = decode_jwt(token)
+    contract_validator("MachineIdentityClaims").validate(claims)
+    code, out = curl_in_client(box, *proxy, discovery["jwks_uri"])
+    assert code == 0 and json.loads(out)["keys"], out[:200]
+    # 받은 토큰은 입구의 기계 경로에서 역할대로 통한다
+    assert client(box).get("/v1/results", headers=bearer(token)).status == 200
+    # 같은 터널로 발급자가 아닌 호스트·포트는 열리지 않는다
+    code, out = curl_in_client(box, *proxy, "--connect-timeout", "5", f"https://{HOST}:9999/")
+    assert code != 0 and "CONNECT tunnel failed, response 403" in out, out
+
+
+# ---------------------------------------------------------------- 영역 게이트웨이(platform ADR 0007)
+
+
+def echo_via_gateway(box: Sandbox, area: str, *args: str, path: str = "/v1/sessions/s1/state") -> tuple[int, dict[str, str], str]:
+    code, out = curl_in_client(box, *args, f"https://{area}:8443{path}")
+    echo = dict(line.split("=", 1) for line in out.splitlines() if "=" in line) if code == 0 else {}
+    return code, echo, out
+
+
+def test_area_gateway_refuses_calls_without_a_client_certificate(box: Sandbox) -> None:
+    for area in SERVICE_NAMES:
+        code, _, out = echo_via_gateway(box, area)
+        assert code != 0, (area, out)  # 클라이언트 인증서가 없으면 TLS 핸드셰이크에서 거절된다(require_and_verify)
+        assert "service=" not in out
+
+
+def test_area_gateway_accepts_a_neighbor_certificate_but_drops_a_forged_xfcc(box: Sandbox) -> None:
+    forged = ["-H", 'X-Forwarded-Client-Cert: Hash=00;Subject="CN=kiosk-99"']
+    code, echo, out = echo_via_gateway(box, "model-runtime", *own_certificate(), *forged)
+    assert code == 0 and echo["service"] == "model-runtime", out  # 사설 CA 가 발급한 이웃(survey-service)의 인증서로 영역 사이 mTLS 가 통한다
+    assert echo["xfcc"] == ""  # 입구(SAN gateway)가 아닌 호출이 보낸 신원 머리글은 서비스에 닿지 않는다
+    other = echo_via_gateway(box, "kiosk-frontend", *own_certificate(), *forged)
+    assert other[0] == 0 and other[1]["xfcc"] == ""
+
+
+def test_area_gateway_forwards_xfcc_only_from_the_ingress_certificate(box: Sandbox) -> None:
+    through_ingress = client(box, "kiosk-01").get("/v1/sessions/s1/state", headers={"X-Forwarded-Client-Cert": 'Hash=00;Subject="CN=kiosk-99"'}).lines()
+    assert 'Subject="CN=kiosk-01"' in through_ingress["xfcc"] and "kiosk-99" not in through_ingress["xfcc"]  # 입구가 검증한 기기만 서비스에 보인다
+
+
+def test_area_gateway_does_not_serve_a_service_host_on_a_mismatching_sni(box: Sandbox) -> None:
+    """SNI 와 Host 가 다른 요청은 클라이언트 인증이 걸리지 않은 연결 정책으로 들어올 수 있다. strict_sni_host 가 닫는다."""
+    code, out = curl_in_client(box, "--connect-to", "survey-service:8443:model-runtime:8443", "https://survey-service:8443/v1/results")
+    assert code != 0 or "service=" not in out, out
+    code, out = curl_in_client(box, *own_certificate(), "-H", "Host: survey-service", "https://model-runtime:8443/v1/results")
+    assert "service=survey-service" not in out, out  # 인증서가 있어도 SNI(model-runtime)와 다른 Host 는 받지 않는다
+
+
+def test_area_gateway_serves_health_and_metrics_on_the_plain_monitor_port_only(box: Sandbox) -> None:
+    port = area_gateway.MONITOR_PORT
+    for path, status in (("/metrics", "200"), ("/healthz", "200"), ("/readyz", "200"), ("/v1/results", "404")):
+        code, out = curl_in_client(box, "-o", "/dev/null", "-w", "%{http_code}", f"http://survey-service:{port}{path}")
+        assert code == 0 and out.strip() == status, (path, out)
+    code, out = curl_in_client(box, f"http://survey-service:{port}/metrics")
+    assert "sandbox_up 1" in out
+    code, out = curl_in_client(box, "-H", 'X-Forwarded-Client-Cert: Hash=00;Subject="CN=kiosk-99"', f"http://survey-service:{port}/healthz")
+    assert code == 0 and "kiosk-99" not in out and "xfcc=" in out  # 감시 포트에서도 위조 머리글은 지운다(본문의 xfcc 가 비어 있다)
+    # 입구는 이 포트를 열지 않는다(밖에서 상태 경로는 404)
+    assert client(box).get("/metrics").status == 404
 
 
 # ---------------------------------------------------------------- 감시
@@ -247,9 +336,9 @@ def test_area_metrics_are_scraped_and_watchdog_fires(box: Sandbox) -> None:
     def up() -> bool:
         out = box.exec("prometheus", "wget", "-qO-", "http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22openit-areas%22%7D").stdout
         values = {row["metric"]["instance"]: row["value"][1] for row in json.loads(out)["data"]["result"]}
-        return all(values.get(f"{name}:8443") == "1" for name in ("survey-service", "model-runtime", "admin-console"))
+        return all(values.get(f"{name}:{area_gateway.MONITOR_PORT}") == "1" for name in ("survey-service", "model-runtime", "admin-console"))
 
-    box.wait("Prometheus 가 영역 /metrics 를 읽", up, seconds=240)
+    box.wait("Prometheus 가 영역 게이트웨이의 평문 감시 포트로 영역 /metrics 를 읽", up, seconds=240)
 
     def watchdog() -> bool:
         alerts = json.loads(box.exec("alertmanager", "wget", "-qO-", "http://127.0.0.1:9093/api/v2/alerts").stdout)
@@ -286,7 +375,7 @@ def test_new_machine_caller_is_added_by_identity_sync(box: Sandbox) -> None:
     """realm 은 처음 기동 때만 가져오므로, 호출자를 더한 뒤에는 `./deploy identity sync` 가 반영한다. 사람 토큰의 역할 제한은 그대로다."""
     path = box.state / "machine-callers.json"
     table = json.loads(path.read_text(encoding="utf-8"))
-    table["tokens"].append({"client": "lab2", "roles": ["case-reader"], "token_file": "/run/secrets/unused-lab2"})
+    table["tokens"].append({"client": "lab2", "roles": ["case-reader"], "client_secret_file": "/run/secrets/unused-lab2"})
     path.write_text(json.dumps(table), encoding="utf-8")
     up = box.deploy("up")
     assert "identity sync" in up.stdout
@@ -328,9 +417,8 @@ def test_root_rotation_keeps_both_roots_until_leaves_are_renewed(box: Sandbox) -
     box.deploy("ca", "rotate-root")
     assert bundle.read_text(encoding="utf-8").count("BEGIN CERTIFICATE") == 2  # 새 루트와 이전 루트를 함께 믿는다
     assert list((box.deploy_dir / "pki" / "trust.d").glob("old-root-*.crt"))
-    # 에코 상류도 새 신뢰 목록을 읽게 다시 만든다(영역 서비스가 신뢰 목록을 시작할 때 읽는 것과 같다)
-    box.compose("up", "-d", "--force-recreate", "--no-deps", "sandbox-upstream")
-    box.start_test_services()
+    # 영역 게이트웨이도 새 신뢰 목록을 읽게 다시 만든다(신뢰 목록을 시작할 때 읽는 것과 같다)
+    box.recreate_gateways()
     # 왜 '이른 2단계가 거절되는가'를 단언하지 않나: 수명 5분 설치에서는 입구 에이전트가 다시 만들어지며 곧바로 새 루트의 인증서로 갱신해 경주가 된다(platform ADR 0006)
     assert box.deploy("ca", "rotate-root", "--finish", check=False).returncode == 2  # 배포 확인 없이는 빼지 않는다
 
@@ -339,8 +427,7 @@ def test_root_rotation_keeps_both_roots_until_leaves_are_renewed(box: Sandbox) -
 
     box.wait("이전 루트를 뺄 수 있", finished, seconds=600, interval=20)
     assert bundle.read_text(encoding="utf-8").count("BEGIN CERTIFICATE") == 1
-    box.compose("up", "-d", "--force-recreate", "--no-deps", "sandbox-upstream")
-    box.start_test_services()
+    box.recreate_gateways()
     box.wait("교체 뒤에도 입구가 영역 서비스에 닿", lambda: client(box, "kiosk-01").get("/v1/sessions/s1/state").status == 200, seconds=120, interval=5)
     status = box.deploy("ca", "status", check=False)
     assert status.returncode == 0, status.stdout[-1500:]

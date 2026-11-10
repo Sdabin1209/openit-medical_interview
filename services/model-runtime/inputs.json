@@ -80,6 +80,11 @@
    "name": "OPENIT_HOSTS_TABLE_FILE",
    "kind": "FILE_PATH",
    "required": false
+  },
+  {
+   "name": "OPENIT_INFERENCE_ENGINE_URL",
+   "kind": "VALUE",
+   "required": true
   }
  ],
  "writable_paths": [
