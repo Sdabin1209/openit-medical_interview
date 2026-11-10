@@ -177,7 +177,7 @@ paths:
       summary: 직원 알림 목록
       description: 열려 있는 알림과 최근에 풀린 알림을 최근 것이 먼저 나오게 쪽으로 나누어 준다. 직원은 위험·직원 호출·되묻기 초과를, 의사는 결과 도착 알림을 본다(F38, F41).
       x-owner: survey-service
-      security: [ { oidc: [staff, clinician] } ]
+      security: [ { oidc: [staff] }, { oidc: [clinician] } ]
       parameters:
         - { $ref: "../components.yaml#/components/parameters/Limit" }
         - { $ref: "../components.yaml#/components/parameters/Cursor" }
@@ -194,7 +194,7 @@ paths:
       summary: 알림 스트림 구독
       description: 알림이 생기거나 풀릴 때 서버가 밀어 주는 Server-Sent Events 스트림이다. 이벤트 이름은 alert, resolved, heartbeat, resync 이며 id 는 순번이다. 각 이벤트의 data 는 StaffAlertEvent 이고 이벤트가 없으면 AlertStreamHeartbeatSeconds(15초)마다 heartbeat 를 보낸다(OpenAPI 3.1 에는 이벤트 단위 스키마가 없어 text/event-stream 의 스키마는 data 의 모양을 가리킨다). 연결이 끊기면 Last-Event-ID 로 이어 받고, 놓친 것이 있으면 resync 를 받는다(F38, D66(4), D87).
       x-owner: survey-service
-      security: [ { oidc: [staff, clinician] } ]
+      security: [ { oidc: [staff] }, { oidc: [clinician] } ]
       parameters:
         - { name: Last-Event-ID, in: header, required: false, description: 마지막으로 받은 이벤트의 순번, schema: { $ref: "../components.yaml#/components/schemas/EventSequence" } }
       responses:
@@ -209,7 +209,7 @@ paths:
       summary: 웹 푸시 VAPID 공개키 읽기
       description: 브라우저가 푸시를 구독할 때 쓰는 서버의 VAPID 공개키를 준다(F39, D66(7), RFC 8292).
       x-owner: survey-service
-      security: [ { oidc: [staff, clinician] } ]
+      security: [ { oidc: [staff] }, { oidc: [clinician] } ]
       responses:
         "200": { description: 공개키, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/PushConfig" } } } }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
@@ -222,7 +222,7 @@ paths:
       summary: 웹 푸시 구독 등록
       description: 직원이나 의사의 브라우저가 만든 웹 푸시 구독을 그 사람의 계정에 묶어 저장한다. 직원에게는 위험·직원 호출·되묻기 초과 알림이, 의사에게는 결과 도착 알림이 푸시로 간다. 전달은 표준 Web Push(RFC 8030, RFC 8291, RFC 8292)로 하며 내용은 WebPushPayload 다(F39, F41, C11, U92).
       x-owner: survey-service
-      security: [ { oidc: [staff, clinician] } ]
+      security: [ { oidc: [staff] }, { oidc: [clinician] } ]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/PushSubscription" } } }

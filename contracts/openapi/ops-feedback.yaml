@@ -38,7 +38,7 @@ paths:
       summary: 실패 사례 목록
       description: 실패 사례를 쪽으로 나누어 준다. 검토자가 화면에서 검토할 사례를 고른다. 환자 발화 원문은 검토용이라 검토자 역할에만 나간다. 학습·데이터 영역은 listFailureCaseExports 로 읽는다(F46, D15, L12).
       x-owner: ops-feedback
-      security: [ { oidc: [reviewer] }, { area_mtls: [], machine_token: [case-reader] } ]
+      security: [ { oidc: [reviewer] } ]
       parameters:
         - { $ref: "../components.yaml#/components/parameters/Limit" }
         - { $ref: "../components.yaml#/components/parameters/Cursor" }
@@ -78,7 +78,7 @@ paths:
       summary: 실패 사례 읽기
       description: 사례 하나의 최신 검토 버전을 검토자에게 준다. 환자 발화 원문이 들어 있다(F46, D71, L12).
       x-owner: ops-feedback
-      security: [ { oidc: [reviewer] }, { area_mtls: [], machine_token: [case-reader] } ]
+      security: [ { oidc: [reviewer] } ]
       responses:
         "200": { description: 사례, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/FailureCase" } } } }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }

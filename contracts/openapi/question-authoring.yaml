@@ -110,7 +110,7 @@ paths:
       summary: 문항 세트 버전 읽기
       description: 확정된 문항 세트 버전의 내용(문항 은행과 순서표)을 준다. model-lab 은 평가를 문항 유형·단위·범위별로 쪼개려고, synthetic-data 는 잡이 실행될 때 읽는다. 이웃은 읽기만 한다(F15, F16, D13, D49).
       x-owner: question-authoring
-      security: [ { area_mtls: [], machine_token: [question-reader, candidate-reader] }, { oidc: [author, clinical-reviewer] } ]
+      security: [ { area_mtls: [], machine_token: [question-reader] }, { area_mtls: [], machine_token: [candidate-reader] }, { oidc: [author] }, { oidc: [clinical-reviewer] } ]
       responses:
         "200": { description: 문항 세트 버전, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/QuestionSetVersion" } } } }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
@@ -141,7 +141,7 @@ paths:
       summary: 후보 문항 세트 버전 목록
       description: 후보가 된 문항 세트 버전의 요약과 검수 기록과 변경 분류를 쪽으로 나누어 준다. release-gate 의 후보 수집 잡이 가져가고, model-lab 과 synthetic-data 가 어떤 버전이 있는지 찾는 데도 쓴다(F05, F15, F16, D49, U85).
       x-owner: question-authoring
-      security: [ { area_mtls: [], machine_token: [candidate-reader, question-reader] } ]
+      security: [ { area_mtls: [], machine_token: [candidate-reader] }, { area_mtls: [], machine_token: [question-reader] } ]
       parameters:
         - { $ref: "../components.yaml#/components/parameters/Limit" }
         - { $ref: "../components.yaml#/components/parameters/Cursor" }
@@ -159,7 +159,7 @@ paths:
       summary: 개선 신호 목록
       description: 저자가 문항별 실패율과 혼동 사례를 읽는다. 서버는 ops-feedback 에서 읽어 둔 신호를 준다. 읽기만 있고 저자 경로는 별도 인증 뒤에서만 열린다(F21, F22, D124, U68, D88 U9).
       x-owner: question-authoring
-      security: [ { oidc: [author, clinical-reviewer] } ]
+      security: [ { oidc: [author] }, { oidc: [clinical-reviewer] } ]
       parameters:
         - { $ref: "../components.yaml#/components/parameters/Limit" }
         - { $ref: "../components.yaml#/components/parameters/Cursor" }
