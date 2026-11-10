@@ -141,7 +141,7 @@ test('지표: 비율 단위의 값은 1 을 넘으면 거부한다', () => {
   ok('EvaluationMetric', { name: 'length_p95_ms', value: 1800, unit: 'milliseconds', sample_count: 400 });
 });
 test('결과 빈칸은 반복 키까지 칸을 가린다', () => {
-  ok('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount', reason: 'REASK_LIMIT' }); ok('ResultBlank', { item_id: 'Q9_2', reason: 'NOT_ASKED' }); no('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount' });
+  ok('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount', reason: 'REASK_LIMIT' }); ok('ResultBlank', { item_id: 'Q9_2', reason: 'UNASKED' }); no('ResultBlank', { item_id: 'Q7_1', key: 'Q7_1[soju].amount' });
 });
 test('구조의 숫자가 서로 맞는다(같은 구조에서 산출)', () => {
   const S = doc.components.schemas;
