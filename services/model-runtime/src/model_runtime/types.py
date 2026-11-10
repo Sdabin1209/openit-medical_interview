@@ -203,10 +203,21 @@ class ActivationOutcome(StrEnum):
 
 
 @dataclass(frozen=True)
-class ExtractionTurn:
-    """prompt 컴포넌트의 입력: 추출 요청에서 모델 입력 글자를 만드는 데 필요한 값(JSON 으로 푼 모양)."""
+class ExtractionQuestion:
+    """prompt 컴포넌트의 입력: 추출 요청의 구조화된 값(JSON 으로 푼 모양). 모델 입력의 글은 prompt 가 만든다."""
 
-    input: Mapping[str, object]  # ActionExtractionInput
+    question_id: str  # 지금 묻고 있는 문항
+    previous_question_id: str | None  # 대화에서 직전에 물은 문항(첫 문항이면 없다)
+    current_question: str  # 상담원이 방금 한 말
+    user_utterance: str  # 환자의 이번 말
+    slots: Sequence[Mapping[str, object]]  # 이번 턴 전에 저장된 칸 값들(순서가 있다)
+
+
+@dataclass(frozen=True)
+class ExtractionTurn:
+    """prompt 컴포넌트의 출력: 모델에 들어가는 입력 객체와 그 안 state 의 칸 순서."""
+
+    input: Mapping[str, object]  # 모델 입력(question_id, current_question, user_utterance, state)
     state_key_order: Sequence[str]
 
 

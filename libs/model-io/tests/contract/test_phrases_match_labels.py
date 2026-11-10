@@ -35,3 +35,11 @@ def test_the_two_constants_have_the_canonical_values() -> None:
     assert 'END = "END"' in CANON.read_text(encoding="utf-8") and 'FIRST_ITEM = "Q1.D01"' in CANON.read_text(
         encoding="utf-8"
     )
+
+
+def test_reference_source_table_equals_the_canonical_taxonomy() -> None:
+    import model_io.core.taxonomy_port as taxonomy_port
+
+    canon = _segments(CANON.with_name("taxonomy.py"))
+    ported = _segments(Path(taxonomy_port.__file__))
+    assert ported["REF_SOURCE"] == canon["REF_SOURCE"]

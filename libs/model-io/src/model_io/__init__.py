@@ -4,7 +4,12 @@
 """
 
 from model_io.core.bank import END, FieldIndex, FlowIndex, build_field_index, build_flow_index
-from model_io.core.compose import compose_response_input, compose_start_input
+from model_io.core.compose import (
+    ModelInputError,
+    compose_response_from_request,
+    compose_response_input,
+    compose_start_input,
+)
 from model_io.core.evaluate import (
     ExtractionSample,
     ResponseSample,
@@ -15,6 +20,7 @@ from model_io.core.evaluate import (
 from model_io.core.guard import check_extraction_output, expected_next_item, find_violations
 from model_io.core.rules import DEFAULT_RULES
 from model_io.core.serialize import serialize_extraction_input, serialize_response_input
+from model_io.core.state import compose_extraction_input, reference_item, select_state
 from model_io.core.types import GuardContext, GuardOutcome, Rewrite, Violation
 
 __all__ = [
@@ -25,6 +31,7 @@ __all__ = [
     "FlowIndex",
     "GuardContext",
     "GuardOutcome",
+    "ModelInputError",
     "ResponseSample",
     "Rewrite",
     "Violation",
@@ -32,12 +39,16 @@ __all__ = [
     "build_flow_index",
     "build_report",
     "check_extraction_output",
+    "compose_extraction_input",
+    "compose_response_from_request",
     "compose_response_input",
     "compose_start_input",
     "evaluate_extraction",
     "evaluate_responses",
     "expected_next_item",
     "find_violations",
+    "reference_item",
+    "select_state",
     "serialize_extraction_input",
     "serialize_response_input",
 ]

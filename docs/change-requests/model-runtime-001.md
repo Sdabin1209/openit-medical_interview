@@ -1,5 +1,7 @@
 # 변경 요청 model-runtime-001: 계약 문구와 데이터셋 정본의 차이 두 가지
 
+> **처리됨(contracts-v8.0.0).** 계약 쪽 반영: 1절(next_item 규칙은 labels.py a_target·next_after 대로), 2절(ModelInputSerialization 에 state 항목 키 순서 value, status), 4절(빈 반복 키는 저장하지 않는 값에만). 3절은 알림이다. 평가 파일 finaltest 의 키 순서는 데이터셋 변경 요청 DC-09 로 넘어갔다.
+
 - 영역: model-runtime(libs/model-io)
 - 대상 계약: `contracts/components.yaml` 의 `NextItemRuleKind`, `ModelInputSerialization`
 - 상태: 헤드 결정 대기. 그동안 코드는 데이터셋 정본을 따른다(ADR libs/model-io 0002).

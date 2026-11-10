@@ -8,7 +8,7 @@ import pytest
 
 from fakes.engine import FakeEngine
 from fakes.pki import make_pki
-from scenario.world import A_NEXT, bank
+from scenario.world import A_NEXT, ask, bank
 from support import MACHINE_TOKEN, Identity, make_app, settings_for
 
 pytestmark = pytest.mark.anyio
@@ -28,8 +28,7 @@ def machine() -> dict[str, str]:
 def body(**override: Any) -> dict[str, Any]:  # noqa: ANN401
     value: dict[str, Any] = {
         "runtime_contract_version": 1,
-        "input": A_NEXT,
-        "state_key_order": list[str](),
+        **ask(A_NEXT),
         "flow": bank()["flow"],
         "fields": bank()["fields"],
     }
@@ -69,12 +68,12 @@ async def test_authentication_comes_before_body_validation(tmp_path: Path) -> No
 
 async def test_invalid_body_is_400_with_pointers_and_without_input_values(tmp_path: Path) -> None:
     private_utterance = "환자가 말한 비밀 발화 내용"
-    bad = body(input={**A_NEXT, "user_utterance": private_utterance, "question_id": "!!"})
+    bad = body(user_utterance=private_utterance, question_id="!!")
     async with client(tmp_path) as http:
         response = await http.post("/v1/extractions", json=bad, headers=machine())
     assert response.status_code == 400
     errors = response.json()["errors"]
-    assert any(item["pointer"] == "/input/question_id" for item in errors)
+    assert any(item["pointer"] == "/question_id" for item in errors)
     assert private_utterance not in response.text and "!!" not in response.text
 
 

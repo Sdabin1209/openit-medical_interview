@@ -10,7 +10,7 @@ from typing import Any
 import anyio
 import httpx2 as httpx
 import pytest
-from model_io import serialize_extraction_input, serialize_response_input
+from model_io import compose_response_from_request, serialize_extraction_input, serialize_response_input
 
 from fakes.engine import dump
 from scenario.world import (
@@ -18,11 +18,13 @@ from scenario.world import (
     A_NEXT,
     A_NEXT_GOLD,
     A_SKIP,
-    B_ROWS,
+    B_REQUEST,
+    B_START,
     SYSTEM_A,
     SYSTEM_B,
     World,
     a_key,
+    ask,
     bank,
     world,
 )
@@ -54,13 +56,7 @@ def human(identity: Identity, *roles: str, sub: str = "approver-1") -> dict[str,
 
 
 def extraction_body(payload: dict[str, Any], version: int = 1) -> dict[str, Any]:
-    return {
-        "runtime_contract_version": version,
-        "input": payload,
-        "state_key_order": list(payload["state"]),
-        "flow": bank()["flow"],
-        "fields": bank()["fields"],
-    }
+    return {"runtime_contract_version": version, **ask(payload), "flow": bank()["flow"], "fields": bank()["fields"]}
 
 
 async def settle(app: Any) -> None:  # noqa: ANN401
@@ -159,15 +155,55 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
 
             # 응답 문장
             reply = await client.post(
-                "/v1/responses", json={"runtime_contract_version": 1, "input": B_ROWS[0]}, headers=machine()
+                "/v1/responses", json={"runtime_contract_version": 1, **B_REQUEST}, headers=machine()
             )
             assert reply.status_code == 200 and reply.json() == {
                 "package_digest": first,
                 "text": "진단 받으셨군요. 다음 질문입니다.",
             }
             assert (
-                w.engine.calls[-1].user == serialize_response_input(B_ROWS[0]) and w.engine.calls[-1].system == SYSTEM_B
+                w.engine.calls[-1].user == serialize_response_input(compose_response_from_request(B_REQUEST))
+                and w.engine.calls[-1].system == SYSTEM_B
             )
+
+            # 시작(START): 환자 말 없이 다음 문항의 topic 과 질문 문장으로 모델 입력을 만든다
+            started = await client.post(
+                "/v1/responses", json={"runtime_contract_version": 1, **B_START}, headers=machine()
+            )
+            assert started.status_code == 200
+            assert w.engine.calls[-1].user == serialize_response_input(compose_response_from_request(B_START))
+
+            # 저장된 칸 목록에서 모델 입력 state 를 고른다(지금·직전·참조 원천 문항만, 서버가 정한다)
+            slots = [
+                {"key": "Q1.D01.diagnosed", "value": True, "status": "ANSWERED"},
+                {"key": "Q9_1.days", "value": 3, "status": "ANSWERED"},
+                {"key": "Q8_2.duration_minutes", "value": 30, "status": "ANSWERED"},
+                {"key": "Q9_2.duration_minutes", "value": None, "status": "MISSING"},
+            ]
+            body = {
+                **extraction_body({**A_NEXT, "question_id": "Q9_2"}),
+                "slots": slots,
+                "previous_question_id": "Q9_1",
+            }
+            await client.post(
+                "/v1/extractions", json=body, headers=machine()
+            )  # 엔진이 빈 답을 내므로 503. 보낸 입력을 본다
+            sent = json.loads(w.engine.calls[-1].user)
+            assert list(sent["state"]) == ["Q9_1.days", "Q8_2.duration_minutes", "Q9_2.duration_minutes"]
+            assert sent["state"]["Q9_2.duration_minutes"] == {"value": None, "status": "MISSING"}
+
+            # 모델 입출력 v2 의 표에 없는 문항은 400
+            unknown = await client.post(
+                "/v1/responses",
+                json={
+                    "runtime_contract_version": 1,
+                    **B_REQUEST,
+                    "question_id": "Q99",
+                    "values": [{**B_REQUEST["values"][0], "key": "Q99.x"}],
+                },
+                headers=machine(),
+            )
+            assert unknown.status_code == 400 and unknown.headers["content-type"] == "application/problem+json"
 
             # 둘째 패키지를 활성화하면 직전 패키지가 롤백 대상이 된다
             await client.post(

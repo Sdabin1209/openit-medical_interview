@@ -11,10 +11,8 @@ from collections.abc import Mapping, Sequence
 
 from model_io.core.jsonvalue import as_map
 
-# 왜 value 가 앞인가: 정본 labels.py a_state 가 {"value": ..., "status": ...} 순서로 만든다. 학습 파일 final 의 state
-# 항목
-# 94,631개 중 90,416개가 이 순서이고(나머지 4,215개는 평가 파일 finaltest 의 status, value 순서) 계약은 항목 안 순서를
-# 정하지 않는다(변경 요청 model-runtime-001)
+# 왜 value 가 앞인가: 정본 labels.py a_state 가 {"value": ..., "status": ...} 순서로 만들고 계약 StateEntryKeyOrder 가
+# 이 순서를 정한다. 학습 파일 final 의 state 항목 90,416개가 이 순서다(평가 파일 finaltest 의 status, value 는 DC-09)
 _STATE_ENTRY_ORDER = ("value", "status")
 _SAFE_INTEGER = 2**53
 

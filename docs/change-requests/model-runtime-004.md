@@ -1,5 +1,7 @@
 # 변경 요청 model-runtime-004: 구조화된 요청으로 바꿀 때 서빙이 더 필요로 하는 값(survey-service 변경 요청 002 의 헤드 결정에 대한 답)
 
+> **처리됨(contracts-v8.0.0).** 계약 쪽 반영: ExtractionRequest·ResponseGenerationRequest 가 구조화된 값(질문 문항, 직전 문항, 발화, 저장된 칸 slots, A 출력의 값·대상, next.text)을 싣는다. 서버 쪽 구현: libs/model-io 의 compose_extraction_input·compose_response_from_request, taxonomy.py REF_SOURCE 와 prev_state.py 규칙(재현율은 README 5절).
+
 - 영역: model-runtime(libs/model-io)
 - 상태: 계약 개정 대기. B 쪽은 구현을 마쳤고 A 쪽은 아래 값이 정해져야 한다.
 

@@ -8,16 +8,44 @@ from __future__ import annotations
 from collections.abc import Mapping
 from functools import cache
 
-from model_io import serialize_extraction_input, serialize_response_input
+from model_io import (
+    ModelInputError,
+    compose_extraction_input,
+    compose_response_from_request,
+    serialize_extraction_input,
+    serialize_response_input,
+)
 
 from model_runtime.contract.models import ActionExtraction
-from model_runtime.types import ChatRequest, ExtractionTurn, LoadedAdapter
+from model_runtime.types import ChatRequest, ExtractionQuestion, ExtractionTurn, LoadedAdapter, ServiceFault
 
 
 @cache
 def _extraction_output_schema() -> Mapping[str, object]:
     """제약 디코딩이 따를 출력 JSON Schema. 계약 ActionExtraction 에서 생성한 모델이 만든다(복사본을 두지 않는다)."""
     return ActionExtraction.model_json_schema()
+
+
+def extraction_input(question: ExtractionQuestion) -> ExtractionTurn:
+    """추출 요청의 구조화된 값에서 모델 입력 객체를 만든다(state 에 넣을 문항의 선택과 묶음 순서 포함, 데이터셋
+    정본의 규칙)."""
+    payload, order = compose_extraction_input(
+        question.question_id,
+        question.current_question,
+        question.user_utterance,
+        question.slots,
+        question.previous_question_id,
+    )
+    return ExtractionTurn(payload, order)
+
+
+def response_input(request: Mapping[str, object]) -> dict[str, object]:
+    """응답 생성 요청의 구조화된 값에서 LoRA-B 모델 입력 객체를 만든다(topic, known, ask, previous, current, hold
+    포함)."""
+    try:
+        return compose_response_from_request(request)
+    except ModelInputError as error:
+        raise ServiceFault(400, "요청이 계약을 어겼다", "문항·칸·값이 모델 입출력 v2 의 표에 없다") from error
 
 
 def extraction_request(turn: ExtractionTurn, adapter: LoadedAdapter) -> ChatRequest:

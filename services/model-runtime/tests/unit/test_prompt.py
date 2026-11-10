@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from model_io import serialize_extraction_input, serialize_response_input
 
 from model_runtime.components.prompt import extraction_request, response_request
@@ -50,3 +51,36 @@ def test_response_request_sorts_every_level() -> None:
     payload = {"topic": "t", "next": {"type": "NEXT", "text": "다음", "question_id": "Q2"}, "action": "NEXT"}
     request = response_request(payload, adapter())
     assert request.user == serialize_response_input(payload) and request.json_schema is None
+
+
+def test_extraction_input_selects_state_from_stored_slots() -> None:
+    from model_runtime.components.prompt import extraction_input
+    from model_runtime.types import ExtractionQuestion
+
+    slots: list[dict[str, Any]] = [
+        {"key": "Q1.D01.diagnosed", "value": True, "status": "ANSWERED"},
+        {"key": "Q9_1.days", "value": 3, "status": "ANSWERED"},
+        {"key": "Q8_2.duration_minutes", "value": 30, "status": "ANSWERED"},
+        {"key": "Q9_2.duration_minutes", "value": None, "status": "MISSING"},
+    ]
+    turn = extraction_input(ExtractionQuestion("Q9_2", "Q9_1", "하루에 몇 분이요?", "삼십 분이요", slots))
+    assert turn.state_key_order == ["Q9_1.days", "Q8_2.duration_minutes", "Q9_2.duration_minutes"]
+    assert set(turn.input) == {"question_id", "current_question", "user_utterance", "state"}
+
+
+def test_response_input_is_built_from_structured_values_and_bad_items_are_400() -> None:
+    from model_runtime.components.prompt import response_input
+    from model_runtime.types import ServiceFault
+
+    request: dict[str, Any] = {
+        "action": "NEXT",
+        "question_id": "Q4",
+        "user_utterance": "안 피웠어요",
+        "slots": [],
+        "values": [{"key": "Q4.answer", "value": False, "precision": "exact", "status": "ANSWERED", "save": True}],
+        "next": {"type": "NEXT", "question_id": "Q5", "text": "가열담배를 써 보셨나요?"},
+    }
+    assert response_input(request)["known"] == "피운 적 없음"
+    with pytest.raises(ServiceFault) as info:
+        response_input({**request, "question_id": "Q99", "values": [{**request["values"][0], "key": "Q99.x"}]})
+    assert info.value.status == 400

@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
@@ -24,7 +24,7 @@ from model_runtime.components.package_loader import (
     load_package,
     loaded_summary,
 )
-from model_runtime.components.prompt import extraction_request, response_request
+from model_runtime.components.prompt import extraction_input, extraction_request, response_input, response_request
 from model_runtime.components.release import Release
 from model_runtime.components.responder import validate_sentence
 from model_runtime.contract.models import (
@@ -39,7 +39,7 @@ from model_runtime.types import (
     AdapterRole,
     ChatEngine,
     EngineError,
-    ExtractionTurn,
+    ExtractionQuestion,
     GuardRequest,
     LoadedPackage,
     PackageInvalidError,
@@ -170,12 +170,24 @@ class Runtime:
         """LoRA-A 추출. (처리한 패키지 digest, 검증을 마친 출력). 검증은 이 호출이 한 번 한다(R7)."""
         serving = self._serving_for(int(request["runtime_contract_version"]))
         adapter = serving.adapters[AdapterRole.LORA_A]
-        turn = ExtractionTurn(request["input"], request["state_key_order"])
+        turn = extraction_input(
+            ExtractionQuestion(
+                request["question_id"],
+                request.get("previous_question_id"),
+                request["current_question"],
+                request["user_utterance"],
+                request["slots"],
+            )
+        )
         text, seconds = await call_engine(self._chat, extraction_request(turn, adapter), EXTRACT_LIMIT_SECONDS)
         self._call_seconds.labels("extract").observe(seconds)
         guarded = guard(
             GuardRequest(
-                text, request["input"]["question_id"], request["flow"], request["fields"], request["input"]["state"]
+                text,
+                request["question_id"],
+                request["flow"],
+                request["fields"],
+                cast("Mapping[str, object]", turn.input["state"]),
             )
         )
         for code in guarded.violation_codes:
@@ -198,7 +210,7 @@ class Runtime:
         serving = self._serving_for(int(request["runtime_contract_version"]))
         adapter = serving.adapters[AdapterRole.LORA_B]
         text, seconds = await call_engine(
-            self._chat, response_request(request["input"], adapter), RESPOND_LIMIT_SECONDS
+            self._chat, response_request(response_input(request), adapter), RESPOND_LIMIT_SECONDS
         )
         self._call_seconds.labels("respond").observe(seconds)
         return serving.digest, validate_sentence(text)

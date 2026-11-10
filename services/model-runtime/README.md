@@ -8,7 +8,7 @@
 - 환경 입력: 계약 `ModelRuntimeEnv`. `tests/unit/test_settings.py` 가 설정 이름이 계약과 같은지 본다.
 - 모델 패키지: 계약 `ModelPackageOciManifest`, `ModelPackageManifest`(README 의 '모델 패키지' 절).
 - 이미지가 주입받는 것: [inputs.json](inputs.json)(계약 `ContainerInputs`, 이미지 라벨 `io.openit.inputs`).
-- 요청 모양은 헤드가 계약을 개정하면 바뀐다([변경 요청 004](../../docs/change-requests/model-runtime-004.md)). 지금 코드는 개정 전 계약을 따른다.
+- 추출·응답 요청은 계약 8.0.0 의 구조화된 값(질문 문항, 직전 문항, 상담원 말, 발화, 저장된 칸, 순서표, 칸 규격 / 행동, A 출력의 값·대상, 다음 자리와 질문 문장)이다. 모델 입력의 글과 state 는 이 서비스가 libs/model-io 로 만든다([변경 요청 004](../../docs/change-requests/model-runtime-004.md) 처리됨).
 
 ## 3. 컴포넌트
 | 컴포넌트 | 파일 | 입력 → 출력 | 하는 일 |
@@ -17,7 +17,7 @@
 | link_registry | `link/registry.py` | 패키지 digest → 파일 | OCI Distribution(ORAS)으로 받기 |
 | package_loader | `components/package_loader.py` | 패키지 digest → 적재된 모델 | 매니페스트·파일 digest·모델 입출력 버전·서빙 버전 검증, 어댑터 적재 |
 | release | `components/release.py`, `store/release_log.py` | 활성화·롤백 요청 → 활성 패키지 | 활성 포인터와 기록(승인자, 시각, 사유) |
-| prompt | `components/prompt.py` | 요청 → 모델 입력 | 학습 데이터와 글자가 같은 직렬화 |
+| prompt | `components/prompt.py` | 구조화된 요청 → 모델 입력 | state 에 넣을 문항 고르기, 사람 말 조각 만들기, 학습 데이터와 글자가 같은 직렬화 |
 | inference | `components/inference.py`, `link/engine.py` | 모델 입력 → 모델 출력 글자 | 엔진 호출과 시간 상한(추출 20초, 응답 25초) |
 | output_guard | `components/output_guard.py` | 모델 출력 → 검증된 추출 결과 | 위반 코드 10개 검사, D115 고쳐 쓰기, 출력 불가 |
 | responder | `components/responder.py` | 모델 출력 → 응답 문장 | 비었거나 길거나 JSON 으로 감싼 출력을 거른다 |
@@ -61,6 +61,8 @@ tools/smoke service model-runtime           # 이미지 스모크(mTLS, 자체 H
 | 정답 출력이 출력 불가가 된 행 / 고쳐 쓰기가 값을 바꾼 행 | 0행 / 0행 |
 | A 입력 직렬화가 학습 user 메시지와 바이트까지 같음 | `final` 44563/44563. `finaltest` 92행(state 비어 있음)만 같고 2000행은 state 항목 안 키 순서가 달라 내용은 같다([변경 요청 001](../../docs/change-requests/model-runtime-001.md)) |
 | B 입력 직렬화 | 46774행 중 46764행 같음. 10행은 학습 파일 자체가 정렬되어 있지 않다 |
+| LoRA-A 입력을 저장된 칸 목록에서 만든 것(`compose_extraction_input`, state 고르기와 묶음 순서) | 46655행 모두 고른 문항 집합이 같다. 칸 순서까지 같음: `final` 43886/44563(98.48%), `finaltest` 1843/2092(88.1%). 바이트까지 같은 전체 입력 43978행. 틀린 순서는 학습 데이터가 시나리오 정보로 정한 것이다(prev_state.py, 재현 불가, libs/model-io ADR 0004). 직전 문항은 학습 파일에 없어 시험이 되만들었다 |
+| LoRA-B 입력을 요청 모양(저장된 칸, A 출력의 값·대상, 다음 자리)에서 만든 것(`compose_response_from_request`) | 46655/46655행 내용 같음 |
 | B 입력을 A 정답·state·다음 질문 문장에서 만든 것(`compose_response_input`) | 46655/46655행 내용 같음, 46645행 바이트까지 같음(10행은 위와 같은 정렬되지 않은 행), START 110/110 |
 | next_item 규칙: 정본(labels.py) 방식 / 계약 문구 방식 | 불일치 0건 / 168건([변경 요청 001](../../docs/change-requests/model-runtime-001.md)) |
 

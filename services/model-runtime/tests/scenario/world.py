@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from model_io import serialize_extraction_input, serialize_response_input
+from model_io import compose_response_from_request, serialize_extraction_input, serialize_response_input
 
 from fakes.engine import FakeEngine, dump
 from fakes.pki import Pki, make_pki
@@ -78,6 +78,26 @@ B_ROWS: list[dict[str, Any]] = [
 
 def a_key(payload: dict[str, Any]) -> str:
     return serialize_extraction_input(payload, list(payload["state"]))
+
+
+def ask(payload: dict[str, Any]) -> dict[str, Any]:
+    """학습 형식의 A 입력(state 가 비어 있다)에서 구조화된 요청 칸을 만든다."""
+    return {k: payload[k] for k in ("question_id", "current_question", "user_utterance")} | {"slots": []}
+
+
+# 응답 생성 요청(구조화된 값). 모델 입력의 글 조각은 서버가 만든다
+B_REQUEST: dict[str, Any] = {
+    "action": "NEXT",
+    "question_id": "Q1.D01",
+    "user_utterance": "네 진단받았어요",
+    "slots": [],
+    "values": [_value("Q1.D01.diagnosed", True)],
+    "next": {"type": "NEXT", "question_id": "Q1.D02", "text": "심근경색 진단을 받으셨나요?"},
+}
+B_START: dict[str, Any] = {
+    "action": "START",
+    "next": {"type": "NEXT", "question_id": "Q1.D01", "text": "뇌졸중 진단을 받으셨나요?"},
+}
 
 
 def line(system: str, user: str, assistant: str) -> str:
@@ -197,6 +217,10 @@ def world(tmp: Path) -> Generator[World]:
         value.answers[a_key(A_BAD)] = dump({**A_BAD_GOLD, "next_item": "Q9_1"})
         for payload in B_ROWS:
             value.answers[serialize_response_input(payload)] = "진단 받으셨군요. 다음 질문입니다."
+        for request in (B_REQUEST, B_START):
+            value.answers[serialize_response_input(compose_response_from_request(request))] = (
+                "진단 받으셨군요. 다음 질문입니다."
+            )
         yield value
 
 

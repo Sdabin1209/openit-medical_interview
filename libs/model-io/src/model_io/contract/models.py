@@ -7,14 +7,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import (
-    AwareDatetime,
-    BaseModel,
-    ConfigDict,
-    Field,
-    RootModel,
-    StringConstraints,
-)
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class ActionReason(StrEnum):
@@ -51,13 +44,6 @@ class AlphabeticalOrder(RootModel[Literal['alphabetical']]):
     """
 
 
-class AskText(RootModel[str]):
-    root: Annotated[str, Field(examples=['일주일에 며칠 하는지'], max_length=92)]
-    """
-    되묻거나 확인할 내용을 사람 말로 쓴 문장 틀
-    """
-
-
 class CurrentItemScope(StrEnum):
     """
     저장하는 값의 칸이 있어도 되는 자리의 종류
@@ -66,28 +52,6 @@ class CurrentItemScope(StrEnum):
     CURRENT_ITEM = 'CURRENT_ITEM'
     ITEM_RANGE_TO_NEXT_ITEM = 'ITEM_RANGE_TO_NEXT_ITEM'
     ITEM_FAMILY = 'ITEM_FAMILY'
-
-
-class CurrentQuestionText(RootModel[str]):
-    root: Annotated[
-        str,
-        Field(
-            examples=[
-                '안녕하세요. 먼저 질환부터 여쭤볼게요. 뇌졸중으로 진단받으셨거나 현재 약물 치료 중이신가요?'
-            ],
-            max_length=344,
-        ),
-    ]
-    """
-    상담원이 방금 환자에게 한 말(화면에 보인 직전 질문). 환자의 말은 이 질문에 대한 답으로 읽는다
-    """
-
-
-class CurrentValueText(RootModel[str]):
-    root: Annotated[str, Field(examples=['일주일에 5일'], max_length=30)]
-    """
-    CONFIRM 에서 이번에 말한 값을 사람 말로 쓴 글
-    """
 
 
 class DatasetVersionId(RootModel[UUID]):
@@ -147,24 +111,10 @@ class FlowTarget(RootModel[str]):
     """
 
 
-class HoldText(RootModel[str]):
-    root: Annotated[str, Field(examples=['일반담배 중 피운 기간'], max_length=36)]
-    """
-    HOLD 나 SKIP 으로 비워 두는 부분의 이름
-    """
-
-
 class InsertionOrder(RootModel[Literal['insertion']]):
     root: Literal['insertion']
     """
-    키를 요청이 정한 순서대로 쓴다는 뜻(state_key_order)
-    """
-
-
-class KnownText(RootModel[str]):
-    root: Annotated[str, Field(examples=['진단 받음, 지금 약 먹음'], max_length=124)]
-    """
-    이번 턴에 정해진 값을 사람 말로 되짚은 문장들(쉼표로 이은 글)
+    키를 요청의 slots 배열이 정한 순서대로 쓴다는 뜻
     """
 
 
@@ -206,35 +156,9 @@ class MetricValue(RootModel[float]):
     """
 
 
-class ModelInputSerialization(BaseModel):
-    """
-    모델 입력 글자의 직렬화 규칙(데이터). 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 state 의 칸 순서는 요청의 state_key_order 가 정한다
-    """
-
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    a_nested_key_order: InsertionOrder
-    """
-    LoRA-A 입력의 state 안의 키 순서(요청이 정한 순서)
-    """
-    a_top_level_key_order: AlphabeticalOrder
-    """
-    LoRA-A 입력의 최상위 키 순서
-    """
-    b_key_order: AlphabeticalOrder
-    """
-    LoRA-B 입력의 모든 수준의 키 순서
-    """
-    ensure_ascii: EnsureAscii
-    """
-    비 ASCII 글자를 이스케이프할지(항상 거짓)
-    """
-
-
 class NextItemRuleKind(StrEnum):
     """
-    행동마다 next_item 을 정하는 규칙의 종류
+    행동마다 next_item 을 정하는 규칙의 종류. 행동과의 짝은 REASK·CONFIRM 이 TARGET_ITEM, REDIRECT 가 ASKED_ITEM, 그 밖(NEXT·CORRECT·HOLD·SKIP)이 SEQUENCE_AFTER_SAVED 다
     """
 
     TARGET_ITEM = 'TARGET_ITEM'
@@ -274,13 +198,6 @@ class OutOfSchemaNote(RootModel[str]):
     root: Annotated[str, Field(examples=['손발이 저림'], max_length=70)]
     """
     문진표에 없는 건강 이야기를 요약한 짧은 말(예를 들어 손발이 저림)
-    """
-
-
-class PreviousValueText(RootModel[str]):
-    root: Annotated[str, Field(examples=['일주일에 3일'], max_length=30)]
-    """
-    CONFIRM 에서 이전에 저장된 값을 사람 말로 쓴 글
     """
 
 
@@ -338,10 +255,10 @@ class QuestionText(RootModel[str]):
 
 class RepeatKey(RootModel[str]):
     root: Annotated[
-        str, Field(examples=['makgeolli'], max_length=18, pattern='^[a-z]+$')
+        str, Field(examples=['makgeolli'], max_length=18, pattern='^[a-z]*$')
     ]
     """
-    같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine)
+    같은 칸이 여러 번 쓰일 때 구분하는 반복 키(술 종류: soju, beer, spirits, makgeolli, wine). 빈 문자열은 술 종류를 모르는 값의 키이고 저장하지 않는 값(save 거짓)에만 쓴다. 저장하는 값(save 참)에는 반복 키가 있어야 한다
     """
 
 
@@ -408,6 +325,13 @@ class ResponseSentence(RootModel[str]):
     ]
     """
     환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+    """
+
+
+class RuntimeContractVersion(RootModel[int]):
+    root: Annotated[int, Field(examples=[1], ge=1, le=2147483647)]
+    """
+    문항 은행과 칸 키의 정수 버전. 모델 패키지가 학습한 값과 다르면 적재와 승인을 거부한다
     """
 
 
@@ -490,20 +414,25 @@ class SlotUnit(RootModel[str]):
     """
 
 
-class StateKeyOrder(RootModel[list[SlotRefString]]):
-    """
-    state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다
-    """
-
-    root: Annotated[list[SlotRefString], Field(max_length=18)]
-    """
-    state 의 칸 키를 모델 입력 글자에서 놓을 순서. JSON 객체에는 순서가 없으므로(RFC 8259 4) 순서를 따로 전한다
-    """
+class StateEntryKeyOrderEnum(StrEnum):
+    value = 'value'
+    status = 'status'
 
 
-class StateStatus(StrEnum):
+class StateEntryKeyOrder(RootModel[list[StateEntryKeyOrderEnum]]):
     """
-    LoRA-A 입력 state 안의 칸 하나의 상태
+    LoRA-A 입력 state 의 항목 하나({value, status}) 안의 키 순서(value 다음 status)
+    """
+
+    root: Annotated[list[StateEntryKeyOrderEnum], Field(max_length=2, min_length=2)]
+    """
+    LoRA-A 입력 state 의 항목 하나({value, status}) 안의 키 순서(value 다음 status)
+    """
+
+
+class StoredSlotStatus(StrEnum):
+    """
+    서비스가 저장하고 있는 칸 하나의 상태
     """
 
     ANSWERED = 'ANSWERED'
@@ -515,18 +444,6 @@ class Timestamp(RootModel[AwareDatetime]):
     root: Annotated[AwareDatetime, Field(examples=['2026-11-10T09:30:00+09:00'])]
     """
     일이 일어난 때. UTC 오프셋을 포함한 RFC 3339 날짜-시각
-    """
-
-
-class TopicText(RootModel[str]):
-    root: Annotated[
-        str,
-        Field(
-            examples=['뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지'], max_length=88
-        ),
-    ]
-    """
-    지금 다루는 문항을 사람 말로 풀어 쓴 설명(예를 들어 뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지)
     """
 
 
@@ -657,6 +574,36 @@ class MetricName(RootModel[RequiredMetricName | ExtraMetricName]):
     """
 
 
+class ModelInputSerialization(BaseModel):
+    """
+    모델 입력 글자의 직렬화 규칙(데이터). model-runtime 이 데이터셋 정본(labels.py)으로 만든 입력 객체를 json.dumps(obj, ensure_ascii=False) 와 같은 글자로 쓴다(기본 구분자, 비 ASCII 는 그대로). JSON 객체에는 순서가 없으므로 정해야 한다. 최상위 키는 문자 순, state 의 칸 순서는 요청 slots 배열의 순서, state 항목 안의 키는 value 다음 status(labels.py a_state), B 는 모든 수준을 문자 순으로 쓴다. state 는 model-runtime 이 요청의 저장된 칸 값(slots, StoredSlots)에서 만든다. 어느 문항의 칸을 넣을지는 참조 원천 문항을 taxonomy.py 의 REF_SOURCE 로 고르고 칸 묶음의 순서는 prev_state.py 를 따른다(표와 규칙은 계약에 복사하지 않고 contracts/inputs 의 정본 파일을 가리킨다)
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    a_nested_key_order: InsertionOrder
+    """
+    LoRA-A 입력의 state 안의 칸 키 순서(요청 slots 배열의 순서)
+    """
+    a_state_entry_key_order: StateEntryKeyOrder
+    """
+    LoRA-A 입력의 state 항목 하나 안의 키 순서(value, status)
+    """
+    a_top_level_key_order: AlphabeticalOrder
+    """
+    LoRA-A 입력의 최상위 키 순서
+    """
+    b_key_order: AlphabeticalOrder
+    """
+    LoRA-B 입력의 모든 수준의 키 순서
+    """
+    ensure_ascii: EnsureAscii
+    """
+    비 ASCII 글자를 이스케이프할지(항상 거짓)
+    """
+
+
 class NextItemRule(BaseModel):
     """
     행동 하나의 next_item 규칙
@@ -713,7 +660,7 @@ class QuestionFieldSpec(BaseModel):
     """
     repeat_keys: RepeatKeys | None = None
     """
-    반복 키가 있는 칸이면 그 키들(없으면 빈 키 하나만 쓴다)
+    반복 키가 있는 칸이면 그 키들(없으면 빈 키 하나만 쓴다). 빈 반복 키는 술 종류를 모르는 값을 가리키며 저장하지 않는 값(save 거짓)에만 쓰인다. 저장하는 값(save 참)에는 반복 키가 있어야 한다(SQL.md 6.1, labels.py _key)
     """
     unit: SlotUnit | None = None
     """
@@ -734,7 +681,7 @@ class QuestionFieldSpecs(RootModel[list[QuestionFieldSpec]]):
 
 class ResponseNext(BaseModel):
     """
-    응답 뒤에 가는 자리(종류, 문항, 그 질문 문장)
+    응답 뒤에 가는 자리(종류, 문항, 그 문항의 질문 문장). 질문 문장은 survey-service 가 가진 문항 세트의 문장이다(데이터셋 표가 아니다)
     """
 
     model_config = ConfigDict(
@@ -746,65 +693,11 @@ class ResponseNext(BaseModel):
     """
     text: QuestionText | None = None
     """
-    그 문항의 질문 문장(END 에는 없다)
+    가는 문항의 질문 문장(문항 세트의 문장, END 에는 없다)
     """
     type: ResponseNextType
     """
     자리의 종류
-    """
-
-
-class ResponseRequest(BaseModel):
-    """
-    LoRA-B 의 입력(모델 입출력 v2). 어떤 절차로 어떤 문장을 만들지와 다음에 갈 자리를 알려 주는 모든 것
-    """
-
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    action: ResponseAction
-    """
-    문장을 만들 절차
-    """
-    ask: AskText | None = None
-    """
-    REASK 와 CONFIRM 에서 되묻는 내용
-    """
-    current: CurrentValueText | None = None
-    """
-    CONFIRM 에서 이번에 말한 값
-    """
-    hold: HoldText | None = None
-    """
-    HOLD 와 SKIP 에서 비워 두는 부분
-    """
-    known: KnownText | None = None
-    """
-    이번 턴에 정해진 값의 설명(START 에는 없다)
-    """
-    next: ResponseNext
-    """
-    응답 뒤에 가는 자리
-    """
-    note: OutOfSchemaNote | None = None
-    """
-    REDIRECT 의 OUT_OF_SCHEMA 에서 환자가 말한 문진표 밖 건강 이야기
-    """
-    previous: PreviousValueText | None = None
-    """
-    CONFIRM 에서 이전에 저장된 값
-    """
-    reason: ActionReason | None = None
-    """
-    그 절차의 사유
-    """
-    topic: TopicText
-    """
-    지금 다루는 문항의 설명
-    """
-    user_utterance: UtteranceText | None = None
-    """
-    환자의 이번 말(START 에는 없다)
     """
 
 
@@ -815,15 +708,19 @@ class SlotAnswer(RootModel[YesNoAnswer | SlotNumber | OptionCode | SlotText | No
     """
 
 
-class StateEntry(BaseModel):
+class StoredSlot(BaseModel):
     """
-    state 안의 칸 하나(저장된 값과 상태)
+    서비스가 저장하고 있는 칸 하나(어느 칸인지, 저장된 값, 상태)
     """
 
     model_config = ConfigDict(
         extra='forbid',
     )
-    status: StateStatus
+    key: SlotRefString
+    """
+    저장된 칸
+    """
+    status: StoredSlotStatus
     """
     칸의 상태
     """
@@ -833,9 +730,20 @@ class StateEntry(BaseModel):
     """
 
 
+class StoredSlots(RootModel[list[StoredSlot]]):
+    """
+    이번 턴을 반영하기 전에 세션에 저장된 모든 칸 값과 다시 묻는 중인 칸의 목록. 배열의 순서가 모델 입력 state 에서 칸을 놓을 순서다. 같은 칸이 다시 나오면 값은 나중 것을 쓰고 자리는 처음 나온 자리를 쓴다(a_state 가 dict 에 쓰는 규칙). 이 중 어느 문항의 칸을 모델 입력에 넣을지는 model-runtime 이 정한다
+    """
+
+    root: Annotated[list[StoredSlot], Field(max_length=136)]
+    """
+    이번 턴을 반영하기 전에 세션에 저장된 모든 칸 값과 다시 묻는 중인 칸의 목록. 배열의 순서가 모델 입력 state 에서 칸을 놓을 순서다. 같은 칸이 다시 나오면 값은 나중 것을 쓰고 자리는 처음 나온 자리를 쓴다(a_state 가 dict 에 쓰는 규칙). 이 중 어느 문항의 칸을 모델 입력에 넣을지는 model-runtime 이 정한다
+    """
+
+
 class ActionExtractionRules(BaseModel):
     """
-    LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다
+    LoRA-A 출력의 합격 조건 명세(데이터). model-runtime 의 출력 검증이 한 번 검사하고 받는 쪽은 다시 검증하지 않는다(R7). 조건 하나가 위반 코드(ViolationCode) 하나다. 출력 형식 조건은 ActionExtraction 스키마(OUTPUT_SCHEMA), 이 명세는 저장 규칙(SAVE_RULE), targets(TARGET_NOT_IN_VALUES), next_item(NEXT_ITEM_MISMATCH. 기준 문항과 건너뛰기는 NextItemRuleKind 가 labels.py a_target·next_after 대로 정한다), 현재 문항(OUT_OF_CURRENT_ITEM)을 정한다. 문항·칸·자료형·선택지·범위의 조건(UNKNOWN_ITEM, UNKNOWN_SLOT, VALUE_TYPE_MISMATCH, VALUE_NOT_IN_OPTIONS, VALUE_OUT_OF_RANGE)은 요청의 순서표(QuestionFlowTable)와 칸 규격(QuestionFieldSpec)이 정한다. 재질문 단계(문진 끝에 한도로 비운 문항을 다시 묻는 단계)에서는 서비스가 정한 순서가 next_item 보증보다 우선한다. 조건 검사기는 libs/model-io 에 두고 model-lab 의 의미 위반율 평가도 같은 검사기를 쓴다(D97). 위반율은 값 고쳐 쓰기(D115) 전의 모델 출력으로 센다
     """
 
     model_config = ConfigDict(
@@ -851,7 +759,7 @@ class ActionExtractionRules(BaseModel):
     """
     next_item_rules: Annotated[list[NextItemRule], Field(max_length=7)]
     """
-    행동마다 next_item 을 정하는 규칙(NEXT_ITEM_MISMATCH)
+    행동마다 next_item 을 정하는 규칙(NEXT_ITEM_MISMATCH). 종류별 뜻은 NextItemRuleKind 의 설명이고 기준 문항은 labels.py a_target 을 따른다
     """
     null_value_statuses: Annotated[list[ValueStatus], Field(max_length=7)]
     """
@@ -860,33 +768,6 @@ class ActionExtractionRules(BaseModel):
     saved_statuses: Annotated[list[ValueStatus], Field(max_length=7)]
     """
     save 가 참인 상태들(ANSWERED, CORRECTION)이고 나머지 상태는 save 가 거짓이다(SAVE_RULE)
-    """
-
-
-class CollectedState(
-    RootModel[
-        dict[
-            Annotated[
-                str,
-                StringConstraints(
-                    pattern=r'^[A-Za-z0-9_.]+(\[[a-z]+\])?\.[a-z][a-z0-9_]*$'
-                ),
-            ],
-            StateEntry,
-        ]
-    ]
-):
-    root: dict[
-        Annotated[
-            str,
-            StringConstraints(
-                pattern=r'^[A-Za-z0-9_.]+(\[[a-z]+\])?\.[a-z][a-z0-9_]*$'
-            ),
-        ],
-        StateEntry,
-    ]
-    """
-    칸을 가리키는 키(문항.칸, 술은 문항[술코드].칸)에서 그 칸의 값과 상태로 가는 표. 항목의 순서가 의미를 가진다(모델 입력 글자는 학습 데이터와 같게 만든다)
     """
 
 
@@ -1041,6 +922,60 @@ class QuestionFlowTable(BaseModel):
     """
 
 
+class ResponseGenerationRequest(BaseModel):
+    """
+    추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다. 다음 문항의 질문 문장(next.text)은 문항 세트의 문장이라 서비스가 보낸다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    action: ResponseAction
+    """
+    문장을 만들 절차(A 출력의 action, 시작이면 START)
+    """
+    next: ResponseNext
+    """
+    응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항)
+    """
+    note: OutOfSchemaNote | None = None
+    """
+    A 출력의 note 그대로(REDIRECT 의 OUT_OF_SCHEMA)
+    """
+    previous_question_id: QuestionItemId | None = None
+    """
+    대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다
+    """
+    question_id: QuestionItemId | None = None
+    """
+    A 를 부를 때 지금 묻고 있던 문항(START 에는 없다). 값이 없는 보류·거절에서 비우는 부분을 가리킬 때 쓴다
+    """
+    reason: ActionReason | None = None
+    """
+    그 절차의 사유(A 출력의 reason)
+    """
+    runtime_contract_version: RuntimeContractVersion
+    """
+    요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다
+    """
+    slots: StoredSlots | None = None
+    """
+    이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다)
+    """
+    targets: SlotRefStrings | None = None
+    """
+    A 출력의 targets 그대로(REASK, CONFIRM, HOLD, SKIP)
+    """
+    user_utterance: UtteranceText | None = None
+    """
+    환자의 이번 말(START 에는 없다)
+    """
+    values: ExtractedValues | None = None
+    """
+    A 출력의 values 그대로(START 에는 없다). 이번 턴에 정해진 값과 충돌한 값의 원재료다
+    """
+
+
 class ActionExtraction(BaseModel):
     """
     LoRA-A 의 출력(규칙 보증을 마친 값). 받는 쪽은 다시 검증하지 않는다
@@ -1075,25 +1010,41 @@ class ActionExtraction(BaseModel):
     """
 
 
-class ActionExtractionInput(BaseModel):
+class ExtractionRequest(BaseModel):
     """
-    LoRA-A 의 입력. 지금 묻는 문항과 상담원이 한 말과 환자의 말과 저장된 값들
+    추론 서버에 LoRA-A 추출을 요청하는 본문. 지금 묻는 문항, 상담원이 방금 한 말, 환자의 말, 저장된 칸 값, 순서표, 칸 규격의 구조화된 값만 싣는다. 모델 입력의 글자와 state 에 넣을 문항의 선택은 model-runtime 이 데이터셋 정본(labels.py, IO_SPEC.md 2.1)으로 만든다
     """
 
     model_config = ConfigDict(
         extra='forbid',
     )
-    current_question: CurrentQuestionText
+    current_question: ResponseSentence
     """
-    상담원이 방금 한 말
+    상담원이 방금 환자에게 한 말(화면에 보인 직전 질문, 모델 입력의 current_question). 서비스가 화면에 보인 글이라 서비스가 보낸다. 환자의 말은 이 질문에 대한 답으로 읽는다
+    """
+    fields: QuestionFieldSpecs
+    """
+    출력 값을 보증하는 칸 규격들
+    """
+    flow: QuestionFlowTable
+    """
+    출력의 다음 문항을 보증하는 순서표
+    """
+    previous_question_id: QuestionItemId | None = None
+    """
+    대화에서 직전에 물은 문항(건너뛰기를 반영한 것, IO_SPEC.md 2.1 의 state 규칙). 첫 문항이면 없다. 세션의 진행을 아는 쪽만 알 수 있어 서비스가 보낸다(ADR 0019 의 책임선)
     """
     question_id: QuestionItemId
     """
-    지금 묻고 있는 문항
+    지금 묻고 있는 문항(모델 입력의 question_id)
     """
-    state: CollectedState
+    runtime_contract_version: RuntimeContractVersion
     """
-    지금 문항과 직전 문항과 참조 문항의 저장 값들
+    요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다
+    """
+    slots: StoredSlots
+    """
+    이번 턴을 반영하기 전에 저장된 칸 값들. model-runtime 이 지금 문항·직전에 물은 문항·참조 원천 문항의 것만 골라 모델 입력 state 로 쓴다
     """
     user_utterance: UtteranceText
     """

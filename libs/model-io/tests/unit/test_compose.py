@@ -66,3 +66,22 @@ def test_composed_input_serializes_with_every_level_sorted() -> None:
     assert text.startswith('{"action": "NEXT", "known": "피운 적 없음"') and text.index('"question_id"') < text.index(
         '"text"'
     )
+
+
+def test_items_outside_the_dataset_tables_are_a_compose_error_not_a_crash() -> None:
+    import pytest
+
+    from model_io import ModelInputError, compose_response_from_request
+
+    unknown_item = {
+        "action": "NEXT",
+        "question_id": "Q99",
+        "user_utterance": "u",
+        "slots": [],
+        "values": [value("Q99.x", 1)],
+        "next": {"type": "END"},
+    }
+    with pytest.raises(ModelInputError):
+        compose_response_from_request(unknown_item)
+    with pytest.raises(ModelInputError):
+        compose_response_from_request({"action": "START", "next": {"type": "NEXT", "question_id": "0", "text": "t"}})

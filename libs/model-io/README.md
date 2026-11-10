@@ -14,6 +14,10 @@
 | `serialize_extraction_input` | `ActionExtractionInput` 의 dict, `state_key_order` | 글자 | LoRA-A 모델 입력 글자. 최상위 키 정렬, state 는 요청의 순서 |
 | `serialize_response_input` | `ResponseRequest` 의 dict | 글자 | LoRA-B 모델 입력 글자. 모든 수준 정렬 |
 | `build_flow_index`, `build_field_index` | 순서표, 칸 규격 | 색인 | 요청의 `flow`, `fields` 를 검증에 쓰는 색인으로 |
+| `compose_extraction_input` | 질문 문항, 직전 문항, 상담원 말, 발화, 저장된 칸 목록 | 모델 입력 객체, state 칸 순서 | LoRA-A 입력 만들기. state 에 넣을 문항(지금·직전·참조 원천 REF_SOURCE)과 묶음 순서를 고른다 |
+| `compose_response_from_request` | 응답 생성 요청(`ResponseGenerationRequest` 의 dict) | LoRA-B 입력 객체 | 저장된 칸에서 state 를 고르고 topic·known·ask·previous·current·hold 를 만든다. START 는 다음 문항의 topic 과 질문 문장 |
+| `select_state`, `reference_item` | 저장된 칸 목록, 문항 | state, 참조 원천 문항 | state 고르기와 정본 REF_SOURCE 찾기 |
+| `ModelInputError` | | 예외 | 문항·칸·값이 정본의 표에 없어 글을 만들 수 없다(서버는 400) |
 | `compose_response_input`, `compose_start_input` | LoRA-A 출력·state·발화·다음 질문 문장, 또는 첫 질문 문장 | `ResponseRequest` 의 dict | 데이터셋 정본의 표와 문장 틀로 topic·known·ask·previous·current·hold 를 만든다 |
 | `check_extraction_output` | 모델 출력 글자, `GuardContext` | `GuardOutcome` | 위반 코드 10개를 한 번에 검사, D115 고쳐 쓰기, 검증된 출력 또는 출력 불가 |
 | `find_violations` | 모델 출력 글자, `GuardContext` | `Violation` 목록 | 고쳐 쓰기 전 출력의 위반만(의미 위반율 계산용) |
@@ -39,3 +43,4 @@ uv run --project ../../tools/checks openit-gen-contract .   # 계약 타입 다�
 - [0001 템플릿에서 시작](docs/adr/0001-템플릿에서-시작.md)
 - [0002 출력 검증과 직렬화의 구조](docs/adr/0002-출력-검증과-직렬화의-구조.md)
 - [0003 사람 말 표와 문장 틀을 정본에서 그대로 옮긴다](docs/adr/0003-사람-말-표와-문장-틀을-정본에서-그대로-옮긴다.md)
+- [0004 LoRA-A state 고르기와 묶음 순서](docs/adr/0004-LoRA-A-state-고르기와-묶음-순서.md)
