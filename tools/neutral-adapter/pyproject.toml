@@ -1,0 +1,59 @@
+# 중립 어댑터 도구(개발 도구, 배포물에 들어가지 않는다). 기반 모델과 출력이 같은(LoRA B 행렬이 0) LoRA 어댑터를 PEFT 로 만든다.
+[project]
+name = "openit-neutral-adapter"
+version = "0.1.0"
+description = "기반 모델의 출력을 바꾸지 않는 중립 LoRA 어댑터 생성 도구(E2E 의 파이프라인 모드용)"
+requires-python = ">=3.12,<3.13"  # 왜: 영역 이미지(python:3.12)와 같은 minor 로 맞춘다(ADR 0006)
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+  "peft",  # LoRA 어댑터의 정의·저장 형식(Hugging Face PEFT, Apache-2.0). vLLM 이 읽는 adapter_config.json·safetensors 가 이 형식이다
+  "transformers",  # 모델 구성(config)만으로 가중치 없는 모델을 만든다(Apache-2.0)
+  "torch",  # PEFT 의 의존. CPU 용 바퀴를 쓴다(아래 uv 설정). 가중치를 올리지 않는다
+  "safetensors",  # 어댑터 가중치 파일 형식(Apache-2.0)
+  "huggingface_hub",  # 모델 구성 파일 하나만 내려받는다(Apache-2.0)
+]
+
+[project.scripts]
+neutral-adapter = "neutral_adapter.cli:main"
+
+[dependency-groups]
+dev = ["pytest", "pyright", "ruff"]
+
+# 왜 CPU 바퀴: 이 도구는 GPU 를 쓰지 않는다. 기본 바퀴는 CUDA 라이브러리(수 GB)를 함께 받는다. PyTorch 가 공식으로 내는 CPU 인덱스다.
+# explicit 인덱스라 torch 만 여기서 받고 나머지는 PyPI 에서 받는다(uv 문서 'Using uv with PyTorch')
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neutral_adapter"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 140
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+# 왜 E501 제외: 한글 주석은 글자 폭이 2 로 계산되어 같은 줄 길이 규칙을 지키면 '왜' 주석을 잘게 쪼개야 한다. 줄 길이는 ruff format 이 코드에 대해 지킨다
+"**" = ["E501"]
+
+[tool.pyright]
+include = ["src", "tests"]
+# 왜 standard: torch·transformers·safetensors 가 타입이 불완전해(strict 의 reportUnknown* 가 라이브러리 경계마다 걸린다) 이 도구의 타입 점검은 standard 로 둔다
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
