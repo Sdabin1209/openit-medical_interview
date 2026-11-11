@@ -46,6 +46,12 @@ def main() -> int:
         if rc != 0:
             return rc
     env["OPENIT_SMOKE_IMAGE"] = image
+    if command[:3] == ["uv", "run", "pytest"]:
+        # 왜 --basetemp: pytest 의 기본 임시 폴더(/tmp/pytest-of-<사용자>)는 이 리포 밖이라 다른 프로그램이 만든 소유자·권한에
+        # 시험이 좌우된다(root 소유로 남아 스모크가 실패한 적이 있다). 영역 안의 git 제외 폴더를 쓴다(pytest 문서 tmp_path 의 --basetemp)
+        basetemp = folder / ".pytest-tmp" / "smoke"
+        basetemp.parent.mkdir(parents=True, exist_ok=True)  # 왜: pytest 는 --basetemp 의 부모 폴더를 만들지 않는다
+        command = [*command, f"--basetemp={basetemp}"]
     return subprocess.run(command, cwd=folder, env=env, check=False).returncode
 
 
