@@ -4,7 +4,7 @@
 
 - 영역: model-runtime
 - 대상: `Exposure.egress`, `EgressTarget`(계약 `components.yaml`), deploy 의 영역 게이트웨이 구성 생성
-- 상태: 헤드 결정 대기. `exposure.json` 의 `egress` 는 `["platform"]`(토큰 발급자)만 선언했다(ADR services/model-runtime 0009).
+- 상태: 처리됨(맨 위 처리 기록 참고). 아래는 요청 당시의 상태다. `exposure.json` 의 `egress` 는 `["platform"]`(토큰 발급자)만 선언했다(ADR services/model-runtime 0009).
 
 ## 문제
 model-runtime 은 `OPENIT_REGISTRY_URL` 의 레지스트리에서 모델 패키지를 받는다. 나가는 호출은 영역 게이트웨이의 CONNECT 터널을 지나고 `Exposure.egress` 에 선언한 상대에게만 간다(D128). 그런데

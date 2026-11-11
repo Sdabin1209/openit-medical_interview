@@ -4,7 +4,7 @@
 
 - 영역: model-runtime(libs/model-io `core/guard.py`)
 - 대상: `ActionExtractionRules`(규칙 명세), `contracts/inputs`(데이터셋 정본)
-- 상태: 헤드 결정 대기. R1·R3 은 만들지 않았다(값을 지어내지 않기 위해).
+- 상태: 처리됨(맨 위 처리 기록 참고). 아래는 요청 당시의 상태다. R1·R3 은 만들지 않았다(값을 지어내지 않기 위해).
 
 ## 구현한 것
 - 다음 문항 채우기(U74, `NEXT_ITEM_FILLED`), 칸 규격 최댓값 초과 → `REASK/OUT_OF_RANGE`(값 null, UNCLEAR, save 거짓), 횟수 > 날수(R2) → `REASK/COUNT_EXCEEDS_DAYS`.

@@ -4,7 +4,7 @@
 
 - 영역: model-runtime(libs/model-io)
 - 대상 계약: `contracts/components.yaml` 의 `NextItemRuleKind`, `ModelInputSerialization`
-- 상태: 헤드 결정 대기. 그동안 코드는 데이터셋 정본을 따른다(ADR libs/model-io 0002).
+- 상태: 처리됨(맨 위 처리 기록 참고). 아래는 요청 당시의 상태다. 그동안 코드는 데이터셋 정본을 따른다(ADR libs/model-io 0002).
 
 ## 1. `SEQUENCE_AFTER_SAVED` 의 설명이 정본과 다르다
 - 계약: "저장한 칸 중 순서표에서 가장 뒤 문항의 다음 문항(건너뛰기 적용, 끝이면 END)".

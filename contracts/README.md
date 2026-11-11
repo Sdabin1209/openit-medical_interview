@@ -85,7 +85,7 @@ LoRA-A 출력의 합격 조건은 조건 하나에 위반 코드 하나다(`Viol
 - **저장 값의 정밀도(precision)는 보내지 않는다.** 정본에서 state 의 항목은 값과 상태뿐이고 이전 값(`previous`)은 항상 `exact` 로 쓴다(`labels.py` `a_state`, `previous_text`). 이번 턴에 정해진 값의 정밀도는 A 출력의 `values` 에 있다.
 - **지운 스키마:** `ActionExtractionInput`, `CollectedState`, `StateEntry`, `StateStatus`, `StateKeyOrder`, `CurrentQuestionText`, `ResponseRequest`, `TopicText`, `KnownText`, `AskText`, `PreviousValueText`, `CurrentValueText`, `HoldText`. 모델 입력 객체와 글 조각은 영역 사이에 오가지 않고 model-runtime 안에서만 만들어져 쓰인다. 구조 규칙 5 에 따라 영역 안 값은 그 영역의 `types` 가 정의하고, model-runtime 과 model-lab 이 같은 규칙을 쓰는 공유 라이브러리 `libs/model-io` 가 가진다(D97). `CurrentQuestionText` 는 `ResponseSentence` 와 같은 뜻의 같은 상한(344)이라 하나로 합쳤다(D117).
 - **계약에 남긴 `ModelInputSerialization`:** 모델 입력의 글자 규칙(키 정렬, 비 ASCII 이스케이프 없음, state 칸 순서)은 model-lab 의 학습 데이터와 model-runtime 의 서빙이 글자까지 같아야 하는 두 영역 사이의 값이라 계약에 둔다(구조 규칙 6). 모델 입력 객체의 칸과 글은 데이터셋 정본이 정한다.
-- **정본에 없어 정하지 못한 것:** (1) 참조 원천 표 `taxonomy.REF_SOURCE` 의 내용(정본 입력에는 예 `Q10 -> Q9_1` 하나뿐이다). (2) `next.text` 를 찾을 문항 문장 표(SQL.md 7.3 의 `data/question_bank.json`)를 model-runtime 이 받는 길(계약에는 모델 패키지 목록표나 요청 어디에도 없다). (3) state 의 칸 순서 규칙(OPEN_GAPS G13: `prev_state.py` 의 시나리오 원래 값이 먼저라는 규칙은 서비스가 모른다). 지금은 `slots` 배열의 순서를 그대로 쓴다.
+- **정본에 없어 정하지 못한 것:** (1) 참조 원천 표 `taxonomy.REF_SOURCE` 의 내용(정본 입력에는 예 `Q10 -> Q9_1` 하나뿐이다). (2) `next.text` 를 찾을 문항 문장 표(SQL.md 7.3 의 `data/question_bank.json`)를 model-runtime 이 받는 길(계약에는 모델 패키지 목록표나 요청 어디에도 없다). (3) state 의 칸 순서 규칙(OPEN_GAPS G13: `prev_state.py` 의 시나리오 원래 값이 먼저라는 규칙은 서비스가 모른다). 지금은 `slots` 배열의 순서를 그대로 쓴다. → 8.0.0 마무리에서 해결: 정본 입력에 `taxonomy.py`(REF_SOURCE)·`prev_state.py` 를 더했고, `next.text` 는 문항 세트의 문장으로 서비스가 보낸다(ResponseNext.text).
 
 ## 모델 입출력의 버전
 

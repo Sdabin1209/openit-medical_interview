@@ -4,7 +4,7 @@
 
 - 영역: model-runtime
 - 대상 계약: `ModelRuntimeEnv`, `ModelPackageBlobMediaType`, `ModelPackageBlobDescriptor`
-- 상태: 헤드 결정 대기. 아래 임시 선택으로 구현했다(ADR services/model-runtime 0002, 0003).
+- 상태: 처리됨(맨 위 처리 기록 참고). 아래는 요청 당시의 상태다. 아래 임시 선택으로 구현했다(ADR services/model-runtime 0002, 0003).
 
 | 번호 | 비어 있는 곳 | 임시 선택 | 요청 |
 |---|---|---|---|

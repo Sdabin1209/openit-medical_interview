@@ -4,7 +4,7 @@
 
 - 영역: admin-console
 - 대상 계약: `contracts/openapi/survey-service.yaml`, `contracts/components.yaml`(`UserRole`, `UserIdentityClaims`)
-- 상태: 헤드 결정 대기. 그동안 화면은 oauth2-proxy 의 표준 엔드포인트 `/oauth2/userinfo` 의 `groups` 를 쓴다(ADR admin-console 0002).
+- 상태: 처리됨(맨 위 처리 기록 참고). 아래는 요청 당시의 상태다. 그동안 화면은 oauth2-proxy 의 표준 엔드포인트 `/oauth2/userinfo` 의 `groups` 를 쓴다(ADR admin-console 0002).
 
 ## 문제
 브리프는 "역할에 따라 화면을 보인다"를 요구한다. 화면은 토큰을 직접 다루지 않으므로(oauth2-proxy 가 쿠키 세션을 토큰으로 바꿔 서버에 싣는다) 자기 역할을 서버나 프록시에게 물어야 한다. 계약에는 사람 역할을 돌려주는 작업이 없다.
