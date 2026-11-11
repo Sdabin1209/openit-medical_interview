@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 platform API
-  version: 9.3.0
+  version: 9.3.1
   description: >-
     platform 은 표준 프로토콜로 일한다. 사람 인증은 OIDC(Keycloak), 서비스 인증서는 사설 CA(step-ca 의 ACME, RFC 8555), 백업 저장소는 restic REST 저장소, 기기 인증은 mTLS 이며 계약이 따로 정의하는 HTTP 작업은 없다. 건강 상태와 지표만 다른 서비스와 같은 모양으로 낸다.
   contact: { name: head }

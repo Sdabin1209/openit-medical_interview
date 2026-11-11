@@ -223,6 +223,10 @@ LoRA-B 응답 문장을 토큰 단위로 바로 내보내는 별도 작업을 �
 - 값 3 의 근거: 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다(`user-decisions-needed.md` UD-26). 설치마다 바꾸는 값이 아니라 환경 입력을 두지 않는다.
 - 영향: survey-service(세션의 연속 실패 수, 건너뛰기, 결과의 빈칸 원인과 FHIR 대응, DB 마이그레이션), deploy 의 E2E(pipeline 모드는 빈 어댑터라 턴이 모두 실패하므로 3번째 실패에서 건너뛰기가 일어난다), admin-console(결과 화면의 빈칸 원인 이름 '처리 실패 반복으로 건너뜀', 헤드가 같은 변경에 넣었다), 계약 타입 생성물. 판 표시는 6곳이 9.3.0 이다.
 
+### 9.3.1 (2026-11-11, 고침)
+
+`FhirMapping` 설명에 QuestionnaireResponse 의 item 모양을 적었다: 문항마다 바깥 item, 그 아래 칸 item, 빈칸은 그 item 에 data-absent-reason 확장(url `http://hl7.org/fhir/StructureDefinition/data-absent-reason`, `valueCode`). 이전 설명은 "빈칸은 data-absent-reason 확장으로 낸다"뿐이라 확장의 위치를 정하지 않았고, E2E 가 결과를 대조하려면 짐작해야 했다(9.3.0 E2E 작업이 찾음). survey-service 가 이미 내는 모양 그대로라 오가는 값은 바뀌지 않는다(PATCH). 판 표시는 6곳이 9.3.1 이다.
+
 ## 점검
 
 ```

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.3.0
+  version: 9.3.1
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -1434,7 +1434,7 @@ components:
     FhirMapping:
       type: object
       additionalProperties: false
-      description: "문진 결과(SessionResult)를 FHIR R4 QuestionnaireResponse 로 옮기는 규칙(데이터). questionnaire 는 FhirCanonicalBaseUrl 에 슬래시와 문진표 식별자를 붙인 정본 URL 이다. item.linkId 는 문항이면 문항 식별자이고 칸이면 SlotRefString 이다. subject.identifier.value 는 SubjectRef 다. 저장된 답은 item.answer 로, 빈칸은 answer 없이 data-absent-reason 확장으로 낸다. FHIR 조회의 오류는 OperationOutcome 이다"
+      description: "문진 결과(SessionResult)를 FHIR R4 QuestionnaireResponse 로 옮기는 규칙(데이터). questionnaire 는 FhirCanonicalBaseUrl 에 슬래시와 문진표 식별자를 붙인 정본 URL 이다. item.linkId 는 문항이면 문항 식별자이고 칸이면 SlotRefString 이다. subject.identifier.value 는 SubjectRef 다. item 은 두 단계다: 문항마다 바깥 item(linkId 문항 식별자, text 문항 문장)을 두고, 그 아래 item 에 칸 하나씩을 둔다. 저장된 답은 칸 item 의 answer 로 낸다. 빈칸은 answer 없이 그 칸의 item(칸이 정해지지 않은 빈칸이면 linkId 가 문항 식별자인 item)에 extension 하나로 낸다: url 은 http://hl7.org/fhir/StructureDefinition/data-absent-reason, valueCode 는 absent_map 이 정한 FhirAbsentReason 이다. 답도 빈칸도 없는 문항은 내지 않는다. FHIR 조회의 오류는 OperationOutcome 이다"
       x-owner: survey-service
       x-basis: "docs/v7-flow-resolutions.md C10(병원 시스템은 당겨 가기만 하고 결과는 FHIR 형식으로도 조회할 수 있다), U83, HL7 FHIR R4 (4.0.1) QuestionnaireResponse(questionnaire, subject, item.linkId, item.answer)와 data-absent-reason 코드(asked-unknown, asked-declined, not-asked), FHIR RESTful API(오류는 OperationOutcome). SubjectRef 를 subject.identifier.value 로, 칸 식별자를 linkId 로, 빈칸 원인을 absent-reason 으로 옮기는 대응은 이 계약이 FHIR R4 의 코드로 정한 것이다"
       required: [status_map, absent_map]

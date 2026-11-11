@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 추론 서버(model-runtime) API
-  version: 9.3.0
+  version: 9.3.1
   description: >-
     레지스트리의 모델 패키지(OCI 아티팩트)를 digest 로 받아 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고, 적재 상태와 모델 패키지 활성화 승인·롤백을 받는다. 승인한 사람의 신원은 OIDC 접근 토큰(RFC 9068)의 sub 클레임에서 얻는다.
   contact: { name: head }

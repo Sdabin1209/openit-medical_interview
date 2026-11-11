@@ -3372,7 +3372,7 @@ class ExtractedValues(RootModel[list[ExtractedValue]]):
 
 class FhirMapping(BaseModel):
     """
-    문진 결과(SessionResult)를 FHIR R4 QuestionnaireResponse 로 옮기는 규칙(데이터). questionnaire 는 FhirCanonicalBaseUrl 에 슬래시와 문진표 식별자를 붙인 정본 URL 이다. item.linkId 는 문항이면 문항 식별자이고 칸이면 SlotRefString 이다. subject.identifier.value 는 SubjectRef 다. 저장된 답은 item.answer 로, 빈칸은 answer 없이 data-absent-reason 확장으로 낸다. FHIR 조회의 오류는 OperationOutcome 이다
+    문진 결과(SessionResult)를 FHIR R4 QuestionnaireResponse 로 옮기는 규칙(데이터). questionnaire 는 FhirCanonicalBaseUrl 에 슬래시와 문진표 식별자를 붙인 정본 URL 이다. item.linkId 는 문항이면 문항 식별자이고 칸이면 SlotRefString 이다. subject.identifier.value 는 SubjectRef 다. item 은 두 단계다: 문항마다 바깥 item(linkId 문항 식별자, text 문항 문장)을 두고, 그 아래 item 에 칸 하나씩을 둔다. 저장된 답은 칸 item 의 answer 로 낸다. 빈칸은 answer 없이 그 칸의 item(칸이 정해지지 않은 빈칸이면 linkId 가 문항 식별자인 item)에 extension 하나로 낸다: url 은 http://hl7.org/fhir/StructureDefinition/data-absent-reason, valueCode 는 absent_map 이 정한 FhirAbsentReason 이다. 답도 빈칸도 없는 문항은 내지 않는다. FHIR 조회의 오류는 OperationOutcome 이다
     """
 
     model_config = ConfigDict(
