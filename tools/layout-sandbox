@@ -41,7 +41,8 @@ sys.path.insert(0, str(ROOT / "deploy"))
 import dockerenv  # noqa: E402
 
 WORK = ROOT / ".layout-sandbox" / "work"
-LOGS = ROOT / ".layout-sandbox" / "logs"
+LOGS_BASE = ROOT / ".layout-sandbox" / "logs"
+LOGS = LOGS_BASE  # begin_run 이 실행마다 다른 폴더(시각+프로젝트 이름)로 바꾼다
 PROJECT = "openit-lay"
 SERVER_A, SERVER_B = "svc", "gpu"
 
@@ -59,6 +60,36 @@ WAIT_LIMIT = 150  # 초. Prometheus 가 새 대상을 처음 긁는 데 걸리�
 
 class Failure(Exception):
     pass
+
+
+def begin_run() -> Path:
+    """이번 실행의 진단 폴더(시각+프로젝트 이름)를 정한다. 왜 실행마다 폴더: 실패한 실행의 로그·상태가 다음 실행에 지워져 간헐적 실패의 원인을 잃은 적이 있다.
+    이전 폴더는 지우지 않는다(정리는 컨테이너·볼륨·네트워크만). 같은 프로젝트 이름의 겹침도 시각(마이크로초)이 가른다."""
+    global LOGS  # noqa: PLW0603
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    LOGS = LOGS_BASE / f"{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}-{PROJECT}"
+    LOGS.mkdir(parents=True, exist_ok=True)
+    return LOGS
+
+
+def collect_diagnostics(targets: list[tuple[str | None, str]], prefix: str = "") -> None:
+    """정리하기 전에 (docker context, compose 프로젝트 이름)마다 컨테이너 상태(ps), 컨테이너의 State(건강 확인 기록 전체 포함, 환경 변수는 담지 않는다), 로그 전체를 남긴다."""
+    LOGS.mkdir(parents=True, exist_ok=True)
+    for context, project in targets:
+        tag = f"{prefix}{project}"
+        try:
+            label = f"label=com.docker.compose.project={project}"
+            listing = docker(["ps", "-a", "--filter", label, "--format", "{{json .}}"], context=context, check=False)
+            (LOGS / f"{tag}-ps.jsonl").write_text(listing.stdout + listing.stderr, encoding="utf-8")
+            for identifier in docker(["ps", "-a", "--filter", label, "-q"], context=context, check=False).stdout.split():
+                name = docker(["inspect", "--format", "{{.Name}}", identifier], context=context, check=False).stdout.strip().lstrip("/") or identifier
+                state = docker(["inspect", "--format", "{{json .State}} restarts={{.RestartCount}}", identifier], context=context, check=False)
+                (LOGS / f"{tag}-{name}-state.json").write_text(state.stdout + state.stderr, encoding="utf-8")
+                logs = docker(["logs", "--timestamps", identifier], context=context, check=False)
+                (LOGS / f"{tag}-{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+        except (Failure, OSError) as error:
+            (LOGS / f"{tag}-diagnostics-error.txt").write_text(str(error), encoding="utf-8")
 
 
 def env() -> dict[str, str]:
@@ -394,8 +425,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.project:
         set_project(args.project)
-    if LOGS.exists():
-        shutil.rmtree(LOGS)
+    begin_run()
     missing = [name for name in SERVICES if docker_image_missing(name)]
     if missing:
         print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)
@@ -473,6 +503,7 @@ def main_single(keep: bool) -> int:
         return 0
     except Failure as error:
         print(f"FAIL {error}", file=sys.stderr)
+        collect_diagnostics([(None, PROJECT)])
         return 1
     finally:
         if not keep:
@@ -511,16 +542,7 @@ def check_status_detects_failure(root: Path) -> str:
 
 def save_diagnostics() -> None:
     """실패하면 정리하기 전에 두 서버의 상태와 로그를 남긴다(진단 수단을 지우지 않는다)."""
-    LOGS.mkdir(parents=True, exist_ok=True)
-    for server in (SERVER_A, SERVER_B):
-        try:
-            rows = containers(server)
-            (LOGS / f"{server}-ps.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
-            for service, row in rows.items():
-                logs = docker(["logs", "--tail", "200", row["id"]], context=server, check=False)
-                (LOGS / f"{server}-{service}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
-        except (Failure, KeyError, OSError) as error:
-            (LOGS / f"{server}-diagnostics-error.txt").write_text(str(error), encoding="utf-8")
+    collect_diagnostics([(SERVER_A, f"{PROJECT}-{SERVER_A}"), (SERVER_B, f"{PROJECT}-{SERVER_B}")])
 
 
 if __name__ == "__main__":

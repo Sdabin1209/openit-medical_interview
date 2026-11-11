@@ -371,21 +371,34 @@ def unlabeled_services(model: dict[str, Any]) -> list[str]:
 
 
 def tiers(model: dict[str, Any], selected: list[str]) -> list[list[str]]:
-    """depends_on 순서로 층을 나눈다(같은 층은 한 번에 띄운다). `--no-deps` 로 띄우면 compose 가 순서를 지키지 않으므로 우리가 지킨다."""
+    """depends_on 순서로 층을 나눈다(같은 층은 한 번에 띄운다). `--no-deps` 로 띄우면 compose 가 층 사이 순서를 지키지 않으므로 우리가 지킨다.
+
+    왜 service_started 는 같은 층이다: `up --wait` 는 층의 모든 서비스가 healthy 가 될 때까지 기다린다. 영역 게이트웨이는 같은 서버의 가장자리(area-edge)가 뜬 뒤에야 healthy 가
+    되는데(인증서 발급이 가장자리를 지난다), 가장자리는 게이트웨이가 시작된 뒤에 시작해야 한다(server_override, ADR 0029). 가장자리를 게이트웨이보다 앞 층에 두면 이름을 먼저 풀어
+    첫 검증이 실패하고, 뒤 층에 두면 서로를 기다린다. compose 는 한 번의 `up --no-deps` 안에서 선택한 서비스끼리의 service_started 순서를 지킨다(시험에서 확인).
+    그래서 service_started 의존은 상대와 같은 층에, 그 밖의 의존(service_healthy 등)은 상대의 다음 층에 둔다.
+    """
     chosen = set(selected)
-    deps = {name: {d for d in (model["services"][name].get("depends_on") or {}) if d in chosen} for name in selected}
-    remaining = dict(deps)
-    result: list[list[str]] = []
-    while remaining:
-        layer = sorted(name for name, needs in remaining.items() if not needs)
-        if not layer:
-            raise LayoutError([f"depends_on 가 순환한다: {', '.join(sorted(remaining))}"])
-        result.append(layer)
-        for name in layer:
-            remaining.pop(name)
-        for needs in remaining.values():
-            needs.difference_update(layer)
-    return result
+    needs: dict[str, dict[str, bool]] = {  # 이름 -> {의존 이름: 시작만 되면 되는가}
+        name: {d: (spec or {}).get("condition") == "service_started" for d, spec in (model["services"][name].get("depends_on") or {}).items() if d in chosen}
+        for name in selected
+    }
+    level: dict[str, int] = {}
+    visiting: set[str] = set()
+
+    def depth(name: str) -> int:
+        if name in level:
+            return level[name]
+        if name in visiting:
+            raise LayoutError([f"depends_on 가 순환한다: {', '.join(sorted(visiting))}"])
+        visiting.add(name)
+        level[name] = max((depth(dep) + (0 if started else 1) for dep, started in needs[name].items()), default=0)
+        visiting.discard(name)
+        return level[name]
+
+    for name in selected:
+        depth(name)
+    return [sorted(name for name in selected if level[name] == n) for n in range(max(level.values(), default=-1) + 1)]
 
 
 # ---------------------------------------------------------------- compose 덮개(override) 파일
@@ -455,7 +468,14 @@ def server_override(
             # 왜 edge: 다른 서버의 9100 을 긁으려면 바깥으로 나가는 길이 필요하다(backend 는 internal 이라 길이 없다. 시험에서 확인)
             services["prometheus"]["networks"] = {"edge": {}}
     for area in server.areas:
-        gateway: dict[str, Any] = {}
+        # 왜 가장자리를 기다린 뒤 Caddy 를 시작한다: 게이트웨이는 시작하자마자 ACME 주문을 내고 사설 CA 는 곧바로 서비스 이름의 80 번(가장자리)으로 http-01 검증을 보낸다.
+        # 가장자리가 아직 듣지 않으면 검증이 한 번 실패하고, step-ca 는 그 주문을 다시 검증하지 않아 Caddy 의 ACME 클라이언트가 약 5분(acmez 의 권한 확인 상한) 뒤에 포기하고
+        # 1분 뒤 새 주문을 낸다(시험에서 측정: 가장자리를 늦게 올리면 인증서까지 약 366초, 게이트웨이 건강 확인의 상한(start_period 10초 + 5초 x 60)은 약 310초).
+        # 가장자리는 이 게이트웨이가 시작된 뒤에 시작해(아래 depends_on) 시작할 때 게이트웨이 이름을 풀고(STRICT_DNS), 게이트웨이는 가장자리의 80 번이 열린 것(사건)을 보고 Caddy 를 시작한다.
+        # busybox nc(-w 1)는 연결이 되면 0 이다. 폴링 간격 0.2초는 사건을 보는 주기일 뿐 기다리는 시간이 아니다(가장자리가 끝내 안 뜨면 compose 건강 확인이 unhealthy 로 끝낸다)
+        gateway: dict[str, Any] = {
+            "command": ["sh", "-c", f"until nc -w 1 {EDGE} {ACME_PORT} </dev/null; do sleep 0.2; done; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"],
+        }
         if not is_platform:
             # 왜 edge: 이 서버의 영역 게이트웨이가 다른 서버의 사설 CA 에서 ACME 로 인증서를 받아야 한다(서비스 컨테이너는 안쪽 네트워크에만 둔다)
             gateway["networks"] = {"edge": {}}
@@ -469,6 +489,7 @@ def server_override(
             for area in server.areas:
                 edge_networks[f"{area}-area"] = {"aliases": ["gateway"]}  # 서비스의 OPENIT_EGRESS_PROXY(http://gateway:<포트>)가 이 가장자리를 가리킨다
         edge: dict[str, Any] = {
+            "depends_on": {f"{area}-gateway": {"condition": "service_started"} for area in server.areas},
             "networks": edge_networks,
             "ports": [f"{server.bind}:{port}:{port}" for port in sorted(published & {service_port, ACME_PORT, MONITOR_PORT})],
         }

@@ -193,6 +193,31 @@ def test_server_override_publishes_only_what_other_servers_call(lay: ModuleType)
     assert "edge" not in over_svc.get("survey-service-gateway", {}).get("networks", {})  # 플랫폼 서버의 게이트웨이는 안쪽 네트워크만
 
 
+def test_gateway_waits_for_the_edge_and_the_edge_starts_after_the_gateways(lay: ModuleType) -> None:
+    """ACME http-01 검증은 가장자리를 지난다. 게이트웨이는 가장자리의 80 번이 열린 뒤 Caddy 를 시작하고, 가장자리는 게이트웨이 시작 뒤에 시작해 이름을 푼다(ADR 0029)."""
+    layout = layout_of(lay, servers(lay))
+    svc, gpu = layout.servers
+    common = {"flow_list": lay.flows(layout, **FLOW_ARGS), "service_port": 8443, "listen_port": 9443, "registry_local": True}
+    over_gpu = lay.server_override(layout, gpu, hosts={"step-ca": "192.0.2.10"}, step_ca=("step-ca", "192.0.2.10"), **common)["services"]
+    over_svc = lay.server_override(layout, svc, hosts={"model-runtime": "192.0.2.20"}, step_ca=None, **common)["services"]
+    for over, areas in ((over_gpu, ["model-runtime"]), (over_svc, ["admin-console", "kiosk-frontend", "survey-service"])):
+        for area in areas:
+            command = over[f"{area}-gateway"]["command"]
+            assert command[:2] == ["sh", "-c"] and "nc -w 1 area-edge 80" in command[2] and command[2].endswith("exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile")
+            assert over["area-edge"]["depends_on"][f"{area}-gateway"] == {"condition": "service_started"}
+        assert set(over["area-edge"]["depends_on"]) == {f"{area}-gateway" for area in areas}
+
+
+def test_tiers_do_not_split_on_service_started(lay: ModuleType) -> None:
+    """service_started 의존은 같은 층이다(up --wait 가 서로를 기다리지 않게). 건강 확인 의존은 층을 나눈다."""
+    model = {"services": {
+        "gw": {"depends_on": {"step-ca": {"condition": "service_healthy"}}},
+        "edge": {"depends_on": {"gw": {"condition": "service_started"}}},
+        "step-ca": {},
+    }}
+    assert lay.tiers(model, ["gw", "edge", "step-ca"]) == [["step-ca"], ["edge", "gw"]]
+
+
 def test_override_yaml_uses_override_tag(lay: ModuleType) -> None:
     text = lay.dump_yaml({"services": {"registry": {"ports": lay.override_ports(["1.2.3.4:443:443"])}}}, "h")
     assert "ports: !override" in text

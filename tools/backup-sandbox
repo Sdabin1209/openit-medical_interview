@@ -329,14 +329,7 @@ class Scenario:
 
     def save_diagnostics(self) -> None:
         """실패하면 정리하기 전에 이 시험의 컨테이너 상태와 로그, 잡 결과 기록을 남긴다(진단 수단을 지우지 않는다). 서버 한 대(context 없음)와 두 대 모두."""
-        LS.LOGS.mkdir(parents=True, exist_ok=True)
-        for server in ([LS.SERVER_A, LS.SERVER_B] if self.two else [None]):
-            label = f"label=com.docker.compose.project={self.project_of(server)}"
-            ids = LS.docker(["ps", "-a", "--filter", label, "-q"], context=server, check=False).stdout.split()
-            for identifier in ids:
-                name = LS.docker(["inspect", "--format", "{{.Name}}", identifier], context=server, check=False).stdout.strip().lstrip("/")
-                logs = LS.docker(["logs", "--tail", "200", identifier], context=server, check=False)
-                (LS.LOGS / f"{self.log}-diag-{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+        LS.collect_diagnostics([(server, self.project_of(server)) for server in ([LS.SERVER_A, LS.SERVER_B] if self.two else [None])], prefix=f"{self.log}-diag-")
         runs = self.root / "deploy" / "job-runs"
         if runs.is_dir():
             (LS.LOGS / f"{self.log}-diag-job-runs.json").write_text(json.dumps({p.name: p.read_text(encoding="utf-8") for p in sorted(runs.glob("*.json"))}, indent=2), encoding="utf-8")
@@ -660,8 +653,7 @@ def main() -> int:
     if args.project:
         set_project(args.project)
     modes = [m for m, wanted in (("one", args.one), ("two", args.two)) if wanted] or ["one", "two"]
-    if LS.LOGS.exists():
-        shutil.rmtree(LS.LOGS)
+    LS.begin_run()
     missing = [name for name in LS.SERVICES if LS.docker_image_missing(name)]
     if missing:
         print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)

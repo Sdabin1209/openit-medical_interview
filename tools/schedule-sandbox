@@ -402,8 +402,7 @@ def main() -> int:
     if args.project:
         set_project(args.project)
     modes = [m for m, wanted in (("one", args.one), ("two", args.two)) if wanted] or ["one", "two"]
-    if LS.LOGS.exists():
-        shutil.rmtree(LS.LOGS)
+    LS.begin_run()
     missing = [name for name in LS.SERVICES if LS.docker_image_missing(name)]
     if missing:
         print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)
