@@ -4,7 +4,7 @@
 모델 패키지(OCI 아티팩트)를 레지스트리에서 digest 로 받아 검증·적재하고, 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 문장을 낸다. 추출 출력이 계약의 합격 조건을 지키는지 한 번 검사하고(output_guard) 값 고쳐 쓰기(D115)를 적용한다. 활성화 승인과 롤백을 받고 그 기록(승인자, 시각, 사유)을 남긴다. 추론 엔진(vLLM 의 OpenAI 호환 서버)은 별도 컨테이너이고 이 서비스가 부른다. 모델 패키지를 만드는 `package-publish` 도구도 이 영역에 있다. 모델 입출력 글자 규칙은 [libs/model-io](../../libs/model-io/README.md) 가 가진다.
 
 ## 2. 받는 계약·내는 계약
-계약은 [9.2.0](../../contracts/README.md)(`contracts/README.md` 의 9.0.0·9.1.0·9.2.0 절)이다. 적재 시간 상한은 계약 `TimeBudgetTable.model_load` 다([ADR 0012](docs/adr/0012-적재-시간-상한은-계약-값이다.md)).
+계약은 [9.2.1](../../contracts/README.md)(`contracts/README.md` 의 9.0.0·9.1.0·9.2.0·9.2.1 절)이다. 적재 시간 상한은 계약 `TimeBudgetTable.model_load` 다([ADR 0012](docs/adr/0012-적재-시간-상한은-계약-값이다.md)).
 
 - HTTP 계약: [contracts/openapi/model-runtime.yaml](../../contracts/openapi/model-runtime.yaml)(작업 여덟 개(응답 문장 스트림 `generateResponseStream` 포함)와 `/healthz`, `/readyz`, `/metrics`). 게시된 패키지 목록(`listModelPackages`)은 [ADR 0008](docs/adr/0008-게시된-모델-패키지-목록.md). 타입은 `src/model_runtime/contract/models.py` 로 생성한다(`pyproject.toml` 의 `[tool.openit.contract]` 가 정본).
 - 환경 입력: 계약 `ModelRuntimeEnv`(엔진 주소 `OPENIT_INFERENCE_ENGINE_URL`, 이름 표 `HostsTable`, 레지스트리 자격은 한 줄 `사용자:비밀번호`의 HTTP 기본 인증: [ADR 0006](docs/adr/0006-계약-9.0.0-입력-엔진-주소-이름-표-자격-어댑터-배치.md)). `tests/unit/test_settings.py` 가 설정 이름이 계약과 같은지 본다.
@@ -27,7 +27,7 @@
 | prompt | `components/prompt.py` | 구조화된 요청 → 모델 입력 | state 에 넣을 문항 고르기, 사람 말 조각 만들기, 학습 데이터와 글자가 같은 직렬화 |
 | inference | `components/inference.py`, `link/engine.py` | 모델 입력 → 모델 출력 글자 | 엔진 호출(학습과 같은 비생각 모드, ADR 0010)과 시간 상한(추출 20초, 응답 25초) |
 | output_guard | `components/output_guard.py` | 모델 출력 → 검증된 추출 결과 | 위반 코드 10개 검사, D115 고쳐 쓰기, 출력 불가 |
-| responder | `components/responder.py` | 모델 출력 → 응답 문장 | 비었거나 길거나 JSON 으로 감싼 출력을 거른다. 스트림은 조각을 바꾸지 않고 이어 344자와 빈 문장을 지킨다(ADR 0013) |
+| responder | `components/responder.py` | 모델 출력 → 응답 문장 | 계약 `ResponseSentence` 로 가려 어긋나면 503. 스트림은 앞뒤 공백을 쥐거나 버리고 조각을 이어 같은 조건을 지킨다(ADR 0013) |
 | package_publish(도구) | `components/package_publish.py`, `publish.py`, `link/publish_registry.py` | 어댑터 폴더·평가 집합 → 패키지 digest | 평가 보고서를 만들고 OCI 아티팩트로 올린다 |
 
 진입점: 서버 `model-runtime`(`serve.py`: `OPENIT_LISTEN_PORT` 의 평문 HTTP. 컨테이너 `HEALTHCHECK` 도 그 포트의 `/healthz`), 도구 `package-publish`(`publish.py`).

@@ -86,15 +86,17 @@ def events(text: str) -> list[dict[str, Any]]:
 
 
 async def test_deltas_are_sent_unchanged_in_order_then_result_equals_their_concatenation(tmp_path: Path) -> None:
-    pieces = ["진단 ", "받으셨", "군요.\n", " 다음 질문입니다. "]
+    pieces = ["진단 ", "받으셨", "군요.\n", " 다음 질문입니다."]
     response, chat, digest = await run(tmp_path, pieces)
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["cache-control"] == "no-store, no-transform"
     assert "content-encoding" not in response.headers
     got = events(response.text)
-    assert [e["text"] for e in got[:-1]] == pieces  # 공백과 줄바꿈도 바꾸지 않는다
-    assert got[-1] == {"event": "result", "result": {"package_digest": digest, "text": "".join(pieces)}}
+    # 쥔 공백은 다음 글자와 함께 가므로 조각의 경계만 옮겨 가고 문장 안의 글자는 바뀌지 않는다
+    sent = ["진단", " 받으셨", "군요.", "\n 다음 질문입니다."]
+    assert [e["text"] for e in got[:-1]] == sent
+    assert got[-1] == {"event": "result", "result": {"package_digest": digest, "text": "".join(sent)}}
     assert len(chat.requests) == 1
 
 
@@ -152,3 +154,27 @@ async def test_not_loaded_is_503_json_before_the_stream(tmp_path: Path) -> None:
             anonymous = await client.post("/v1/responses/stream", json=BODY)
     assert response.status_code == 503 and response.json()["reason"] == "MODEL_NOT_LOADED"
     assert response.headers["retry-after"] == "5" and anonymous.status_code == 401
+
+
+async def test_outer_whitespace_is_held_then_sent_with_the_next_letter_or_dropped(tmp_path: Path) -> None:
+    response, _, digest = await run(tmp_path, [" \n", " 진단", " ", "받으셨군요.", " \n"])
+    got = events(response.text)
+    assert [e.get("text") for e in got[:-1]] == [
+        "진단",
+        " 받으셨군요.",
+    ]  # 앞 공백은 보내지 않고 쥔 공백은 글자와 함께 간다
+    assert got[-1] == {"event": "result", "result": {"package_digest": digest, "text": "진단 받으셨군요."}}
+
+
+@pytest.mark.parametrize("script", [["  ", '{"a": 1}'], ["안녕", "\x00"], ["[", "1]"], ["안녕 ", "\x1b"]])
+async def test_brace_start_and_control_characters_end_with_output_invalid(tmp_path: Path, script: list[str]) -> None:
+    response, _, _ = await run(tmp_path, script)
+    got = events(response.text)
+    assert got[-1]["event"] == "error" and got[-1]["problem"]["reason"] == "OUTPUT_INVALID"
+    assert all(e["event"] != "result" for e in got) and "{" not in "".join(e.get("text", "") for e in got)
+
+
+async def test_whitespace_only_output_is_output_invalid(tmp_path: Path) -> None:
+    response, _, _ = await run(tmp_path, [" ", "\n"])
+    got = events(response.text)
+    assert [e["event"] for e in got] == ["error"] and got[0]["problem"]["reason"] == "OUTPUT_INVALID"
