@@ -44,6 +44,13 @@ WORK = ROOT / ".layout-sandbox" / "work"
 LOGS = ROOT / ".layout-sandbox" / "logs"
 PROJECT = "openit-lay"
 SERVER_A, SERVER_B = "svc", "gpu"
+
+
+def set_project(name: str) -> None:
+    """같은 엔진에서 다른 시험과 이름이 겹치지 않게 프로젝트 이름을 바꾼다(컨테이너·볼륨·네트워크·작업 폴더가 이 이름을 쓴다)."""
+    global PROJECT  # noqa: PLW0603
+    PROJECT = name
+
 LISTEN_PORT = 9443  # 입구의 게시 포트. 기본값(8443)은 영역 가장자리의 포트와 같아 한 서버에 함께 둘 수 없다(doctor 가 알린다)
 ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "UV_CACHE_DIR", "XDG_CACHE_HOME", "DOCKER_HOST")
 SERVICES = ("survey-service", "model-runtime", "web-admin-console", "web-kiosk-frontend")
@@ -383,7 +390,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
     parser.add_argument("--single", action="store_true", help="배치 설정 없이 서버 한 대로 설치를 확인한다(기존 동작)")
+    parser.add_argument("--project", default=None, help=f"프로젝트 이름(컨테이너·볼륨·네트워크 이름의 앞부분). 기본 {PROJECT}. 같은 엔진에서 이 시험이 겹쳐 돌 때 바꾼다")
     args = parser.parse_args()
+    if args.project:
+        set_project(args.project)
     if LOGS.exists():
         shutil.rmtree(LOGS)
     missing = [name for name in SERVICES if docker_image_missing(name)]

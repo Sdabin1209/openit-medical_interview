@@ -764,6 +764,15 @@ def doctor_backup(check: Callable[..., None]) -> None:
     check("백업할 영역 저장소가 있다", bool(found or files), "compose 라벨 io.openit.backup 이 붙은 서비스가 없다")
     typer.echo(f"      데이터베이스: {', '.join(found)}")
     typer.echo(f"      상태 파일: {', '.join(files) or '없음'}")
+    try:
+        repositories = backup_registry_repositories()
+    except dbackup.BackupConfigError as error:
+        check("백업할 레지스트리 저장소", False, str(error))
+        return
+    if repositories:
+        typer.echo(f"      모델 패키지: 레지스트리 저장소 {', '.join(repositories)} (태그 sha256-<digest> 가 달린 패키지)")
+    else:
+        typer.echo("[--] 모델 패키지: 외부 레지스트리(OPENIT_REGISTRY_MODE=external)라 이 백업에 없다. 그 레지스트리의 백업은 운영처가 한다(모델 패키지는 다시 만들 수 없다, ADR 0027)")
 
 
 def doctor_layout(check: Callable[..., None]) -> None:
@@ -1540,6 +1549,58 @@ def dump_volume(server: dlayout.Server, owner: str, key: str, volume: str, paths
         return dbackup.VolumeTarget(owner, key, server.name, paths, tuple(dbackup.archive_entries(handle)))
 
 
+def backup_registry_repositories() -> list[str]:
+    """백업할 레지스트리 저장소(OCI 저장소 이름): 이 설치가 레지스트리를 띄우면(local) 모델 패키지 저장소 하나다.
+
+    왜 모델 패키지 저장소만: 모델 패키지(어댑터, 목록표, 평가 보고서)는 다시 게시하면 digest 가 달라지는 다시 만들 수 없는 산출물이다. 영역 이미지는 소스에서 다시
+    빌드하고 images.lock 대로 다시 올린다(ADR 0024). external 이면 레지스트리는 설치처가 운영하는 것이라 그 백업은 운영처 몫이고 여기서 받지 않는다(ADR 0027).
+    """
+    values = env_values()
+    if values["OPENIT_REGISTRY_MODE"] == "external":
+        return []
+    repository = values["OPENIT_MODEL_REGISTRY_REPOSITORY"]
+    if not dbackup.OCI_REPOSITORY.fullmatch(repository) or len(repository) > 255:
+        raise dbackup.BackupConfigError(f"OPENIT_MODEL_REGISTRY_REPOSITORY 가 OCI 저장소 이름이 아니다: {repository!r}")
+    return [repository]
+
+
+def registry_directory(repository: str) -> str:
+    """스냅샷 안의 폴더(영역 폴더 아래). 저장소 이름의 / . _ 를 -로 바꿔 한 단계 폴더로 만든다."""
+    return "registry/" + re.sub(r"[^a-z0-9]+", "-", repository).strip("-")
+
+
+def dump_registry(repository: str, stage: Path) -> dbackup.RegistryTarget:
+    """레지스트리의 모델 패키지 저장소에서 패키지마다 OCI 이미지 레이아웃(OCI Image Layout)으로 stage/platform/registry/<저장소>/<digest 16진수>/ 에 낸다.
+
+    왜 레지스트리 API(crane pull --format oci)인가: 볼륨(registry-data)을 복사하면 쓰는 중인 파일(올리는 중인 blob, 매니페스트 연결)을 일관되지 않게 받을 수 있고 영역
+    이미지까지 딸려 온다. API 는 태그가 달린 패키지만 준다. 태그는 파일과 매니페스트를 다 올린 뒤에 달리므로 목록에 있으면 완전하고, 올리는 중이던 패키지는 다음 백업에 든다.
+    받은 레이아웃은 내용 주소(digest)를 다시 계산해 확인한다. 저장소가 아직 없으면(게시한 적 없음) 빈 목록이다.
+    """
+    server = get_layout().platform
+    if not is_service_running(server, "registry"):
+        raise JobFailure(f"레지스트리(registry)가 서버 {server.name} 에서 떠 있지 않다(./deploy status)", EXIT_TEMPFAIL)
+    prefix = registry_target(reg_cfg()).prefix
+    listed = crane(["ls", f"{prefix}/{repository}"])
+    tags: list[str] = []
+    if listed.returncode != 0:
+        if "NAME_UNKNOWN" not in listed.stderr:  # 왜 이것만 빈 목록: OCI Distribution Spec 의 '저장소 없음' 오류 코드다. 닿지 못함·거절은 빈 목록이 아니다
+            raise JobFailure(f"레지스트리의 {repository} 태그 목록을 받지 못했다(crane rc={listed.returncode}): {listed.stderr.strip()[-300:]}", EXIT_TEMPFAIL)
+    else:
+        tags = listed.stdout.split()
+    directory = registry_directory(repository)
+    root = stage / "platform" / directory
+    root.mkdir(parents=True, mode=0o700)
+    packages: list[dbackup.RegistryPackage] = []
+    for tag in dbackup.package_tags(tags):
+        digest = dbackup.tag_digest(tag)
+        folder = dbackup.layout_folder(root, digest)
+        pulled = crane(["pull", "--format", "oci", f"{prefix}/{repository}:{tag}", f"/w/platform/{directory}/{folder.name}"], stage)
+        if pulled.returncode != 0:
+            raise JobFailure(f"모델 패키지 {digest} 를 받지 못했다(crane rc={pulled.returncode}): {pulled.stderr.strip()[-300:]}", EXIT_TEMPFAIL)
+        packages.append(dbackup.verify_layout(folder, digest))  # 왜 바로 확인: 깨진 내보내기가 스냅샷에 들어가면 복구 때서야 알게 된다
+    return dbackup.RegistryTarget("platform", repository, server.name, directory, tuple(packages))
+
+
 class Restic:
     """restic 클라이언트(일회용 컨테이너, 관리 노드의 빌드 엔진)를 부른다. 저장소 주소(자격 포함)와 암호는 파일로만 준다(명령줄·환경 변수에 비밀이 없다, D84)."""
 
@@ -1647,6 +1708,7 @@ def backup() -> None:
         backup_settings(layout.backup)  # 왜 먼저: 설정이 틀리면 덤프를 뜨기 전에 멈춘다
         targets = backup_targets()
         volumes = backup_volumes()
+        registry_repositories = backup_registry_repositories()
         if not targets and not volumes:
             raise JobFailure("백업할 영역 저장소가 없다(compose 라벨 io.openit.backup: 서비스는 postgres, 볼륨은 files)")
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -1656,8 +1718,9 @@ def backup() -> None:
         try:
             dumped = [dump_target(server, owner, service, user, stage) for server, owner, service, user in targets]
             dumped_volumes = [dump_volume(server, owner, key, name, paths, stage) for server, owner, key, name, paths in volumes]
+            dumped_registries = [dump_registry(repository, stage) for repository in registry_repositories]
             major = pg_query(targets[0][0], targets[0][2], targets[0][3], "select current_setting('server_version_num')::int / 10000") if targets else ""
-            (stage / "manifest.json").write_text(dbackup.manifest_json(utc_now(), project_name(), major, dumped, dumped_volumes), encoding="utf-8")
+            (stage / "manifest.json").write_text(dbackup.manifest_json(utc_now(), project_name(), major, dumped, dumped_volumes, dumped_registries), encoding="utf-8")
             with restic_session() as restic:
                 restic.ensure_repository()
                 result = restic.ok("스냅샷 만들기", ["backup", dbackup.STAGE_DIR, "--host", project_name(), "--tag", BACKUP_TAG, "--json", "--quiet"], stage=stage)
@@ -1667,9 +1730,12 @@ def backup() -> None:
         finally:
             shutil.rmtree(stage, ignore_errors=True)
         databases = sum(len(target.databases) for target in dumped)
-        run.processed = databases + len(dumped_volumes)
+        packages = sum(len(registry.packages) for registry in dumped_registries)
+        run.processed = databases + len(dumped_volumes) + packages
         files = sum(len(volume.files) for volume in dumped_volumes)
-        typer.echo(f"백업: 스냅샷 {run.snapshot[:8]} (데이터베이스 {databases}개, 상태 볼륨 {len(dumped_volumes)}개의 파일 {files}개, 보관 {dbackup.RETENTION_WITHIN})")
+        typer.echo(f"백업: 스냅샷 {run.snapshot[:8]} (데이터베이스 {databases}개, 상태 볼륨 {len(dumped_volumes)}개의 파일 {files}개, 모델 패키지 {packages}개, 보관 {dbackup.RETENTION_WITHIN})")
+        if not registry_repositories:
+            typer.echo("외부 레지스트리: 모델 패키지는 이 백업에 없다(그 레지스트리의 백업은 운영처 몫이다, ADR 0027)")
 
 
 @app.command("offsite-sync")
@@ -1798,6 +1864,71 @@ def verify_volume_archive(restic: Restic, snapshot: str, volume: dbackup.VolumeT
         raise JobFailure(f"{volume.owner} 의 볼륨 {volume.volume}: 복구한 파일 목록(경로·크기·SHA-256)이 백업 때와 다르다")
 
 
+def extract_layouts(stdin: object, destination: Path) -> subprocess.CompletedProcess[bytes]:
+    """restic dump 가 낸 폴더 tar 를 destination 에 푼다. PEP 706 의 data 필터가 폴더 밖으로 나가는 경로·링크·특수 파일을 막는다(stream_dump 의 consumer)."""
+    try:
+        with tarfile.open(fileobj=stdin, mode="r|") as archive:  # type: ignore[call-overload]
+            archive.extractall(destination, filter="data")
+        while stdin.read(1 << 20):  # type: ignore[attr-defined]  # 왜 끝까지 읽는다: tar 끝 표지 뒤의 나머지를 비워야 restic 이 정상 종료한다
+            pass
+    except (tarfile.TarError, OSError) as error:
+        return subprocess.CompletedProcess([], EXIT_FAIL, b"", str(error).encode())
+    return subprocess.CompletedProcess([], 0, b"", b"")
+
+
+def exported_layouts(restic: Restic, snapshot: str, registry: dbackup.RegistryTarget, work: Path) -> Path:
+    """스냅샷의 모델 패키지 레이아웃을 work 에 풀고 패키지마다 내용 주소(digest)와 크기가 백업 때와 같은지 본다. 패키지 레이아웃들이 든 폴더를 돌려준다."""
+    stream_dump(restic, snapshot, registry.archive, lambda stdin: extract_layouts(stdin, work))
+    root = work / dbackup.STAGE_DIR.lstrip("/") / registry.owner / registry.directory
+    for package in registry.packages:
+        found = dbackup.verify_layout(dbackup.layout_folder(root, package.digest), package.digest)
+        if found != package:
+            raise JobFailure(f"모델 패키지 {package.digest}: 스냅샷의 파일 크기 합 {found.size} 가 백업 때 {package.size} 와 다르다")
+    return root
+
+
+@contextlib.contextmanager
+def registry_workdir():  # type: ignore[no-untyped-def]
+    """복구할 레지스트리 파일을 푸는 임시 폴더(0700, 관리 노드). 끝나면 지운다."""
+    META_DIR.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix="registry-", dir=META_DIR))
+    directory.chmod(0o700)
+    try:
+        yield directory
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def restore_registry(restic: Restic, snapshot: str, registry: dbackup.RegistryTarget) -> int:
+    """스냅샷의 모델 패키지를 레지스트리에 올린다(crane push, OCI 이미지 레이아웃 -> 레지스트리). 올린 패키지 수를 돌려준다.
+
+    레지스트리에 이미 있는 것은 지우거나 바꾸지 않는다(더하기만 한다. 영역 이미지는 `./deploy bootstrap` 이 images.lock 대로 올린다). 같은 매니페스트 바이트를 올리므로
+    digest 가 같고, 올린 뒤 태그가 그 digest 를 가리키는지 본다(활성화 기록의 digest 가 다시 이어진다). 이 설치가 외부 레지스트리를 쓰면 올리지 않는다.
+    """
+    if not registry.packages:
+        return 0
+    if env_values()["OPENIT_REGISTRY_MODE"] == "external":
+        typer.echo(f"경고: 이 설치는 외부 레지스트리를 쓴다. 스냅샷의 모델 패키지 {len(registry.packages)}개({registry.repository})는 복구하지 않았다(운영처가 그 레지스트리를 복구한다)")
+        return 0
+    server = get_layout().platform
+    if not is_service_running(server, "registry") and compose(["up", "-d", "--wait", "registry-store", "registry"], server).returncode != 0:
+        raise JobFailure("레지스트리를 띄우지 못했다(./deploy bootstrap)")
+    prefix = registry_target(reg_cfg()).prefix
+    with registry_workdir() as work:
+        root = exported_layouts(restic, snapshot, registry, work)
+        for package in registry.packages:
+            tag = package.digest.replace(":", "-")
+            folder = dbackup.layout_folder(root, package.digest)
+            pushed = crane(["push", f"/w/{folder.relative_to(work).as_posix()}", f"{prefix}/{registry.repository}:{tag}"], work)
+            if pushed.returncode != 0:
+                raise JobFailure(f"모델 패키지 {package.digest} 를 레지스트리에 올리지 못했다(crane rc={pushed.returncode}): {pushed.stderr.strip()[-300:]}", EXIT_TEMPFAIL)
+            confirmed = crane(["digest", f"{prefix}/{registry.repository}:{tag}"])
+            if confirmed.returncode != 0 or confirmed.stdout.strip() != package.digest:
+                raise JobFailure(f"모델 패키지 {package.digest} 를 올린 뒤 레지스트리의 태그가 그 digest 를 가리키지 않는다: {confirmed.stdout.strip() or confirmed.stderr.strip()[-200:]}")
+    typer.echo(f"[{server.name}] 레지스트리 {registry.repository}: 모델 패키지 {len(registry.packages)}개 복구")
+    return len(registry.packages)
+
+
 @app.command()
 def restore(
     snapshot: Annotated[str, typer.Argument(help="복구할 스냅샷 ID(없으면 가장 최근). --offsite 이면 서버 밖 저장소의 ID")] = "latest",
@@ -1836,12 +1967,14 @@ def restore(
                 for tier in dlayout.tiers(model, dependents):  # type: ignore[arg-type]
                     if compose(["up", "-d", "--wait", "--no-deps", *tier], server).returncode != 0:
                         raise JobFailure(f"멈춘 서비스를 다시 띄우지 못했다: {', '.join(tier)} (./deploy up)")
+        # 왜 상태 볼륨 앞: model-runtime 은 시작할 때 복구한 기록의 마지막 활성 패키지를 레지스트리에서 받는다. 패키지가 먼저 있어야 그 적재가 된다
+        packages = sum(restore_registry(restic, chosen, registry) for registry in manifest.registries)
         volumes = 0
         for volume in manifest.volumes:
             restore_volume(restic, chosen, volume)
             volumes += 1
-        run.processed = count + volumes
-        typer.echo(f"복구 완료: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개, 상태 볼륨 {volumes}개")
+        run.processed = count + volumes + packages
+        typer.echo(f"복구 완료: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개, 모델 패키지 {packages}개, 상태 볼륨 {volumes}개")
 
 
 @app.command("restore-test")
@@ -1889,8 +2022,14 @@ def restore_test(
                 subprocess.run(["docker", "rm", "-f", "-v", name], env=environ, capture_output=True, check=False)  # noqa: S603, S607
         for volume in manifest.volumes:
             verify_volume_archive(restic, chosen, volume)
-        run.processed = count + len(manifest.volumes)
-        typer.echo(f"복구 시험 통과: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개를 일회용 PostgreSQL 에 복구해 테이블 수가 같고, 상태 볼륨 {len(manifest.volumes)}개의 파일(경로·크기·SHA-256)이 백업 때와 같다")
+        packages = 0
+        for registry in manifest.registries:
+            if registry.packages:
+                with registry_workdir() as work:  # 왜 레지스트리에 올리지 않는다: 운영 레지스트리는 건드리지 않는다. 내용 주소(digest)와 크기를 다시 계산해 본다
+                    exported_layouts(restic, chosen, registry, work)
+            packages += len(registry.packages)
+        run.processed = count + len(manifest.volumes) + packages
+        typer.echo(f"복구 시험 통과: 스냅샷 {chosen[:8]}, 데이터베이스 {count}개를 일회용 PostgreSQL 에 복구해 테이블 수가 같고, 상태 볼륨 {len(manifest.volumes)}개의 파일(경로·크기·SHA-256)이 백업 때와 같고, 모델 패키지 {packages}개의 파일(digest·크기)이 백업 때와 같다")
 
 
 POSTGRES_READY_SECONDS = 60  # 일회용 PostgreSQL 이 TCP 로 받을 때까지의 상한(초기화 포함). 측정하지 않았다. 되면 곧바로 넘어간다

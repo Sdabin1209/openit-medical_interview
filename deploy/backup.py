@@ -1,7 +1,7 @@
 """백업·복구의 순수 계산(ADR 0027). docker 를 부르지 않는다. 명령(backup, restore, restore-test, offsite-sync)의 조립은 ./deploy 가 한다.
 
 - 백업 설정(계약 DeployBackupConfig)을 읽는 규칙: 저장소 주소, 자격 파일의 모양, 서버 밖 대상.
-- 백업 한 번의 내용 목록(manifest): 어느 영역의 어느 DB 컨테이너에서 어떤 데이터베이스를, 어느 영역의 어느 볼륨에서 어떤 파일을 받았는가.
+- 백업 한 번의 내용 목록(manifest): 어느 영역의 어느 DB 컨테이너에서 어떤 데이터베이스를, 어느 영역의 어느 볼륨에서 어떤 파일을, 레지스트리의 어느 저장소에서 어떤 모델 패키지를 받았는가.
 - 잡 실행 결과 한 줄(계약 JobRunResult).
 """
 
@@ -12,6 +12,7 @@ import ipaddress
 import json
 import re
 import tarfile
+from pathlib import Path
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import IO, Any
@@ -35,8 +36,12 @@ BACKUP_PATHS_LABEL = "io.openit.backup.paths"
 POSTGRES = "postgres"
 FILES = "files"
 VOLUME_PATH = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$")  # 볼륨 안의 상대 경로. 점으로 시작하는 요소(., ..)와 절대 경로는 거절한다
-MANIFEST_FORMAT = 2  # 1: 데이터베이스만. 2: 파일 볼륨(volumes)을 더했다. 읽을 때는 둘 다 받는다
+READABLE_MANIFEST_FORMATS = (1, 2, 3)
+MANIFEST_FORMAT = 3  # 1: 데이터베이스만. 2: 파일 볼륨(volumes)을 더했다. 3: 레지스트리의 모델 패키지(registries)를 더했다. 읽을 때는 모두 받는다
 VOLUME_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")  # compose 볼륨 키(스냅샷 안의 tar 이름이 된다)
+
+
+OWNER_NAMES = ("platform",)  # 레지스트리의 주인 영역(compose.yaml 의 registry-store 라벨 io.openit.service)
 
 
 class BackupConfigError(Exception):
@@ -203,10 +208,112 @@ class VolumeTarget:
         return f"{STAGE_DIR}/{self.owner}/{self.volume}.tar"
 
 
+# 모델 패키지의 태그는 게시 도구가 digest 에서 정한다(`sha256-<16진수 64자>`, model-runtime ADR 0008). 태그 목록(OCI Distribution Spec 의 tags/list)이 저장소의
+# 항목을 나열하는 표준 길이고, 태그 없이 digest 로만 올린 매니페스트는 나열되지 않는다. 이 형식의 태그만 모델 패키지로 받는다(다른 태그는 모델 패키지가 아니다)
+PACKAGE_TAG = re.compile(r"^sha256-([0-9a-f]{64})$")
+OCI_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+# 계약 OciRepositoryName 의 패턴과 길이(OCI Distribution Spec 1.1 의 저장소 이름 문법). 복구가 이 이름으로 레지스트리에 올린다
+OCI_REPOSITORY = re.compile(r"^[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)*$")
+REGISTRY_DIRECTORY = re.compile(r"^registry/[a-z0-9]+(-[a-z0-9]+)*$")  # 스냅샷 안 폴더(영역 폴더 아래)
+
+
+@dataclass(frozen=True)
+class RegistryPackage:
+    digest: str  # 매니페스트 digest(패키지의 식별자). 스냅샷 안의 OCI 이미지 레이아웃 폴더 이름은 이 16진수 부분이다
+    size: int  # 매니페스트·config·layer 의 바이트 합(복구 시험이 같은지 본다)
+
+
+@dataclass(frozen=True)
+class RegistryTarget:
+    owner: str  # 계약 ServiceName(레지스트리의 주인 영역: platform)
+    repository: str  # 계약 OciRepositoryName
+    server: str
+    directory: str  # 영역 폴더 아래 폴더(`registry/<이름>`). 패키지마다 그 안에 OCI 이미지 레이아웃 폴더가 있다
+    packages: tuple[RegistryPackage, ...]
+
+    @property
+    def archive(self) -> str:
+        """스냅샷 안의 폴더 경로(restic dump 가 이 폴더를 tar 로 낸다)."""
+        return f"{STAGE_DIR}/{self.owner}/{self.directory}"
+
+
 @dataclass(frozen=True)
 class Manifest:
     targets: tuple[Target, ...]
     volumes: tuple[VolumeTarget, ...]
+    registries: tuple[RegistryTarget, ...] = ()
+
+
+def package_tags(tags: Iterable[str]) -> list[str]:
+    """태그 목록에서 모델 패키지의 태그만(이름순). 다른 태그는 건너뛴다."""
+    return sorted(tag for tag in set(tags) if PACKAGE_TAG.fullmatch(tag))
+
+
+def tag_digest(tag: str) -> str:
+    """패키지 태그가 가리키는 매니페스트 digest(`sha256-<16진수>` -> `sha256:<16진수>`)."""
+    found = PACKAGE_TAG.fullmatch(tag)
+    if not found:
+        raise BackupConfigError(f"모델 패키지 태그가 아니다: {tag!r}")
+    return f"sha256:{found.group(1)}"
+
+
+def layout_folder(root: Path, digest: str) -> Path:
+    """패키지의 OCI 이미지 레이아웃 폴더(root 아래, digest 의 16진수 부분)."""
+    if not OCI_DIGEST.fullmatch(digest):
+        raise BackupConfigError(f"digest 모양이 OCI 와 다르다: {digest!r}")
+    return root / digest.removeprefix("sha256:")
+
+
+def _blob(layout: Path, digest: str) -> Path:
+    if not OCI_DIGEST.fullmatch(digest):
+        raise BackupConfigError(f"레이아웃의 digest 모양이 OCI 와 다르다: {digest!r}")
+    return layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+
+
+def _verified_blob(layout: Path, digest: str, size: int | None = None) -> int:
+    """blob 파일이 있고 내용의 SHA-256 이 이름(digest)과, 크기가 목록의 크기와 같은지 본다. 바이트 수를 돌려준다."""
+    path = _blob(layout, digest)
+    try:
+        hasher = hashlib.sha256()
+        total = 0
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                hasher.update(chunk)
+                total += len(chunk)
+    except OSError as error:
+        raise BackupConfigError(f"레이아웃에 파일 {digest} 가 없거나 읽지 못했다: {error.strerror}") from error
+    if f"sha256:{hasher.hexdigest()}" != digest:
+        raise BackupConfigError(f"레이아웃의 파일 {digest} 의 내용이 이름(digest)과 다르다")
+    if size is not None and total != size:
+        raise BackupConfigError(f"레이아웃의 파일 {digest} 의 크기 {total} 가 매니페스트의 {size} 와 다르다")
+    return total
+
+
+def verify_layout(layout: Path, digest: str) -> RegistryPackage:
+    """모델 패키지 한 개의 OCI 이미지 레이아웃(OCI Image Layout Spec: oci-layout, index.json, blobs/sha256/)을 확인한다.
+
+    확인: 색인에 매니페스트가 정확히 하나이고 그 digest 가 기대와 같다, 매니페스트·config·layer 파일이 모두 있고 내용의 SHA-256 과 크기가 목록과 같다.
+    파일 이름이 내용 주소(digest)라서 다시 계산해 같으면 레지스트리에 올렸을 때 같은 digest 로 돌아온다. 어긋나면 BackupConfigError.
+    """
+    try:
+        marker = json.loads((layout / "oci-layout").read_text(encoding="utf-8"))
+        index = json.loads((layout / "index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise BackupConfigError(f"OCI 이미지 레이아웃을 읽지 못했다({layout.name}): {error}") from error
+    if not isinstance(marker, dict) or not str(marker.get("imageLayoutVersion", "")).startswith("1."):  # type: ignore[union-attr]
+        raise BackupConfigError(f"OCI 이미지 레이아웃 버전을 알 수 없다({layout.name})")
+    manifests = index.get("manifests") if isinstance(index, dict) else None
+    if not isinstance(manifests, list) or len(manifests) != 1 or manifests[0].get("digest") != digest:
+        raise BackupConfigError(f"레이아웃 색인의 매니페스트가 정확히 하나이고 {digest} 여야 한다({layout.name})")
+    size = _verified_blob(layout, digest, manifests[0].get("size"))
+    try:
+        manifest = json.loads(_blob(layout, digest).read_bytes())
+        descriptors = [manifest["config"], *manifest["layers"]]
+        for descriptor in descriptors:
+            size += _verified_blob(layout, descriptor["digest"], descriptor["size"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise BackupConfigError(f"패키지 매니페스트 {digest} 의 config·layers 를 읽지 못했다: {error}") from error
+    return RegistryPackage(digest, size)
 
 
 def volume_paths(text: str) -> tuple[str, ...]:
@@ -272,7 +379,8 @@ def archive_entries(stream: IO[bytes]) -> list[FileEntry]:
     return sorted(entries, key=lambda entry: entry.path)
 
 
-def manifest_json(created_at: str, project: str, postgres_major: str, targets: Iterable[Target], volumes: Iterable[VolumeTarget] = ()) -> str:
+def manifest_json(created_at: str, project: str, postgres_major: str, targets: Iterable[Target], volumes: Iterable[VolumeTarget] = (),
+                  registries: Iterable[RegistryTarget] = ()) -> str:
     """스냅샷 안의 /stage/manifest.json. 비밀은 없다."""
     document = {
         "format": MANIFEST_FORMAT,
@@ -289,6 +397,11 @@ def manifest_json(created_at: str, project: str, postgres_major: str, targets: I
              "files": [{"path": f.path, "size": f.size, "sha256": f.sha256} for f in v.files]}
             for v in volumes
         ],
+        "registries": [
+            {"owner": r.owner, "repository": r.repository, "server": r.server, "directory": r.directory,
+             "packages": [{"digest": p.digest, "size": p.size} for p in r.packages]}
+            for r in registries
+        ],
     }
     return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
 
@@ -296,7 +409,7 @@ def manifest_json(created_at: str, project: str, postgres_major: str, targets: I
 def parse_manifest(text: str) -> Manifest:
     try:
         document = json.loads(text)
-        if document["format"] not in (1, MANIFEST_FORMAT):
+        if document["format"] not in READABLE_MANIFEST_FORMATS:
             raise BackupConfigError(f"알 수 없는 백업 형식이다: {document['format']}")
         targets = tuple(
             Target(item["owner"], item["service"], item["user"], item["server"],
@@ -308,6 +421,11 @@ def parse_manifest(text: str) -> Manifest:
                          tuple(FileEntry(f["path"], int(f["size"]), f["sha256"]) for f in item["files"]))
             for item in document.get("volumes", [])  # 형식 1 에는 없다
         )
+        registries = tuple(
+            RegistryTarget(item["owner"], item["repository"], item["server"], item["directory"],
+                           tuple(RegistryPackage(p["digest"], int(p["size"])) for p in item["packages"]))
+            for item in document.get("registries", [])  # 형식 1·2 에는 없다
+        )
     except (KeyError, TypeError, ValueError) as error:
         raise BackupConfigError(f"백업의 manifest.json 을 읽지 못했다: {error}") from error
     for target in targets:
@@ -318,7 +436,16 @@ def parse_manifest(text: str) -> Manifest:
         if not VOLUME_KEY.fullmatch(volume.volume):
             raise BackupConfigError(f"볼륨 이름이 [A-Za-z0-9_.-] 가 아니다: {volume.volume!r}")
         volume_paths(" ".join(volume.paths))  # 왜 다시: 복구가 이 경로를 지운다. manifest 가 바뀌었어도 안전한 경로만 받는다
-    return Manifest(targets, volumes)
+    for registry in registries:
+        # 왜 다시: 복구가 이 이름으로 레지스트리에 올리고 이 폴더를 읽는다. manifest 가 바뀌었어도 안전한 이름만 받는다
+        if not OCI_REPOSITORY.fullmatch(registry.repository) or len(registry.repository) > 255:
+            raise BackupConfigError(f"레지스트리 저장소 이름이 OCI 저장소 이름이 아니다: {registry.repository!r}")
+        if not REGISTRY_DIRECTORY.fullmatch(registry.directory) or registry.owner not in OWNER_NAMES:
+            raise BackupConfigError(f"백업의 레지스트리 폴더나 영역이 올바르지 않다: {registry.owner!r} {registry.directory!r}")
+        for package in registry.packages:
+            if not OCI_DIGEST.fullmatch(package.digest):
+                raise BackupConfigError(f"모델 패키지 digest 모양이 OCI 와 다르다: {package.digest!r}")
+    return Manifest(targets, volumes, registries)
 
 
 def job_result_line(job: str, exit_code: int, started_at: str, finished_at: str, processed_count: int | None = None, snapshot_id: str | None = None) -> str:

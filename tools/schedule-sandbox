@@ -63,6 +63,14 @@ BK.PROJECT = PROJECT
 BK.OFFSITE_NAME = f"{PROJECT}-offsite"
 LS = BK.LS
 LS.PROJECT = PROJECT
+
+
+def set_project(name: str) -> None:
+    """같은 엔진에서 다른 시험과 이름이 겹치지 않게 프로젝트 이름을 바꾼다."""
+    global PROJECT  # noqa: PLW0603
+    BK.set_project(name)
+    PROJECT = name
+
 Failure = LS.Failure
 NOW = "2026-11-11T01:00:00+09:00"  # 주입하는 시계(수요일 새벽 1시, 한국 시각)
 CONTRACTS = ROOT / "contracts" / "components.yaml"
@@ -102,20 +110,6 @@ class Scenario(BK.Scenario):
     def firing(self, alertname: str, job: str) -> bool:
         alerts = self.prometheus_get("/api/v1/alerts")["data"]["alerts"]  # type: ignore[index]
         return any(a["labels"].get("alertname") == alertname and a["labels"].get("job_name") == job and a["state"] == "firing" for a in alerts)  # type: ignore[index, union-attr]
-
-    def save_diagnostics(self) -> None:
-        """실패하면 정리하기 전에 이 시험의 컨테이너 상태와 로그, 잡 결과 기록을 남긴다(진단 수단을 지우지 않는다). 서버 한 대(context 없음)와 두 대 모두."""
-        LS.LOGS.mkdir(parents=True, exist_ok=True)
-        for server in ([LS.SERVER_A, LS.SERVER_B] if self.two else [None]):
-            label = f"label=com.docker.compose.project={self.project_of(server)}"
-            ids = LS.docker(["ps", "-a", "--filter", label, "-q"], context=server, check=False).stdout.split()
-            for identifier in ids:
-                name = LS.docker(["inspect", "--format", "{{.Name}}", identifier], context=server, check=False).stdout.strip().lstrip("/")
-                logs = LS.docker(["logs", "--tail", "200", identifier], context=server, check=False)
-                (LS.LOGS / f"{self.log}-diag-{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
-        runs = self.root / "deploy" / "job-runs"
-        if runs.is_dir():
-            (LS.LOGS / f"{self.log}-diag-job-runs.json").write_text(json.dumps({p.name: p.read_text(encoding="utf-8") for p in sorted(runs.glob("*.json"))}, indent=2), encoding="utf-8")
 
     def run_schedule(self, job: str, wanted: int, *, log: str, requested_at: str | None = None) -> dict[str, object]:
         """`schedule run <잡>` 의 종료 코드와 결과 줄을 본다(줄은 계약 스키마로 검증하고 종료 코드와 같아야 한다)."""
@@ -403,7 +397,10 @@ def main() -> int:
     parser.add_argument("--one", action="store_true", help="서버 한 대만")
     parser.add_argument("--two", action="store_true", help="서버 두 대만")
     parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
+    parser.add_argument("--project", default=None, help=f"프로젝트 이름(컨테이너·볼륨·네트워크 이름의 앞부분). 기본 {PROJECT}. 같은 엔진에서 이 시험이 겹쳐 돌 때 바꾼다")
     args = parser.parse_args()
+    if args.project:
+        set_project(args.project)
     modes = [m for m, wanted in (("one", args.one), ("two", args.two)) if wanted] or ["one", "two"]
     if LS.LOGS.exists():
         shutil.rmtree(LS.LOGS)

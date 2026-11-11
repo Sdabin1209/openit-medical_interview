@@ -115,7 +115,7 @@ def test_manifest_round_trips_and_rejects_unsafe_database_names(bk: ModuleType) 
     with pytest.raises(bk.BackupConfigError, match="상대 경로"):
         bk.parse_manifest(json.dumps(document))
     with pytest.raises(bk.BackupConfigError):
-        bk.parse_manifest('{"format": 3, "targets": []}')
+        bk.parse_manifest('{"format": 4, "targets": []}')
 
 
 def test_manifest_format_1_without_volumes_is_still_readable(bk: ModuleType) -> None:
@@ -236,3 +236,115 @@ def test_retention_is_within_the_shortest_data_retention(bk: ModuleType) -> None
     """OPEN_GAPS U30: 백업 보관 기간 ≤ 운영 데이터의 가장 짧은 보존(D88 U4 처리 끝난 원본 Trace 30일). U31: 14일."""
     days = int(bk.RETENTION_WITHIN.removesuffix("d"))
     assert days == 14 and days <= 30
+
+
+# ---- 레지스트리의 모델 패키지(ADR 0027): OCI 이미지 레이아웃으로 받아 스냅샷에 담는다
+
+
+def make_layout(folder: Path, blobs: dict[str, bytes] | None = None) -> str:
+    """모델 패키지 모양(config 하나, layer 둘)의 OCI 이미지 레이아웃을 folder 에 만들고 매니페스트 digest 를 돌려준다."""
+    import hashlib
+
+    def put(data: bytes) -> dict[str, object]:
+        digest = hashlib.sha256(data).hexdigest()
+        (folder / "blobs" / "sha256").mkdir(parents=True, exist_ok=True)
+        (folder / "blobs" / "sha256" / digest).write_bytes(data)
+        return {"digest": f"sha256:{digest}", "size": len(data)}
+
+    config = put(b'{"created_at":"2026-11-11T00:00:00Z"}')
+    layers = [put(b"adapter-weights" * 100), put("시스템 프롬프트".encode())]
+    manifest = json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                           "config": {**config, "mediaType": "application/vnd.openit.model.package.config.v1+json"},
+                           "layers": [{**layer, "mediaType": "application/vnd.openit.model.adapter.weights.v1"} for layer in layers]}, separators=(",", ":")).encode()
+    descriptor = put(manifest)
+    (folder / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}', encoding="utf-8")
+    (folder / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [{**descriptor, "mediaType": "application/vnd.oci.image.manifest.v1+json"}]}), encoding="utf-8")
+    return str(descriptor["digest"])
+
+
+def test_package_tags_are_the_digest_tags_the_publisher_creates(bk: ModuleType) -> None:
+    digest = "a" * 64
+    assert bk.package_tags(["latest", f"sha256-{digest}", "sha256-xyz", f"sha256-{digest}", f"sha256-{'B' * 64}"]) == [f"sha256-{digest}"]
+    assert bk.tag_digest(f"sha256-{digest}") == f"sha256:{digest}"
+    with pytest.raises(bk.BackupConfigError):
+        bk.tag_digest("latest")
+
+
+def test_package_tag_pattern_matches_the_model_runtime_source(bk: ModuleType) -> None:
+    """게시 도구(model-runtime)가 다는 태그와 이 백업이 고르는 태그가 어긋나면 백업이 빈 것을 받는다. 두 쪽이 같은 태그를 패키지로 보는지 본다."""
+    area = REPO / "services" / "model-runtime" / "src" / "model_runtime" / "link"
+    pattern = re.search(r'^PACKAGE_TAG = re\.compile\(r"([^"]+)"\)', (area / "registry.py").read_text(encoding="utf-8"), re.M).group(1)  # type: ignore[union-attr]
+    assert 'digest.replace(":", "-")' in (area / "publish_registry.py").read_text(encoding="utf-8")  # 게시 도구는 digest 의 콜론을 줄표로 바꾼 태그를 단다
+    for tag in ("sha256-" + "0123456789abcdef" * 4, "sha256-" + "A" * 64, "sha256-" + "a" * 63, "sha256-" + "a" * 65, "latest", "x-sha256-" + "a" * 64):
+        assert bool(re.fullmatch(pattern, tag)) == bool(bk.PACKAGE_TAG.fullmatch(tag)), tag
+    sample = "sha256:" + "0123456789abcdef" * 4
+    assert bk.tag_digest(sample.replace(":", "-")) == sample  # tag_digest 는 게시 도구의 digest -> 태그의 역이다
+
+
+def test_default_model_package_repository_is_a_valid_oci_repository_and_the_contract_pattern(bk: ModuleType) -> None:
+    env = (REPO / "deploy" / "env.example").read_text(encoding="utf-8")
+    repository = re.search(r"^OPENIT_MODEL_REGISTRY_REPOSITORY=(.*)$", env, re.M).group(1)  # type: ignore[union-attr]
+    assert repository == "openit/model-package" and bk.OCI_REPOSITORY.fullmatch(repository)
+    schema = yaml.safe_load((REPO / "contracts" / "components.yaml").read_text(encoding="utf-8"))["components"]["schemas"]["OciRepositoryName"]
+    assert bk.OCI_REPOSITORY.pattern == schema["pattern"]  # 계약 OciRepositoryName 의 패턴과 같다(복구가 이 이름으로 레지스트리에 올린다)
+
+
+def test_verify_layout_accepts_an_intact_package_and_reports_its_size(bk: ModuleType, tmp_path: Path) -> None:
+    digest = make_layout(tmp_path)
+    package = bk.verify_layout(tmp_path, digest)
+    assert package.digest == digest and package.size > 1500
+    assert bk.layout_folder(tmp_path, digest) == tmp_path / digest.removeprefix("sha256:")
+
+
+def test_verify_layout_rejects_a_changed_missing_or_foreign_file(bk: ModuleType, tmp_path: Path) -> None:
+    digest = make_layout(tmp_path / "ok")
+    root = tmp_path / "ok"
+    layer = next(path for path in sorted((root / "blobs" / "sha256").iterdir()) if path.stat().st_size > 1000)
+    original = layer.read_bytes()
+    layer.write_bytes(original[:-1] + b"X")  # 내용이 바뀌었다(크기는 같다)
+    with pytest.raises(bk.BackupConfigError, match="내용이 이름"):
+        bk.verify_layout(root, digest)
+    layer.write_bytes(original[:-1])  # 잘렸다
+    with pytest.raises(bk.BackupConfigError, match="내용이 이름|크기"):
+        bk.verify_layout(root, digest)
+    layer.unlink()  # 없다
+    with pytest.raises(bk.BackupConfigError, match="없거나"):
+        bk.verify_layout(root, digest)
+    other = make_layout(tmp_path / "other")
+    with pytest.raises(bk.BackupConfigError, match="정확히 하나"):
+        bk.verify_layout(tmp_path / "other", digest if digest != other else "sha256:" + "0" * 64)  # 기대한 digest 가 아닌 매니페스트
+    with pytest.raises(bk.BackupConfigError, match="OCI"):
+        bk.layout_folder(tmp_path, "sha256:../../etc/passwd")  # 폴더 이름은 digest 모양이 맞을 때만 만든다(경로 이탈 없음)
+    (tmp_path / "other" / "oci-layout").unlink()
+    with pytest.raises(bk.BackupConfigError, match="읽지 못했다"):
+        bk.verify_layout(tmp_path / "other", other)
+
+
+def test_manifest_with_registries_round_trips_and_older_formats_are_still_read(bk: ModuleType) -> None:
+    packages = (bk.RegistryPackage("sha256:" + "a" * 64, 1234), bk.RegistryPackage("sha256:" + "b" * 64, 99))
+    registry = bk.RegistryTarget("platform", "openit/model-package", "svc", "registry/openit-model-package", packages)
+    text = bk.manifest_json("2026-11-11T00:00:00Z", "openit", "16", (), (), (registry,))
+    parsed = bk.parse_manifest(text)
+    assert parsed.registries == (registry,) and parsed.targets == () and parsed.volumes == ()
+    assert registry.archive == "/stage/platform/registry/openit-model-package"
+    assert json.loads(text)["format"] == 3
+    assert bk.parse_manifest(json.dumps({"format": 2, "targets": [], "volumes": []})).registries == ()  # 형식 2(레지스트리 없음)
+    for change, why in (
+        (lambda d: d["registries"][0].update(repository="../x"), "저장소 이름"),
+        (lambda d: d["registries"][0].update(directory="../../etc"), "폴더"),
+        (lambda d: d["registries"][0].update(owner="survey-service"), "폴더나 영역"),
+        (lambda d: d["registries"][0]["packages"][0].update(digest="sha256:../x"), "digest"),
+    ):
+        document = json.loads(text)
+        change(document)
+        with pytest.raises(bk.BackupConfigError, match=why):
+            bk.parse_manifest(json.dumps(document))
+
+
+def test_registry_images_are_not_in_the_backup_because_they_are_rebuilt_from_source() -> None:
+    """영역 이미지는 소스에서 다시 빌드하고 images.lock 대로 올린다(ADR 0024). 백업은 레지스트리의 모델 패키지 저장소 하나만 받는다(ADR 0027)."""
+    deploy = (REPO / "deploy" / "deploy").read_text(encoding="utf-8")
+    assert "backup_registry_repositories" in deploy and 'values["OPENIT_REGISTRY_MODE"] == "external"' in deploy
+    bk = _load("backup_for_images", REPO / "deploy" / "backup.py")
+    assert all(volume != "registry-data" for _owner, _service, volume, _name, _paths in bk.files_in(COMPOSE))  # 저장소 볼륨을 통째로 받지 않는다(일관성·이미지가 딸려 옴·구현 의존)
+    assert all(spec.get("labels", {}).get("io.openit.backup") is None for name, spec in COMPOSE["services"].items() if name.startswith("registry"))

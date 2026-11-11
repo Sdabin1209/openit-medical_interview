@@ -218,20 +218,21 @@ git checkout <이전 커밋> -- deploy/images.lock
 백업 설정은 5절의 `backup` 칸이다(배치 설정 파일이 없으면 백업을 시작하지 않는다). 결정과 근거는 [ADR 0027](../../docs/adr/0027-백업과-복구.md) 이다.
 
 ```
-./deploy backup                       # 모든 영역 데이터베이스와 상태 파일 -> 백업 저장소(스냅샷 하나), 14일 지난 스냅샷 정리
+./deploy backup                       # 모든 영역 데이터베이스·상태 파일·레지스트리의 모델 패키지 -> 백업 저장소(스냅샷 하나), 14일 지난 스냅샷 정리
 ./deploy offsite-sync                 # 백업 저장소의 스냅샷 -> 서버 밖 저장소
-./deploy restore-test                 # 일회용 PostgreSQL 에 복구하고 상태 파일 tar 의 SHA-256 을 대조해 되는지 시험(운영 DB·볼륨은 건드리지 않는다)
+./deploy restore-test                 # 일회용 PostgreSQL 에 복구하고 상태 파일 tar 의 SHA-256 과 모델 패키지의 digest 를 대조해 되는지 시험(운영 DB·볼륨·레지스트리는 건드리지 않는다)
 ./deploy restore-test --offsite       # 서버 밖 사본으로 같은 시험
 ./deploy restore latest --yes         # 가장 최근 스냅샷으로 운영 DB 를 덮어쓴다
 ./deploy restore <스냅샷 ID> --yes
 ./deploy restore latest --yes --offsite   # 백업 저장소를 잃었을 때 서버 밖 사본에서(ID 는 서버 밖 저장소의 것)
 ```
 
-- **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두와 `io.openit.backup: files` 인 서비스의 상태 파일, 각각 그것이 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm), survey-service 의 `survey-db`(문진 결과), model-runtime 의 활성화·롤백 기록(승인자·시각·사유, 활성 패키지는 이 기록에서 구한다)이다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프 크기만큼의 임시 디스크가 필요하다(끝나면 지운다).
-- **무엇을 백업하지 않나:** step-ca·레지스트리·감시의 볼륨(다시 받거나 다시 올린다), model-runtime 이 받은 패키지와 기반 모델 가중치(`model-runtime-data` 의 활성화 기록 밖: 레지스트리에서 다시 받는다. 레지스트리 볼륨도 백업하지 않으므로 서버를 통째로 잃으면 모델 패키지는 학습 쪽에서 다시 게시한다), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
+- **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두와 `io.openit.backup: files` 인 서비스의 상태 파일, 각각 그것이 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm), survey-service 의 `survey-db`(문진 결과), model-runtime 의 활성화·롤백 기록(승인자·시각·사유, 활성 패키지는 이 기록에서 구한다), 그리고 레지스트리의 모델 패키지 저장소(`OPENIT_MODEL_REGISTRY_REPOSITORY`, 기본 `openit/model-package`)에서 태그 `sha256-<digest>` 가 달린 패키지 모두(어댑터, 목록표, 평가 보고서. 다시 게시하면 digest 가 달라져 기록과 이어지지 않으므로 받는다)다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프와 모델 패키지 크기의 합만큼 임시 디스크가 필요하다(끝나면 지운다. 패키지는 매번 전부 내려받는다. 크기와 시간은 측정하지 않았다).
+- **외부 레지스트리(`OPENIT_REGISTRY_MODE=external`):** 모델 패키지는 이 백업에 없다. 그 레지스트리의 백업과 복구는 운영처가 한다(모델 패키지는 다시 만들 수 없으니 그 레지스트리가 백업되는지 확인한다). `backup` 과 `doctor` 가 그렇다고 알린다.
+- **무엇을 백업하지 않나:** step-ca·감시의 볼륨(다시 받거나 다시 만든다), 레지스트리의 영역 이미지(소스에서 `./deploy build` 로 다시 만들어 `./deploy bootstrap` 이 올린다. 이전 커밋으로 이미지 롤백을 하려면 레지스트리를 잃은 뒤에는 그 커밋을 체크아웃해 다시 빌드한다), model-runtime 이 받은 패키지와 기반 모델 가중치(`model-runtime-data` 의 활성화 기록 밖: 레지스트리에서 다시 받는다), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
 - **일정:** 각 명령은 잡 한 번이다(끝에 표준 출력으로 한 줄 JSON, 종료 코드 0 성공·75 일시적 실패(다음 실행에서 다시)·1 실패). 자동으로 도는 일정은 deploy 의 스케줄러가 정한다(아래 '잡 스케줄러', D39): 백업 매일 02:00, 서버 밖 동기 매일 03:00, 복구 시험 매주 일요일 04:00(서버 밖 사본은 `./deploy restore-test --offsite` 로 사람이 따로 시험한다).
 - **보관:** 14일(`forget --keep-within 14d`, 운영 데이터의 가장 짧은 보존 30일 이하). 서버 밖 저장소에도 같은 정리를 한다.
-- **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고(상태 파일은 백업한 경로를 비우고 되돌리고), 그것을 쓰는 서비스는 멈췄다가 다시 띄운다. model-runtime 은 복구한 기록의 마지막 활성 패키지를 레지스트리에서 받아 다시 적재한다. 서버를 처음부터 다시 세웠다면 먼저 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
+- **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고(상태 파일은 백업한 경로를 비우고 되돌리고), 그것을 쓰는 서비스는 멈췄다가 다시 띄운다. 레지스트리의 모델 패키지는 같은 digest 로 다시 올라가고(상태 파일보다 먼저), model-runtime 은 복구한 기록의 마지막 활성 패키지를 레지스트리에서 받아 다시 적재한다(엔진이 서 있으면 `READY`). 서버를 처음부터 다시 세웠다면 먼저 `./deploy build`(영역 이미지가 이 엔진에 없으면)와 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 복구 뒤 `./deploy status` 로 서비스를, 관리 콘솔의 모델 배포 화면(또는 model-runtime 의 `/readyz`)으로 적재 상태를 확인한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
 - `./deploy down --volumes` 는 백업 저장소의 볼륨도 지운다(서버 밖 사본은 남는다).
 
 ### 잡 스케줄러

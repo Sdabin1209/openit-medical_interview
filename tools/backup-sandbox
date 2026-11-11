@@ -14,13 +14,15 @@
 - 서버 밖 대상은 같은 restic REST 서버 이미지를 TLS 로 따로 띄운 것이다(시험이 만든 사용 후 버릴 CA 를 신뢰 목록에 더한다).
 - 데이터: survey-service DB 에 시험 표(200줄)와 Keycloak DB 의 realm·client·user 를 표마다 내용 지문(건수와 md5)으로 비교한다.
   model-runtime 의 활성화·롤백 기록(승인자·시각·사유가 든 release-log.jsonl)은 제품 코드(ReleaseLogFile)로 컨테이너 안에서 덧붙이고, 지운 뒤 복구해 기록(사건 목록)과
-  파일 내용(SHA-256)과 소유자·모드가 같은지 본다. 받은 패키지(캐시)는 백업 대상이 아니라 복구가 건드리지 않는지도 본다.
+  파일 내용(SHA-256)과 소유자·모드가 같은지 본다. 그 기록이 가리키는 모델 패키지 둘은 제품 코드(OciPackagePublisher)로 레지스트리에 게시한다. 지운 뒤 복구해
+  레지스트리가 같은 digest 의 패키지를 다시 갖고(제품 코드 OciPackageSource 의 목록), model-runtime 이 시작하며 기록의 마지막 활성 패키지를 레지스트리에서 다시 받아
+  파일(digest)이 맞고 어댑터를 푼 뒤 추론 엔진에 올리는 단계에서만 멈추는지(이 샌드박스에는 엔진이 없어 첫 어댑터 LORA_A 에서 멈춘다) 본다. 기반 모델 캐시 흉내(백업 대상이 아님)는 복구가 건드리지 않는지도 본다.
 - 각 단계의 종료 코드를 보고 한 줄 JSON(JobRunResult)을 읽는다. 끝줄 'OK' 같은 글은 증거로 쓰지 않는다.
 - 기기별 문진표 배치(device_placements): 배치 설정의 값이 survey-service 컨테이너 안에서 제품 코드(survey_service.main._placements)로 읽히고, 배치를 바꾸고 `up` 하면 다시 만들어져 반영된다.
 - 시간은 통제 가능한 것만: 기다림은 모두 조건이 되면 끝나고 상한이 있다(고정 대기 없음).
-- 컨테이너·볼륨·네트워크 이름에 `openit-bk` 가 들어간다. 끝나면 이 프로젝트의 것만 지우고 남은 것이 0개인지 본다.
+- 컨테이너·볼륨·네트워크 이름에 프로젝트 이름(기본 `openit-bk`, `--project` 로 바꾼다)이 들어간다. 끝나면 이 프로젝트의 것만 지우고 남은 것이 0개인지 본다.
 
-사용: tools/backup-sandbox [--one] [--two] [--keep]    종료 코드: 0 통과, 1 실패, 3 컨테이너가 닿는 주소가 모자라 시험할 수 없음.
+사용: tools/backup-sandbox [--one] [--two] [--keep] [--project 이름]    종료 코드: 0 통과, 1 실패, 3 컨테이너가 닿는 주소가 모자라 시험할 수 없음.
 """
 
 from __future__ import annotations
@@ -46,20 +48,30 @@ LS.SERVER_A, LS.SERVER_B = "svc", "db"
 
 Failure = LS.Failure
 PROJECT = LS.PROJECT
+
+
+def set_project(name: str) -> None:
+    """같은 엔진에서 다른 시험과 이름이 겹치지 않게 프로젝트 이름을 바꾼다(컨테이너·볼륨·네트워크·작업 폴더가 이 이름을 쓴다)."""
+    global PROJECT, OFFSITE_NAME  # noqa: PLW0603
+    LS.set_project(name)
+    PROJECT = name
+    OFFSITE_NAME = f"{name}-offsite"
+
 PLACEMENTS = [{"device_id": "kiosk-01", "questionnaire_id": "national-health"}, {"device_id": "kiosk-02", "questionnaire_id": "dental"}]
 KEYCLOAK_TABLES = ("realm", "client", "user_entity", "keycloak_role")  # 실행 중에도 바뀌지 않는 표(세션 표는 뺀다)
 STATE_DIR = "/var/lib/openit/model-runtime/cache/model-runtime"  # model-runtime 의 상태 폴더(OPENIT_MODEL_CACHE_DIR 아래). 기록 파일과 받은 패키지가 같은 폴더에 있다
 RELEASE_LOG = f"{STATE_DIR}/release-log.jsonl"
-CACHE_MARKER = f"{STATE_DIR}/packages/sandbox-cache-marker"  # 받은 패키지 흉내. 백업 대상이 아니므로 복구가 지우지도 되돌리지도 않는다(복구 뒤에도 그대로여야 한다)
+PACKAGES_DIR = f"{STATE_DIR}/packages"  # 레지스트리에서 받은 패키지(model-runtime 이 시작할 때 활성 패키지를 받는 곳). 백업 대상이 아니다
+CACHE_MARKER = "/var/lib/openit/model-runtime/cache/sandbox-cache-marker"  # 기반 모델 캐시 흉내. 백업 대상이 아니므로 복구가 지우지도 되돌리지도 않는다(복구 뒤에도 그대로여야 한다)
 RELEASE_SEED = (
-    "import asyncio, json\n"
+    "import asyncio, json, sys\n"
     "from datetime import UTC, datetime\n"
     "from pathlib import Path\n"
     "from model_runtime.store.release_log import ReleaseLogFile\n"
     "from model_runtime.types import ReleaseEvent, ReleaseEventKind as K\n"
     "log = ReleaseLogFile(Path('%s'))\n"
     "t = lambda n: datetime(2026, 11, 11, 9, n, tzinfo=UTC)\n"
-    "d1, d2 = 'sha256:' + '1' * 64, 'sha256:' + '2' * 64\n"
+    "d1, d2 = sys.argv[1], sys.argv[2]\n"
     "events = [\n"
     "    ReleaseEvent(K.ACTIVATE_REQUESTED, d1, t(0), actor='approver-a', reason='첫 활성화: 평가 보고서 확인'),\n"
     "    ReleaseEvent(K.LOADED, d1, t(1), summary='question-bank 3, model-io 3'),\n"
@@ -84,8 +96,70 @@ RELEASE_READ = (
     "events = [[e.kind.value, e.package_digest, e.at.isoformat(), e.actor, e.reason, e.summary] for e in asyncio.run(ReleaseLogFile(path.parent).read_all())]\n"
     "print(json.dumps({'size': len(data), 'sha256': hashlib.sha256(data[:limit]).hexdigest(), 'events': events, 'owner': f'{stat.st_uid}:{stat.st_gid}:{oct(stat.st_mode & 0o777)}'}, ensure_ascii=False))\n"
 ) % RELEASE_LOG
+# 모델 패키지를 제품 코드로 만들어 게시한다(package-publish 와 같은 build_package·OciPackagePublisher). 어댑터 폴더·프롬프트는 시험용 작은 파일이고 평가(엔진)는 이 샌드박스에 없어
+# 평가 보고서는 고정 값이다. 레지스트리에는 영역 컨테이너의 나가는 길(게이트웨이 CONNECT 터널)로 닿는다. 인자: 시드(패키지마다 다른 바이트가 되게 한다)
+PUBLISH = (
+    "import hashlib, json, os, sys, tempfile, uuid\n"
+    "from importlib.metadata import version\n"
+    "from pathlib import Path\n"
+    "from model_runtime.components.package_publish import AdapterFiles, build_package, pack_adapter_folder\n"
+    "from model_runtime.link.publish_registry import OciPackagePublisher\n"
+    "from model_runtime.store.profiles import load_profile\n"
+    "seed = sys.argv[1]\n"
+    "work = Path(tempfile.mkdtemp(prefix='pkg-'))\n"
+    "files = {}\n"
+    "for role in ('LORA_A', 'LORA_B'):\n"
+    "    folder = work / role\n"
+    "    folder.mkdir()\n"
+    "    (folder / 'adapter_config.json').write_text(json.dumps({'peft_type': 'LORA', 'r': 8, 'seed': seed, 'role': role}))\n"
+    "    (folder / 'adapter_model.safetensors').write_bytes(hashlib.sha256((seed + role).encode()).digest() * 65536)\n"
+    "    archive = work / (role + '.tar')\n"
+    "    pack_adapter_folder(folder, archive)\n"
+    "    prompt = work / (role + '.txt')\n"
+    "    prompt.write_text(role + ' 시스템 프롬프트 ' + seed, encoding='utf-8')\n"
+    "    files[role] = AdapterFiles(archive, prompt, {'max_new_tokens': 1208, 'temperature': 0.0, 'constrained_decoding': False})\n"
+    "evaluation = {'dataset_version_id': '3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90', 'created_at': '2026-11-10T09:30:00+00:00',\n"
+    "              'metrics': [{'name': 'semantic_violation_rate', 'value': 0.0, 'unit': 'ratio', 'sample_count': 4}]}\n"
+    "package = build_package(adapters=files, base_model=load_profile(os.environ['OPENIT_MODEL_PROFILE']).base_model.root, runtime_contract_version=1,\n"
+    "    model_io_version='model-io-v2', model_runtime_version=version('openit-model_runtime'), dataset_version_id=evaluation['dataset_version_id'],\n"
+    "    training_run_ids=[str(uuid.uuid4()), str(uuid.uuid4())], evaluation=evaluation, created_at='2026-11-11T09:' + ('30' if seed == 'one' else '40') + ':00+00:00', workdir=work / 'pkg')\n"
+    "user, _, password = Path(os.environ['OPENIT_REGISTRY_CREDENTIALS_FILE']).read_text().strip().partition(':')\n"
+    "publisher = OciPackagePublisher(os.environ['OPENIT_REGISTRY_URL'], os.environ['OPENIT_REGISTRY_REPOSITORY'], (user, password), Path(os.environ['OPENIT_ROOT_CERTIFICATE_FILE']))\n"
+    "proxy = os.environ.get('OPENIT_EGRESS_PROXY')\n"
+    "if proxy:\n"
+    "    publisher._client.session.proxies = {'https': proxy, 'http': proxy}\n"
+    "print(publisher.publish(package))\n"
+    "publisher.close()\n"
+)
+# 레지스트리의 모델 패키지 목록을 제품 코드(OciPackageSource.list_manifests, 태그 목록과 매니페스트 받기)로 읽는다: digest -> 매니페스트 바이트의 SHA-256 과 config·layer 의 digest
+REGISTRY_STATE = (
+    "import asyncio, hashlib, json, os\n"
+    "from pathlib import Path\n"
+    "from model_runtime.link.registry import OciPackageSource, basic_credentials\n"
+    "source = OciPackageSource(os.environ['OPENIT_REGISTRY_URL'], os.environ['OPENIT_REGISTRY_REPOSITORY'],\n"
+    "    basic_credentials(Path(os.environ['OPENIT_REGISTRY_CREDENTIALS_FILE']).read_text().strip()), Path(os.environ['OPENIT_ROOT_CERTIFICATE_FILE']), os.environ.get('OPENIT_EGRESS_PROXY'))\n"
+    "async def main():\n"
+    "    out = {}\n"
+    "    for item in await source.list_manifests():\n"
+    "        body = json.loads(item.content)\n"
+    "        out[item.digest] = {'sha256': hashlib.sha256(item.content).hexdigest(), 'config': body['config']['digest'], 'layers': [layer['digest'] for layer in body['layers']]}\n"
+    "    print(json.dumps(out, sort_keys=True))\n"
+    "asyncio.run(main())\n"
+    "source.close()\n"
+)
+# model-runtime 이 레지스트리에서 받아 상태 폴더에 둔 패키지 파일의 SHA-256 들(config.json, 어댑터 가중치·프롬프트), 어댑터를 푼 폴더가 있는가. 인자: 패키지 digest 의 16진수
+PACKAGE_FILES = (
+    "import hashlib, json, os, sys\n"
+    "from pathlib import Path\n"
+    "folder = Path('%s') / sys.argv[1]\n"
+    "found = sorted(hashlib.sha256(path.read_bytes()).hexdigest() for path in folder.iterdir() if path.is_file())\n"
+    "extracted = sorted(role for role in ('LORA_A', 'LORA_B') if (folder / 'adapters' / role / 'adapter_config.json').is_file())\n"
+    "print(json.dumps({'files': found, 'extracted': extracted}))\n"
+) % PACKAGES_DIR
 OFFSITE_NAME = f"{PROJECT}-offsite"
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
+LOAD_WAIT_SECONDS = 180  # 복구 뒤 model-runtime 이 패키지 넷(2 MiB 안팎씩)을 받아 적재를 시도하기까지의 상한. 측정하지 않았다(끝나면 곧바로 넘어간다)
+ENGINE_UNREACHABLE = "추론 엔진에 닿지 못했다"  # model-runtime link/engine.py 의 EngineError 메시지. 엔진이 없는 샌드박스에서 적재가 멈추는 곳이다
 RESULT_KEYS = {"job", "exit_code", "started_at", "finished_at", "processed_count", "snapshot_id"}
 
 
@@ -161,6 +235,7 @@ class Scenario:
         self.log = "two" if two else "one"
         self.notes: list[tuple[str, str]] = []
         self.offsite: Offsite | None = None
+        self.packages: list[str] = []
 
     # ---- 서버 이름·프로젝트
     def server_of(self, area: str) -> str | None:
@@ -200,11 +275,21 @@ class Scenario:
         self.seed_release_log()
 
     def seed_release_log(self) -> None:
-        """활성화·롤백 기록 6줄(승인자·시각·사유 포함)과 받은 패키지 흉내를 model-runtime 의 상태 폴더에 만든다(제품의 ReleaseLogFile 로 덧붙인다)."""
+        """모델 패키지 둘을 레지스트리에 게시하고(제품의 게시 코드), 활성화·롤백 기록 6줄(승인자·시각·사유 포함)을 그 digest 로 model-runtime 의 상태 폴더에 만든다(제품의 ReleaseLogFile 로 덧붙인다).
+
+        기록의 마지막 활성은 첫째 패키지다(둘째로 갔다가 롤백). 기반 모델 캐시 흉내 파일도 만든다.
+        """
         if self.python_in("model-runtime", "import os\nprint(os.path.exists('%s'))\n" % RELEASE_LOG) != "False":
             raise Failure("백업 전에 활성화 기록이 이미 있다(시험 전제가 다르다)")
-        self.python_in("model-runtime", RELEASE_SEED)
+        self.packages = [self.python_in("model-runtime", PUBLISH, seed).splitlines()[-1] for seed in ("one", "two")]
+        if len(set(self.packages)) != 2 or not all(re.fullmatch(r"sha256:[0-9a-f]{64}", digest) for digest in self.packages):
+            raise Failure(f"모델 패키지 게시가 digest 둘을 주지 않았다: {self.packages}")
+        self.python_in("model-runtime", RELEASE_SEED, *self.packages)
         self.python_in("model-runtime", "import os\nos.makedirs(os.path.dirname('%s'), exist_ok=True)\nopen('%s', 'w').write('cache')\n" % (CACHE_MARKER, CACHE_MARKER))
+
+    def registry_state(self) -> dict[str, dict[str, object]]:
+        """레지스트리의 모델 패키지(제품의 목록 읽기): digest -> 매니페스트 SHA-256·config·layer digest."""
+        return json.loads(self.python_in("model-runtime", REGISTRY_STATE))  # type: ignore[no-any-return]
 
     def release_state(self, limit: int | None = None) -> dict[str, object]:
         out = self.python_in("model-runtime", RELEASE_READ, *([str(limit)] if limit is not None else []))
@@ -242,14 +327,69 @@ class Scenario:
             raise Failure(f"{label}: 백업 대상이 아닌 받은 패키지(캐시)가 복구로 바뀌었다: {marker!r}")
         return f"{label}: 활성화·롤백 기록 {len(events)}건(승인자·시각·사유)과 파일 SHA-256·소유자·모드가 같고 받은 패키지는 그대로"
 
+    def save_diagnostics(self) -> None:
+        """실패하면 정리하기 전에 이 시험의 컨테이너 상태와 로그, 잡 결과 기록을 남긴다(진단 수단을 지우지 않는다). 서버 한 대(context 없음)와 두 대 모두."""
+        LS.LOGS.mkdir(parents=True, exist_ok=True)
+        for server in ([LS.SERVER_A, LS.SERVER_B] if self.two else [None]):
+            label = f"label=com.docker.compose.project={self.project_of(server)}"
+            ids = LS.docker(["ps", "-a", "--filter", label, "-q"], context=server, check=False).stdout.split()
+            for identifier in ids:
+                name = LS.docker(["inspect", "--format", "{{.Name}}", identifier], context=server, check=False).stdout.strip().lstrip("/")
+                logs = LS.docker(["logs", "--tail", "200", identifier], context=server, check=False)
+                (LS.LOGS / f"{self.log}-diag-{name}.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+        runs = self.root / "deploy" / "job-runs"
+        if runs.is_dir():
+            (LS.LOGS / f"{self.log}-diag-job-runs.json").write_text(json.dumps({p.name: p.read_text(encoding="utf-8") for p in sorted(runs.glob("*.json"))}, indent=2), encoding="utf-8")
+
+    def check_registry(self, expected: dict[str, dict[str, object]], label: str) -> str:
+        """레지스트리가 백업 전과 같은 모델 패키지를 갖는다(제품의 목록 읽기: 태그 목록 + 매니페스트 받기. digest, 매니페스트 바이트의 SHA-256, config·layer digest)."""
+        after = self.registry_state()
+        if after != expected:
+            raise Failure(f"{label}: 레지스트리의 모델 패키지가 백업 전과 다르다\n전 {expected}\n후 {after}")
+        return f"{label}: 레지스트리가 모델 패키지 {len(after)}개를 같은 digest(매니페스트 SHA-256·config·layer 포함)로 다시 갖는다"
+
+    def wait_restored_load(self, events_before: int, digest: str, expected: dict[str, dict[str, object]], label: str) -> str:
+        """복구한 기록의 마지막 활성 패키지를 model-runtime 이 시작하며 레지스트리에서 받아 적재를 시도한 결과를 본다(조건이 되면 끝나고 상한이 있다).
+
+        받은 파일(config, 어댑터 가중치·프롬프트)의 SHA-256 이 레지스트리 매니페스트의 digest 와 같고 어댑터를 푼 폴더가 있어야 한다. 그 뒤 엔진에 올리는 단계의 결과는
+        이 샌드박스에 엔진이 없어 LOAD_FAILED(엔진에 닿지 못함, 첫 어댑터에서 멈춘다)이고, 엔진이 있으면 LOADED(READY, 둘 다 받아 푼다)다. 레지스트리·패키지 쪽 실패(없음, digest 불일치, 계약 위반)는 실패다.
+        """
+        deadline = time.monotonic() + LOAD_WAIT_SECONDS
+        while True:
+            events = self.release_state()["events"]
+            if len(events) > events_before:  # type: ignore[arg-type]
+                break
+            if time.monotonic() > deadline:
+                raise Failure(f"{label}: {LOAD_WAIT_SECONDS}초 안에 model-runtime 이 복구한 기록의 패키지 적재를 끝내지 않았다(기록 {len(events)}건)")  # type: ignore[arg-type]
+            time.sleep(1)
+        extra = events[events_before:]  # type: ignore[index]
+        kind, event_digest, _at, _actor, reason, _summary = extra[0]
+        if len(extra) != 1 or event_digest != digest or (kind, reason) not in (("LOAD_FAILED", ENGINE_UNREACHABLE), ("LOADED", None)):
+            raise Failure(f"{label}: 복구 뒤 model-runtime 의 적재 결과가 기대와 다르다(기대: {digest} 의 LOAD_FAILED/{ENGINE_UNREACHABLE} 또는 LOADED): {extra}")
+        files = json.loads(self.python_in("model-runtime", PACKAGE_FILES, digest.removeprefix("sha256:")))
+        layers = expected[digest]["layers"]  # 매니페스트의 layer 순서: LORA_A 가중치·프롬프트, LORA_B 가중치·프롬프트(build_package)
+        # 적재는 어댑터를 하나씩 받아 풀고 곧바로 엔진에 올린다. 엔진이 없으면 첫 어댑터(LORA_A)에서 멈추므로 받은 것은 config 와 LORA_A 의 두 파일이다
+        received = [expected[digest]["config"], *layers] if kind == "LOADED" else [expected[digest]["config"], *layers[:2]]  # type: ignore[index, misc]
+        wanted = sorted(item.removeprefix("sha256:") for item in received)  # type: ignore[union-attr]
+        roles = ["LORA_A", "LORA_B"] if kind == "LOADED" else ["LORA_A"]
+        if files["files"] != wanted or files["extracted"] != roles:
+            raise Failure(f"{label}: model-runtime 이 레지스트리에서 받은 패키지 파일이 매니페스트와 다르거나 어댑터를 풀지 못했다: {files} (기대 {wanted}, 푼 어댑터 {roles})")
+        outcome = "READY(LOADED)" if kind == "LOADED" else f"{reason}로 LOAD_FAILED(엔진 없음)"
+        return (f"{label}: model-runtime 이 기록의 활성 패키지 {digest[:19]} 를 레지스트리에서 다시 받아 파일 {len(wanted)}개의 SHA-256 이 매니페스트와 같고 어댑터 {'·'.join(roles)} 를 풀고 엔진에 올리는 단계에서 {outcome}")
+
     def wipe(self) -> None:
         """두 DB 를 지운다(실제 사고처럼 DB 를 쓰는 서비스를 멈추지 않는다)."""
         survey, platform = self.server_of("survey-service"), self.server_of("platform")
         self.sql(survey, "survey-db", "survey", "template1", 'DROP DATABASE "survey" WITH (FORCE)')
         self.sql(platform, "postgres", "postgres", "template1", 'DROP DATABASE "keycloak" WITH (FORCE)')
-        self.python_in("model-runtime", "import os\nos.remove('%s')\n" % RELEASE_LOG)  # 활성화 기록 파일을 지운다(받은 패키지는 두어 복구가 건드리지 않는지 본다)
-        if self.python_in("model-runtime", "import os\nprint(os.path.exists('%s'))\n" % RELEASE_LOG) != "False":
-            raise Failure("지웠는데 활성화 기록 파일이 남았다")
+        # 서버를 잃은 것처럼 model-runtime 의 활성화 기록과 받은 패키지를 지운다(기반 모델 캐시 흉내는 두어 복구가 건드리지 않는지 본다)
+        self.python_in("model-runtime", "import os, shutil\nos.remove('%s')\nshutil.rmtree('%s', ignore_errors=True)\n" % (RELEASE_LOG, PACKAGES_DIR))
+        if self.python_in("model-runtime", "import os\nprint(os.path.exists('%s'), os.path.exists('%s'))\n" % (RELEASE_LOG, PACKAGES_DIR)) != "False False":
+            raise Failure("지웠는데 활성화 기록 파일이나 받은 패키지 폴더가 남았다")
+        # 레지스트리의 저장소 볼륨을 통째로 지운다(컨테이너를 지우고 볼륨을 지운다. 복구가 레지스트리를 다시 띄우며 빈 볼륨을 만든다)
+        for service in ("registry", "registry-store"):
+            LS.docker(["rm", "-f", self.container(platform, service)], context=platform)
+        LS.docker(["volume", "rm", f"{self.project_of(platform)}_registry-data"], context=platform)
         left = self.sql(survey, "survey-db", "survey", "template1", "select datname from pg_database where datname = 'survey'")
         left += self.sql(platform, "postgres", "postgres", "template1", "select datname from pg_database where datname = 'keycloak'")
         if left:
@@ -342,20 +482,27 @@ class Scenario:
             before = self.fingerprint()
             state["before"] = before
             state["release"] = self.release_state()
+            state["registry"] = self.registry_state()
+            if set(state["registry"]) != set(self.packages):  # type: ignore[arg-type]
+                raise Failure(f"게시한 모델 패키지 둘이 레지스트리 목록에 없다: {sorted(state['registry'])} (게시 {self.packages})")  # type: ignore[arg-type]
             result = self.deploy("backup", log="backup", check=False)
             expect_rc(result, 0, "backup")
             line = result_line(result.stdout)
-            if line["job"] != "BACKUP" or line["exit_code"] != 0 or not SNAPSHOT_ID.fullmatch(str(line.get("snapshot_id"))) or line.get("processed_count", 0) < 3:
+            # 처리 건수 = 데이터베이스(두 영역 DB 의 비템플릿 데이터베이스 전부: survey, keycloak, 각 서버의 postgres) + 상태 볼륨 1 + 모델 패키지 2
+            databases = re.search(r"데이터베이스 (\d+)개", result.stdout)
+            state["processed"] = line.get("processed_count")
+            if (line["job"] != "BACKUP" or line["exit_code"] != 0 or not SNAPSHOT_ID.fullmatch(str(line.get("snapshot_id"))) or databases is None
+                    or int(databases.group(1)) < 2 or line.get("processed_count") != int(databases.group(1)) + 1 + 2):
                 raise Failure(f"BACKUP 결과가 기대와 다르다: {line}")
             state["snapshot"] = line["snapshot_id"]
-            if "상태 볼륨 1개의 파일 1개" not in result.stdout:
-                raise Failure(f"backup 이 model-runtime 의 활성화 기록(파일 1개)을 받았다고 말하지 않았다: {result.stdout[-400:]}")
+            if "상태 볼륨 1개의 파일 1개" not in result.stdout or "모델 패키지 2개" not in result.stdout:
+                raise Failure(f"backup 이 model-runtime 의 활성화 기록(파일 1개)과 모델 패키지 2개를 받았다고 말하지 않았다: {result.stdout[-400:]}")
             # 평문 덤프와 자격이 든 저장소 주소 파일은 끝난 뒤 남지 않는다(0700 임시 폴더를 지운다)
             stages = [path.name for path in (self.root / "deploy" / "backups").iterdir()] if (self.root / "deploy" / "backups").is_dir() else []
             metas = [path.name for path in (self.root / "deploy" / ".build-meta").glob("backup-*")]
             if stages or metas:
                 raise Failure(f"backup 이 끝났는데 임시 폴더가 남았다: {stages} {metas}")
-            return f"표 {len(before)}개 지문, backup rc=0 스냅샷 {str(line['snapshot_id'])[:8]} 데이터베이스 {line['processed_count']}개"
+            return f"표 {len(before)}개 지문, 모델 패키지 2개 게시, backup rc=0 스냅샷 {str(line['snapshot_id'])[:8]} 처리 {line['processed_count']}건(데이터베이스 {databases.group(1)}, 상태 볼륨 1, 모델 패키지 2)"
 
         def negatives() -> str:
             moved = backup_dir / "offsite_credentials.moved"
@@ -397,8 +544,15 @@ class Scenario:
             if after != state["before"]:
                 diff = {k: (state["before"][k], after.get(k)) for k in state["before"] if state["before"][k] != after.get(k)}  # type: ignore[index]
                 raise Failure(f"복구한 데이터가 백업 전과 다르다: {diff}")
+            if line.get("processed_count") != state["processed"] or "모델 패키지 2개" not in result.stdout:
+                raise Failure(f"RESTORE 가 모델 패키지 2개를 복구했다고 말하지 않았다: {line} {result.stdout[-400:]}")
             released = self.check_release_log(state["release"], "복구한 뒤")  # type: ignore[arg-type]
-            return f"{' '.join(args)} rc=0, 지운 뒤 복구해 표 {len(after)}개의 건수·내용 지문이 같다, 복구 뒤 status rc=0. {released}"
+            registry = self.check_registry(state["registry"], "복구한 뒤")  # type: ignore[arg-type]
+            loaded = self.wait_restored_load(len(state["release"]["events"]), self.packages[0], state["registry"], "복구한 뒤")  # type: ignore[index, arg-type]
+            leftovers_meta = [path.name for path in (self.root / "deploy" / ".build-meta").glob("registry-*")]
+            if leftovers_meta:
+                raise Failure(f"restore 가 끝났는데 레지스트리 임시 폴더가 남았다: {leftovers_meta}")
+            return f"{' '.join(args)} rc=0, 지운 뒤 복구해 표 {len(after)}개의 건수·내용 지문이 같다, 복구 뒤 status rc=0. {released}. {registry}. {loaded}"
 
         def restore_tests() -> str:
             notes = []
@@ -406,9 +560,9 @@ class Scenario:
                 result = self.deploy("restore-test", *flag, log="restore-test" + ("-offsite" if flag else ""), check=False)
                 expect_rc(result, 0, f"restore-test {' '.join(flag)}")
                 line = result_line(result.stdout)
-                if line["job"] != "RESTORE_TEST" or line.get("processed_count", 0) < 3 or "상태 볼륨 1개의 파일" not in result.stdout:
+                if line["job"] != "RESTORE_TEST" or line.get("processed_count") != state["processed"] or "상태 볼륨 1개의 파일" not in result.stdout or "모델 패키지 2개의 파일" not in result.stdout:
                     raise Failure(f"RESTORE_TEST 결과가 기대와 다르다(상태 볼륨 확인 포함): {line} {result.stdout[-300:]}")
-                notes.append(f"restore-test {' '.join(flag)}".strip() + f" rc=0 데이터베이스 {line['processed_count']}개")
+                notes.append(f"restore-test {' '.join(flag)}".strip() + f" rc=0 처리 {line['processed_count']}건(모델 패키지 2개의 digest·크기 확인 포함)")
             leftover = LS.docker(["ps", "-a", "--filter", f"name={PROJECT}-restore-test", "-q"]).stdout.split()
             if leftover:
                 raise Failure(f"복구 시험의 일회용 컨테이너가 남았다: {leftover}")
@@ -447,15 +601,15 @@ class Scenario:
             step("데이터를 넣고 backup", seed_and_backup)
             step("실패 경로(서버 밖 자격 없음, --yes 없음)", negatives)
             step("offsite-sync", offsite)
-            step("지우고 restore, 데이터가 같은지", lambda: restore_and_compare(False))
+            step("지우고(DB·활성화 기록·받은 패키지·레지스트리 볼륨) restore, 데이터와 모델 패키지가 같은지", lambda: restore_and_compare(False))
             step("restore-test(로컬, 서버 밖)", restore_tests)
-            step("지우고 서버 밖에서 restore, 데이터가 같은지", lambda: restore_and_compare(True))
+            step("지우고 서버 밖에서 restore, 데이터와 모델 패키지가 같은지", lambda: restore_and_compare(True))
             step("배치를 바꾸고 up", change_placements)
             step("비밀 값이 로그에 없다", no_secret_in_logs)
             step("down --volumes", teardown)
         except Failure:
             try:
-                LS.save_diagnostics()
+                self.save_diagnostics()
             except Exception as error:  # noqa: BLE001  왜: 진단을 남기다 실패해도 원래 실패 사유를 가리지 않는다
                 print(f"진단을 남기지 못했다: {error}", file=sys.stderr)
             raise
@@ -501,7 +655,10 @@ def main() -> int:
     parser.add_argument("--one", action="store_true", help="서버 한 대만")
     parser.add_argument("--two", action="store_true", help="서버 두 대만")
     parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
+    parser.add_argument("--project", default=None, help=f"프로젝트 이름(컨테이너·볼륨·네트워크 이름의 앞부분). 기본 {PROJECT}. 같은 엔진에서 이 시험이 겹쳐 돌 때 바꾼다")
     args = parser.parse_args()
+    if args.project:
+        set_project(args.project)
     modes = [m for m, wanted in (("one", args.one), ("two", args.two)) if wanted] or ["one", "two"]
     if LS.LOGS.exists():
         shutil.rmtree(LS.LOGS)
