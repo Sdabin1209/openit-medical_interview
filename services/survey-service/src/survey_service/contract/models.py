@@ -291,6 +291,7 @@ class FhirAbsentReason(StrEnum):
     asked_unknown = 'asked-unknown'
     asked_declined = 'asked-declined'
     not_asked = 'not-asked'
+    error = 'error'
 
 
 class FhirCanonicalBaseUrl(RootModel[str]):
@@ -1694,7 +1695,7 @@ class TokenId(RootModel[str]):
 
 class TurnFailureReason(StrEnum):
     """
-    턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)
+    턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 세션 상태는 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다
     """
 
     EXTRACTION_UNAVAILABLE = 'EXTRACTION_UNAVAILABLE'
@@ -3379,7 +3380,7 @@ class FhirMapping(BaseModel):
     )
     absent_map: Annotated[list[FhirAbsentMapEntry], Field(max_length=6)]
     """
-    빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)
+    빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, FAILURE_LIMIT 는 error, REJECTED 는 asked-declined, UNASKED 는 not-asked)
     """
     status_map: Annotated[list[FhirStatusMapEntry], Field(max_length=5)]
     """

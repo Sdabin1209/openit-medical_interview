@@ -421,9 +421,9 @@ components:
         EXTRACTION_UNAVAILABLE: "LoRA-A 추출 출력을 받지 못했다(출력 불가 포함)"
         RESPONSE_UNAVAILABLE: "LoRA-B 응답 문장을 받지 못했다"
         DEADLINE_EXCEEDED: "시간 상한을 넘겼다"
-      description: "턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)"
+      description: "턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 세션 상태는 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다"
       x-owner: survey-service
-      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D75(1)(실패한 턴은 세션 상태를 바꾸지 않는다), D125(시간 상한). 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다"
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D75(1)(실패한 턴은 세션 상태를 바꾸지 않는다. 9.3.0 부터 연속 실패 수는 예외, TurnFailureLimit), D125(시간 상한). 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다"
     StaffHelpNotice: { type: boolean, description: "이 응답이 서비스의 고정 문장으로 직원 도움을 안내하는지(참이면 안내). 안전과 닿는 안내 문장은 모델이 아니라 서비스가 쓴다. 모델 입출력 v3 부터 쓰인다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(질문의 뜻·대상을 묻는 되물음은 한도에 세지 않고 설명 요청만 3번 이어지면 직원 도움을 안내한다, 모델 입출력 v3 에 의존). 안내 문장을 서비스가 고정 문장으로 쓰는 것은 모델의 출력이 아니라 서비스가 맡는 안전 안내라는 이 계약의 정의이고 정본 입력에 그 책임 문장은 없다" }
     SessionStartRequest:
       type: object
@@ -1406,8 +1406,8 @@ components:
       x-basis: "HL7 FHIR R4 (4.0.1) QuestionnaireResponse.status 값 집합"
     FhirAbsentReason:
       type: string
-      enum: [unknown, asked-unknown, asked-declined, not-asked]
-      x-enum-descriptions: { unknown: "알 수 없다", asked-unknown: "물었으나 모른다고 했다", asked-declined: "물었으나 답하기를 거절했다", not-asked: "묻지 않았다" }
+      enum: [unknown, asked-unknown, asked-declined, not-asked, error]
+      x-enum-descriptions: { unknown: "알 수 없다", asked-unknown: "물었으나 모른다고 했다", asked-declined: "물었으나 답하기를 거절했다", not-asked: "묻지 않았다", error: "시스템이나 처리 과정의 오류로 정보가 없다(연속 실패 한도로 건너뛴 칸)" }
       description: "FHIR 의 data-absent-reason 코드 중 빈칸 표현에 쓰는 것"
       x-owner: survey-service
       x-basis: "HL7 FHIR R4 data-absent-reason 코드 집합(http://terminology.hl7.org/CodeSystem/data-absent-reason)"
@@ -1440,7 +1440,7 @@ components:
       required: [status_map, absent_map]
       properties:
         status_map: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/FhirStatusMapEntry" }, description: "세션 상태에서 FHIR status 로 가는 대응(ACTIVE 와 PAUSED 는 in-progress, ENDED_COMPLETE 는 completed, ENDED_PARTIAL 과 EXPIRED 는 stopped)", x-basis: "SessionStatus 값의 수 5" }
-        absent_map: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/FhirAbsentMapEntry" }, description: "빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)", x-basis: "BlankReason 값의 수 6" }
+        absent_map: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/FhirAbsentMapEntry" }, description: "빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, FAILURE_LIMIT 는 error, REJECTED 는 asked-declined, UNASKED 는 not-asked)", x-basis: "BlankReason 값의 수 6" }
     RiskCategory:
       type: string
       enum: [SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS]
@@ -2022,7 +2022,7 @@ components:
     VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, examples: [ 300 ], description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
     ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(되묻기 한도는 처음 질문 1회에 되묻기 2회), D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
-    TurnFailureLimit: { type: integer, const: 3, minimum: 3, maximum: 3, examples: [ 3 ], description: "환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. 세션마다 연속 실패 수를 세고, 턴이 기록되면(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴) 0 으로 되돌린다. 이 수에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다: 저장된 답은 그 턴의 값 없이 그대로이고, 지금 문항의 칸은 빈칸 원인 FAILURE_LIMIT 로 남기고, 다음 문항은 저장된 답으로 정한 다음 자리이며, 환자에게는 되묻기 한도와 같은 서비스의 고정 안내 문장과 다음 질문을 보인다(LoRA-B 를 부르지 않는다). 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 설치마다 바꾸지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-11(연속 실패는 따로 세고 성공하면 초기화, 한도 3, 닿으면 그 문항을 건너뛴다. 3 은 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다), D86(실패 턴은 답과 문항을 바꾸지 않는다)을 좁힘" }
+    TurnFailureLimit: { type: integer, const: 3, minimum: 3, maximum: 3, examples: [ 3 ], description: "환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. (1) 세는 단위: 세션마다 연속 실패 수를 두고, 실패한 서로 다른 turn_id 마다 1 을 더한다. 같은 turn_id 의 재전송은 다시 세지 않는다. (2) 0 으로 되돌리는 때: 턴이 기록될 때(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴)와 직원이 멈춘 세션을 다시 이을 때(RESUME). 같은 세션의 재시작 재생(startSession 200)은 바꾸지 않는다. (3) 원자성: 수를 더하고 한도를 판정하는 일은 한 번에 일어나, 한 번의 더함이 한도에 닿은 턴 하나만 건너뛴다(같은 세션에서 여러 턴이 겹쳐도 문항을 두 번 건너뛰지 않는다). (4) 한도에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다. 되묻기 한도로 건너뛸 때와 같다: 그 턴의 값은 LoRA-A 가 냈더라도 저장하지 않고(실패 턴의 값은 저장하지 않는다는 D86 을 따른다), 묻던 문항에서 저장되지 않은 칸에 빈칸 원인 FAILURE_LIMIT 를 남기고, 다음 자리는 묻던 문항을 기준으로 이번 턴 저장 값 없이 정하고(next_after), 그 자리가 END 면 세션은 ENDED_COMPLETE 로 끝난다. 환자에게는 서비스의 고정 안내 문장과 다음 질문(끝이면 마침 문장)을 보이고 LoRA-B 를 부르지 않는다. 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 한 턴에서 되묻기 한도와 이 한도가 함께 걸리지는 않는다(실패한 턴에는 추출 행동이 없다). 설치마다 바꾸지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-11(연속 실패는 따로 세고 성공하면 초기화, 한도 3, 닿으면 그 문항을 건너뛴다. 3 은 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다), D86(실패 턴은 답과 문항을 바꾸지 않는다)을 좁힘, 독립 검토 2026-11-11(세는 단위·초기화·원자성·다음 자리)" }
     ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, examples: [ 180 ], description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: survey-service, x-basis: "L12(사용자 결정: 180일 유지), C03" }

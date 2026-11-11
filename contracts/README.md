@@ -142,7 +142,7 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 ## 계약의 판과 변경 기록
 
-계약의 판은 Semantic Versioning 2.0.0(MAJOR.MINOR.PATCH)을 따른다. 요청·응답의 모양이 바뀌어 기존 호출자가 깨지면 MAJOR, 하위 호환이 되는 칸·작업·값의 추가는 MINOR, 뜻과 모양이 같은 설명·근거·시험의 고침은 PATCH 를 올린다(SemVer 2.0.0 항목 6~8). 판은 `components.yaml` 과 `openapi/*.yaml` 의 `info.version` 6곳이 같은 값을 갖고, 이미지 라벨 `io.openit.contracts` 의 형식(`ContractsVersionLabel`)이 그 MAJOR 를 가리킨다. 판마다 git 태그 `contracts-vMAJOR.MINOR.PATCH` 를 단다. `package.json` 의 `version` 은 린트·시험 도구 묶음의 값이라 계약의 판과 다르고 올리지 않는다.
+계약의 판은 Semantic Versioning 2.0.0(MAJOR.MINOR.PATCH)을 따른다. 응답에 실리는 열거(`enum`)는 MINOR 에서 값이 늘 수 있고, 응답을 받는 쪽(영역과 설치처의 외부 호출자)은 모르는 값을 오류로 다루지 않고 견딘다(9.3.0 에 적음. 9.2.0 의 `ProblemReason` 추가도 이 규칙에 든다). 요청에 실리는 열거는 늘리면 받는 쪽이 아닌 보내는 쪽이 영향받지 않으므로 MINOR, 줄이면 MAJOR 다. 요청·응답의 모양이 바뀌어 기존 호출자가 깨지면 MAJOR, 하위 호환이 되는 칸·작업·값의 추가는 MINOR, 뜻과 모양이 같은 설명·근거·시험의 고침은 PATCH 를 올린다(SemVer 2.0.0 항목 6~8). 판은 `components.yaml` 과 `openapi/*.yaml` 의 `info.version` 6곳이 같은 값을 갖고, 이미지 라벨 `io.openit.contracts` 의 형식(`ContractsVersionLabel`)이 그 MAJOR 를 가리킨다. 판마다 git 태그 `contracts-vMAJOR.MINOR.PATCH` 를 단다. `package.json` 의 `version` 은 린트·시험 도구 묶음의 값이라 계약의 판과 다르고 올리지 않는다.
 
 ### 8.0.0 (2026-11-10, 깨지는 변경)
 
@@ -217,7 +217,8 @@ LoRA-B 응답 문장을 토큰 단위로 바로 내보내는 별도 작업을 �
 환자 턴이 계속 실패하면 "한 번 더 말씀해 주세요"가 끝없이 반복되던 빈 곳을 막는다(사용자 결정 2026-11-11). 실패한 턴은 기록하지 않아(D86) 되묻기 한도에 세지 않고, 연속 실패를 세는 곳이 없었다. 같은 입력에 모델이 같은 출력을 내므로 같은 실패가 되풀이될 수 있다.
 
 - `TurnFailureLimit`(3, const)을 더했다. 세션마다 연속 실패 수를 세고 턴이 기록되면 0 으로 되돌린다. 이 수에 닿는 실패 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다: 그 턴의 값은 저장하지 않고, 지금 문항의 칸은 빈칸 원인 `FAILURE_LIMIT` 로 남기고, 화면은 되묻기 한도와 같은 서비스의 고정 안내 문장과 다음 질문이다(LoRA-B 를 부르지 않는다). 그 턴은 기록된다.
-- `BlankReason` 에 `FAILURE_LIMIT` 를 더하고 FHIR 대응(`FhirMapping.absent_map`, 상한 5 에서 6)에서 `asked-unknown` 으로 옮긴다. 응답 열거에 값을 더하는 것이라 오가는 모양은 하위 호환이지만, 빈칸 원인마다 이름을 붙이는 클라이언트는 이름을 더해야 한다(admin-console 의 결과 화면이 그렇다. 생성 타입으로 tsc 가 알린다).
+- `BlankReason` 에 `FAILURE_LIMIT` 를, `FhirAbsentReason` 에 HL7 data-absent-reason 의 `error`(시스템이나 처리 과정의 오류로 정보가 없다)를 더하고 FHIR 대응(`FhirMapping.absent_map`, 상한 5 에서 6)에서 `FAILURE_LIMIT` 를 `error` 로 옮긴다. 시스템이 실패한 칸을 '환자가 모른다'(`asked-unknown`)로 진료 기록에 남기지 않기 위해서다. 응답 열거에 값을 더하는 것이라 위 판 규칙(받는 쪽은 모르는 열거 값을 견딘다)에 따라 MINOR 다. 이 규칙은 이 판에서 처음 적었다. 영향받는 받는 쪽: admin-console(빈칸 원인마다 이름을 붙여 이름을 더했다), 결과와 FHIR 를 당겨 가는 설치처의 외부 호출자(`getResult`, `getResultFhir` 를 `result-reader` 로 읽는다. 새 빈칸 원인과 FHIR 코드 `error` 를 받을 수 있다).
+- 독립 검토(2026-11-11)를 반영해 `TurnFailureLimit` 에 세는 단위(서로 다른 turn_id, 재전송은 세지 않음), 초기화(기록된 턴, 직원의 RESUME), 원자성(한 번의 더함이 닿은 턴 하나만 건너뜀), 건너뛸 때의 규칙(되묻기 한도와 같음: 그 턴 값은 저장하지 않고, 저장되지 않은 칸에만 빈칸, 다음 자리는 묻던 문항 기준, END 면 ENDED_COMPLETE)을 적었다.
 - 설명을 고친 것: `TurnFailureReason`, `submitTurn`·`submitTurnStream`(D86 을 '저장된 답과 지금 문항을 바꾸지 않는다'로 좁히고 연속 실패 수만 바뀐다고 적음), 위 '응답 문장 스트림' 6항.
 - 값 3 의 근거: 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다(`user-decisions-needed.md` UD-26). 설치마다 바꾸는 값이 아니라 환경 입력을 두지 않는다.
 - 영향: survey-service(세션의 연속 실패 수, 건너뛰기, 결과의 빈칸 원인과 FHIR 대응, DB 마이그레이션), deploy 의 E2E(pipeline 모드는 빈 어댑터라 턴이 모두 실패하므로 3번째 실패에서 건너뛰기가 일어난다), admin-console(결과 화면의 빈칸 원인 이름 '처리 실패 반복으로 건너뜀', 헤드가 같은 변경에 넣었다), 계약 타입 생성물. 판 표시는 6곳이 9.3.0 이다.

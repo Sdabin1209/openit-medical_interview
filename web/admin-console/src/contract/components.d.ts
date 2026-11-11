@@ -527,7 +527,7 @@ export interface components {
          */
         PauseReason: "RISK_SIGNAL" | "STAFF_CALL";
         /**
-         * @description 턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)
+         * @description 턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 세션 상태는 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다
          * @enum {string}
          */
         TurnFailureReason: "EXTRACTION_UNAVAILABLE" | "RESPONSE_UNAVAILABLE" | "DEADLINE_EXCEEDED";
@@ -1427,7 +1427,7 @@ export interface components {
          * @description FHIR 의 data-absent-reason 코드 중 빈칸 표현에 쓰는 것
          * @enum {string}
          */
-        FhirAbsentReason: "unknown" | "asked-unknown" | "asked-declined" | "not-asked";
+        FhirAbsentReason: "unknown" | "asked-unknown" | "asked-declined" | "not-asked" | "error";
         /** @description 세션 상태 하나가 FHIR status 의 무엇이 되는지 */
         FhirStatusMapEntry: {
             /** @description 세션 상태 */
@@ -1446,7 +1446,7 @@ export interface components {
         FhirMapping: {
             /** @description 세션 상태에서 FHIR status 로 가는 대응(ACTIVE 와 PAUSED 는 in-progress, ENDED_COMPLETE 는 completed, ENDED_PARTIAL 과 EXPIRED 는 stopped) */
             status_map: components["schemas"]["FhirStatusMapEntry"][];
-            /** @description 빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked) */
+            /** @description 빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, FAILURE_LIMIT 는 error, REJECTED 는 asked-declined, UNASKED 는 not-asked) */
             absent_map: components["schemas"]["FhirAbsentMapEntry"][];
         };
         /**
@@ -2097,7 +2097,7 @@ export interface components {
          */
         ReaskLimit: number;
         /**
-         * @description 환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. 세션마다 연속 실패 수를 세고, 턴이 기록되면(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴) 0 으로 되돌린다. 이 수에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다: 저장된 답은 그 턴의 값 없이 그대로이고, 지금 문항의 칸은 빈칸 원인 FAILURE_LIMIT 로 남기고, 다음 문항은 저장된 답으로 정한 다음 자리이며, 환자에게는 되묻기 한도와 같은 서비스의 고정 안내 문장과 다음 질문을 보인다(LoRA-B 를 부르지 않는다). 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 설치마다 바꾸지 않는다
+         * @description 환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. (1) 세는 단위: 세션마다 연속 실패 수를 두고, 실패한 서로 다른 turn_id 마다 1 을 더한다. 같은 turn_id 의 재전송은 다시 세지 않는다. (2) 0 으로 되돌리는 때: 턴이 기록될 때(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴)와 직원이 멈춘 세션을 다시 이을 때(RESUME). 같은 세션의 재시작 재생(startSession 200)은 바꾸지 않는다. (3) 원자성: 수를 더하고 한도를 판정하는 일은 한 번에 일어나, 한 번의 더함이 한도에 닿은 턴 하나만 건너뛴다(같은 세션에서 여러 턴이 겹쳐도 문항을 두 번 건너뛰지 않는다). (4) 한도에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다. 되묻기 한도로 건너뛸 때와 같다: 그 턴의 값은 LoRA-A 가 냈더라도 저장하지 않고(실패 턴의 값은 저장하지 않는다는 D86 을 따른다), 묻던 문항에서 저장되지 않은 칸에 빈칸 원인 FAILURE_LIMIT 를 남기고, 다음 자리는 묻던 문항을 기준으로 이번 턴 저장 값 없이 정하고(next_after), 그 자리가 END 면 세션은 ENDED_COMPLETE 로 끝난다. 환자에게는 서비스의 고정 안내 문장과 다음 질문(끝이면 마침 문장)을 보이고 LoRA-B 를 부르지 않는다. 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 한 턴에서 되묻기 한도와 이 한도가 함께 걸리지는 않는다(실패한 턴에는 추출 행동이 없다). 설치마다 바꾸지 않는다
          * @example 3
          * @constant
          */

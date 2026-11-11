@@ -98,7 +98,7 @@ export interface paths {
         put?: never;
         /**
          * 환자 발화 한 턴 보내기
-         * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다. failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 저장된 답과 지금 문항을 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 다만 실패는 세션의 연속 실패 수로 세고, 그 수가 TurnFailureLimit 에 닿는 턴은 failure_signal 대신 그 문항을 건너뛴 결과(빈칸 원인 FAILURE_LIMIT, 고정 안내 문장과 다음 질문)를 주고 기록한다. 턴이 기록되면 연속 실패 수는 0 이 된다(사용자 결정 2026-11-11). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
+         * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 저장된 답과 지금 문항은 바뀌지 않는다(바뀌는 것은 연속 실패 수 하나다). failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 저장된 답과 지금 문항을 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 다만 실패는 세션의 연속 실패 수로 세고, 그 수가 TurnFailureLimit 에 닿는 턴은 failure_signal 대신 그 문항을 건너뛴 결과(빈칸 원인 FAILURE_LIMIT, 고정 안내 문장과 다음 질문)를 주고 기록한다. 턴이 기록되면 연속 실패 수는 0 이 된다(사용자 결정 2026-11-11). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
          */
         post: operations["submitTurn"];
         delete?: never;
@@ -867,7 +867,7 @@ export interface components {
          */
         PauseReason: "RISK_SIGNAL" | "STAFF_CALL";
         /**
-         * @description 턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)
+         * @description 턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 세션 상태는 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다
          * @enum {string}
          */
         TurnFailureReason: "EXTRACTION_UNAVAILABLE" | "RESPONSE_UNAVAILABLE" | "DEADLINE_EXCEEDED";

@@ -133,7 +133,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 |---|---|---|
 | SessionStatus | ACTIVE(진행 중), PAUSED(위험 신호나 직원 호출로 멈춤), ENDED_COMPLETE(모든 문항을 마침), ENDED_PARTIAL(환자가 중간에 끝냄), EXPIRED(유휴 60초, UD-17. 판정 주체는 서버: 마지막 활동 startSession·submitTurn·requestStaffCall 뒤 60초, 계약 9.0.0) | 세션이 가질 수 있는 상태를 session 컴포넌트의 진행 규칙에서 나열했다. 결과는 끝난 두 상태와 만료에서 만든다 |
 | PauseReason | RISK_SIGNAL, STAFF_CALL | 세션을 멈추는 사건은 위험 신호(N14)와 직원 호출(N01) 둘뿐이다 |
-| TurnFailureReason | EXTRACTION_UNAVAILABLE(추출 출력 불가), RESPONSE_UNAVAILABLE(응답 문장 불가), DEADLINE_EXCEEDED(시간 상한 초과) | 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다. 실패한 턴은 세션 상태를 바꾸지 않는다(D75) |
+| TurnFailureReason | EXTRACTION_UNAVAILABLE(추출 출력 불가), RESPONSE_UNAVAILABLE(응답 문장 불가), DEADLINE_EXCEEDED(시간 상한 초과) | 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다. 실패한 턴은 저장된 답과 지금 문항을 바꾸지 않는다(D75). 연속 실패 수만 바뀌고 TurnFailureLimit(3)에 닿으면 그 문항을 건너뛴다(계약 9.3.0) |
 | AlertKind | RISK, CALL_STAFF, RESULT_READY | alert 컴포넌트가 내는 알림 세 가지(2절) |
 | InterventionAction | ACKNOWLEDGE(알림 확인), RESUME(멈춘 세션 재개) | 직원 개입은 확인과 재개 둘이다(위험 정지 해제는 RESUME) |
 | ReviewStatus | UNREVIEWED, CONFIRMED(실패로 확정, 내보내기 대상), DISMISSED(실패 아님) | failure_case 의 검토 상태. CONFIRMED 만 model-lab 이 받아 간다(N09) |
