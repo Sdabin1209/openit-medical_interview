@@ -236,3 +236,50 @@ def test_the_same_path_opened_by_two_services_stops_start(repo: Path) -> None:
 def test_services_with_disjoint_v1_prefixes_do_not_clash(repo: Path) -> None:
     plan = _plan(repo, ONE_ORIGIN)
     assert {spec.service for spec in plan.routes} == {"admin-console", "survey-service", "model-runtime"}
+
+
+def _route_by_regex(config: dict[str, Any], regex: str) -> dict[str, Any]:
+    return next(r for r in _routes(config) if r.get("match", {}).get("safe_regex", {}).get("regex") == regex)
+
+
+def test_finite_response_stream_gets_the_patient_route_limit_and_no_idle_timeout(repo: Path) -> None:
+    """계약 9.2.0: 끝이 있는 스트림(ResponseEventStream)은 JSON 작업과 같은 55초를 응답 끝까지에 건다."""
+    config = _config(repo, {"survey-service": exposure([route("/v1/sessions", "DEVICE_MTLS", ("POST",))])})
+    for regex in ("/v1/sessions/stream", "/v1/sessions/[^/]+/turns/stream"):
+        action = _route_by_regex(config, regex)["route"]
+        assert action["timeout"] == f"{gateway.ROUTE_SECONDS}s" == "55s", regex
+        assert "idle_timeout" not in action, regex  # 조각 사이 상한은 두지 않는다(계약 8항)
+    # JSON 짝 작업과 같은 시간이다
+    assert _route_by_regex(config, "/v1/sessions")["route"]["timeout"] == "55s"
+
+
+def test_infinite_alert_stream_keeps_no_overall_timeout_and_idle_timeout(repo: Path) -> None:
+    config = _config(repo, {"survey-service": exposure([route("/v1/staff-alerts", "HUMAN_OIDC")])})
+    action = _route_by_regex(config, "/v1/staff\\-alerts/stream")["route"]
+    assert action["timeout"] == "0s" and action["idle_timeout"] == f"{gateway.STREAM_IDLE_SECONDS}s"
+
+
+def test_stream_kind_comes_from_the_schema_not_the_path(repo: Path) -> None:
+    kinds = {(op.service, op.path): op.stream for service in ("survey-service", "model-runtime") for op in gateway.load_operations(repo / "contracts", service)}
+    assert kinds[("survey-service", "/v1/staff-alerts/stream")] == "infinite"
+    for key in (("survey-service", "/v1/sessions/stream"), ("survey-service", "/v1/sessions/{session_id}/turns/stream"), ("model-runtime", "/v1/responses/stream")):
+        assert kinds[key] == "finite", key
+    assert kinds[("survey-service", "/v1/sessions")] is None
+
+
+def test_unknown_event_stream_schema_is_refused(tmp_path: Path) -> None:
+    document = {"paths": {"/v1/x": {"get": {"responses": {"200": {"content": {"text/event-stream": {"schema": {"$ref": "#/components/schemas/Other"}}}}}}}}}
+    (tmp_path / "openapi").mkdir()
+    (tmp_path / "openapi" / "survey-service.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(gateway.ConfigError, match="Other"):
+        gateway.load_operations(tmp_path, "survey-service")
+
+
+def test_envoy_has_no_filter_that_buffers_or_compresses_responses(repo: Path) -> None:
+    """계약 9항: 입구는 스트림을 모으거나 압축하지 않는다. 버퍼링·압축 필터를 두지 않고 Lua 는 요청만 본다."""
+    config = _config(repo, {"survey-service": exposure([route("/v1/sessions", "DEVICE_MTLS", ("POST",))])})
+    hcm = config["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][0]["typed_config"]
+    names = {f["name"] for f in hcm["http_filters"]}
+    assert not {n for n in names if any(word in n for word in ("buffer", "compressor", "decompressor", "cache"))}
+    lua = next(f for f in hcm["http_filters"] if f["name"] == "envoy.filters.http.lua")["typed_config"]["default_source_code"]["inline_string"]
+    assert "envoy_on_response" not in lua and ":body(" not in lua and "bodyChunks" not in lua

@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 import yaml
 
@@ -59,13 +59,34 @@ KEYCLOAK_PORT = 8080
 NS = "type.googleapis.com/envoy.extensions."
 
 
+# 왜 스키마 이름으로 가른다: 계약은 text/event-stream 본문의 종류를 스키마로 정한다. 끝이 있는 응답 문장 스트림은 ResponseEventStream, 끝이 없는 알림 스트림은 ServerSentEventStream
+# (계약 README "응답 문장 스트림" 8항). 경로 이름으로 가르면 계약이 작업을 더할 때 틀린다
+StreamKind = Literal["finite", "infinite"]
+STREAM_SCHEMAS: dict[str, StreamKind] = {"ResponseEventStream": "finite", "ServerSentEventStream": "infinite"}
+
+
+def _stream_kind(service: str, route: str, method: str, spec: dict[str, Any]) -> StreamKind | None:
+    kinds: set[StreamKind] = set()
+    for response in (spec.get("responses") or {}).values():
+        media = (response.get("content") or {}).get("text/event-stream")
+        if media is None:
+            continue
+        name = ((media.get("schema") or {}).get("$ref") or "").rsplit("/", 1)[-1]
+        if name not in STREAM_SCHEMAS:
+            raise ConfigError(f"{service} {method.upper()} {route}: text/event-stream 의 스키마 {name or '(없음)'} 를 종류(끝이 있음/없음)로 가를 수 없다({', '.join(STREAM_SCHEMAS)})")
+        kinds.add(STREAM_SCHEMAS[name])
+    if len(kinds) > 1:
+        raise ConfigError(f"{service} {method.upper()} {route}: 한 작업에 스트림 종류가 둘이다")
+    return next(iter(kinds), None)
+
+
 @dataclass(frozen=True)
 class Operation:
     service: str
     path: str  # OpenAPI 경로(템플릿 포함)
     method: str  # 대문자
     security: tuple[dict[str, tuple[str, ...]], ...]
-    streaming: bool
+    stream: StreamKind | None
 
 
 @dataclass
@@ -86,7 +107,7 @@ class RouteSpec:
     regex: str | None  # 작업 경로(템플릿을 정규식으로)
     prefix: str | None  # 작업이 없는 접두어 경로(정적 화면)
     roles: dict[ExposureAudience, tuple[str, ...]]
-    streaming: bool = False
+    stream: StreamKind | None = None
 
 
 @dataclass(frozen=True)
@@ -138,8 +159,7 @@ def load_operations(contracts: Path, service: str) -> list[Operation]:
             if spec is None:
                 continue
             security = tuple({name: tuple(roles) for name, roles in alternative.items()} for alternative in spec.get("security", []))
-            streaming = any("text/event-stream" in (response.get("content") or {}) for response in (spec.get("responses") or {}).values())
-            operations.append(Operation(service, route, method.upper(), security, streaming))
+            operations.append(Operation(service, route, method.upper(), security, _stream_kind(service, route, method, spec)))
     return operations
 
 
@@ -213,7 +233,7 @@ def plan(settings: PlatformSettings, exposures: dict[str, Exposure], contracts: 
                 key = (service, op.method, op.path)
                 spec = by_operation.get(key)
                 if spec is None:
-                    spec = RouteSpec(service, set(), op.method, (op.method,), _template_regex(op.path), None, {}, op.streaming)
+                    spec = RouteSpec(service, set(), op.method, (op.method,), _template_regex(op.path), None, {}, op.stream)
                     by_operation[key] = spec
                     gateway.routes.append(spec)
                 spec.audiences.add(audience)
@@ -445,12 +465,15 @@ def _route_entry(spec: RouteSpec, method: str | None) -> dict[str, Any]:
         per_filter["envoy.filters.http.rbac"] = _typed("filters/http/rbac/v3.RBACPerRoute", {"rbac": {"rules": {"action": "ALLOW", "policies": policies}}})
     action: dict[str, Any] = {
         "cluster": f"service_{_slug(spec.service)}",
-        "timeout": "0s" if spec.streaming else f"{ROUTE_SECONDS}s",
+        # 왜 끝이 없는 스트림만 0s: Envoy 의 route timeout 은 요청이 다 처리된 때부터 업스트림 응답이 완전히 처리될 때까지다(route_components.proto RouteAction.timeout).
+        # 끝이 있는 응답 문장 스트림은 머리글이 곧바로 오므로 이 시간이 곧 응답 끝까지의 상한이고 계약이 GatewayPatientRouteLimitSeconds 를 거기에 건다(계약 README 응답 문장 스트림 8항, ADR 0009)
+        "timeout": "0s" if spec.stream == "infinite" else f"{ROUTE_SECONDS}s",
         # 왜 Host 를 서비스 이름으로: 서비스 주소는 https://<영역 이름>(D129, 계약 servers)이고 서비스의 TLS 서버 이름도 그 이름이다. 원래 Host 는 X-Forwarded-Host 로 남긴다
         "host_rewrite_literal": spec.service,
         "append_x_forwarded_host": True,
     }
-    if spec.streaming:
+    if spec.stream == "infinite":
+        # 왜 끝이 없는 스트림만: 끝이 있는 스트림은 전체 상한이 조각 사이를 묶는다(계약 8항: 조각 사이 상한은 따로 두지 않는다)
         action["idle_timeout"] = f"{STREAM_IDLE_SECONDS}s"
     return {"match": match, "route": action, "typed_per_filter_config": per_filter}
 

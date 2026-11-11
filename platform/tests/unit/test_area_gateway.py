@@ -40,3 +40,12 @@ def test_certificate_paths_follow_the_ingress_agent_layout() -> None:
     assert cert == f"/area-certs/certificates/{ingress.acme_issuer_key(url)}/survey-service/survey-service.crt" and key.endswith("/survey-service.key")
     command = area_gateway.healthcheck_command("survey-service", url)
     assert command == f"test -s {cert} && test -s {key}"
+
+
+def test_area_gateway_flushes_event_streams_and_never_compresses_them() -> None:
+    """계약 README 응답 문장 스트림 9항, ADR 0009: encode 지시어가 없고 reverse_proxy 가 바로 flush 한다."""
+    text = _text()
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert not re.search(r"^\s*encode\b", code, re.MULTILINE)
+    main = code.split("reverse_proxy {$OPENIT_AREA_UPSTREAM} {", 1)[1].split("}", 1)[0]
+    assert re.search(r"^\s*flush_interval -1$", main, re.MULTILINE)

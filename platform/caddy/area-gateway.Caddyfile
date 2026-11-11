@@ -38,7 +38,9 @@
 	@not_ingress not expression {http.request.tls.client.san.dns_names.0} == "gateway"
 	request_header @not_ingress -X-Forwarded-Client-Cert
 	reverse_proxy {$OPENIT_AREA_UPSTREAM} {
-		# 왜 -1: 알림 스트림(streamStaffAlerts)은 끝이 없는 응답이다. 버퍼 없이 바로 흘려 보낸다. 응답 시간 제한은 Caddy 의 기본이 없다
+		# 왜 -1: 알림 스트림(streamStaffAlerts)과 응답 문장 스트림(startSessionStream, submitTurnStream, generateResponseStream)은 text/event-stream 이다. 버퍼 없이 바로 흘려 보낸다.
+		# Caddy 문서는 Content-Type: text/event-stream 이면 이 값과 무관하게 바로 flush 한다고 하지만 그 판정에 기대지 않고 명시한다. 응답 시간 제한은 Caddy 의 기본이 없다(ADR 0009).
+		# 왜 encode 를 쓰지 않는다: 압축은 조각을 모으고(계약 README 응답 문장 스트림 9항), 영역 안 평문 HTTP 와 영역 사이 TLS 에서 압축으로 얻을 것이 없다
 		flush_interval -1
 	}
 }
