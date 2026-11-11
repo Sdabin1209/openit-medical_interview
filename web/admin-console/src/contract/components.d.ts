@@ -44,7 +44,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "SESSION_START_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -2770,8 +2770,8 @@ export interface components {
     };
     requestBodies: never;
     headers: {
-        /** @description 응답 문장 스트림은 저장하지 않는다. 중간 장치가 모으거나 저장하지 않고 바로 넘기게 한다(RFC 9111 5.2.2.4, WHATWG HTML 9.2) */
-        StreamCacheControl: "no-cache";
+        /** @description 응답 문장 스트림은 캐시에 저장하지 않고(no-store) 중간 장치가 본문을 바꾸거나 압축하지 않게 한다(no-transform). 모으지 않고 바로 넘기는 것(버퍼링 끄기)은 이 머리글이 아니라 게이트웨이·입구 설정이 맡는다(계약 README 응답 문장 스트림 9항) */
+        StreamCacheControl: "no-store, no-transform";
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
         /** @description 인증 방식의 도전(RFC 9110 11.6.1, Bearer 는 RFC 6750 3) */

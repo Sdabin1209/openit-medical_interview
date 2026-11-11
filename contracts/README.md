@@ -130,15 +130,15 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 환자에게 보이는 LoRA-B 문장은 엔진이 토큰을 내는 대로 키오스크까지 흘린다(사용자 결정 2026-11-11). 환자가 느끼는 응답 시간은 첫 글자가 보이는 때로 정해지기 때문이다. LoRA-A(추출)는 영역 안의 결정이라 스트림이 없다. 스트림은 JSON 작업 옆의 별도 작업이다: `generateResponseStream`(model-runtime), `startSessionStream`·`submitTurnStream`(survey-service). JSON 작업(`generateResponse`, `startSession`, `submitTurn`)은 그대로 남는다. 같은 작업에 미디어 유형을 더하면 생성된 타입의 응답이 합집합(`SessionStarted | string`)이 되어 기존 호출 코드가 깨지므로(키오스크 tsc 로 확인) 작업을 나눴다.
 
-1. **요청과 받아들임.** 요청 본문·인증·받아들이는 조건은 짝인 JSON 작업과 같다. 받아들이지 않는 실패(검증, 인증, 없는 대상, 충돌, 준비 안 됨, 한도)는 스트림을 열기 전에 JSON 작업과 같은 상태 코드와 문제 상세로 답한다. 받아들이면 상태 코드는 200 하나이고 본문은 `text/event-stream`, 머리글 `Cache-Control: no-cache` 이며 압축하지 않는다.
+1. **요청과 받아들임.** 요청 본문·인증·받아들이는 조건은 짝인 JSON 작업과 같다. 받아들이지 않는 실패(검증, 인증, 없는 대상, 충돌, 준비 안 됨, 한도)는 스트림을 열기 전에 JSON 작업과 같은 상태 코드와 문제 상세로 답한다. 받아들이면 상태 코드는 200 하나이고 본문은 `text/event-stream`, 머리글 `Cache-Control: no-store, no-transform`(RFC 9111 5.2.2.5, 5.2.2.6)이며 압축하지 않는다.
 2. **이벤트.** `delta`(조각, 0개 이상) 뒤에 `result` 나 `error` 하나로 끝난다. SSE 의 `event` 줄과 data 의 `event` 칸이 같다. `result` 의 본문은 짝인 JSON 작업의 성공 본문과 같다. `error` 는 JSON 작업이라면 4xx·5xx 로 답했을 실패가 스트림을 연 뒤에 생겼을 때만 쓰고, Retry-After 를 주었을 실패면 `retry_after_seconds` 를 담는다.
-3. **처리와 연결은 따로다.** 받아들인 요청은 클라이언트가 끊어도 JSON 작업처럼 끝까지 처리한다. 기록하는 때(턴, 세션)는 JSON 작업과 같고 `result` 를 쓰기 직전이다. 끊긴 뒤의 재전송은 JSON 작업의 규칙을 그대로 따른다(턴은 처리 중이면 409 TURN_IN_PROGRESS, 기록됐으면 재생, 기록되지 않았으면 다시 처리).
+3. **처리와 연결은 따로다.** 받아들인 요청은 클라이언트가 끊어도 JSON 작업처럼 끝까지 처리한다. 기록하는 때(턴, 세션)는 JSON 작업과 같고 `result` 를 쓰기 직전이다. 끊긴 뒤의 재전송은 JSON 작업의 규칙을 그대로 따른다(턴은 처리 중이면 409 TURN_IN_PROGRESS, 기록됐으면 재생, 기록되지 않았으면 다시 처리. 세션 시작은 같은 기기·같은 코드가 처리 중이면 409 SESSION_START_IN_PROGRESS, 저장됐으면 재생, 저장되지 않았으면 다시 처리).
 4. **재생은 조각이 없다.** 이미 기록한 턴과 이미 시작한 세션을 다시 보내면 `delta` 없이 `result` 하나다. LoRA-B 를 부르지 않은 턴(값을 만들지 못한 failure_signal)도 `delta` 없이 `result` 하나다.
 5. **문장의 합격 조건은 model-runtime 이 지킨다.** `generateResponseStream` 은 엔진이 낸 조각을 바꾸지 않고 보내고, 이은 글자가 `ResponseSentence` 상한 344자를 넘게 되는 조각은 보내지 않고 `error`(503, OUTPUT_INVALID)로 끝낸다. 끝에서 빈 문장이어도 같다. `result.text` 는 보낸 조각을 이은 것이다. 받는 쪽은 다시 검사하지 않는다(R7).
 6. **문장을 끝내 받지 못하면.** `submitTurnStream` 은 `delta` 를 보낸 뒤라도 JSON 작업과 같이 failure_signal(RESPONSE_UNAVAILABLE 또는 DEADLINE_EXCEEDED)을 담은 `result` 로 끝내고 그 턴은 기록하지 않는다(D86). `startSessionStream` 은 JSON 작업의 503 과 같이 세션을 남기지 않고 `error` 로 끝낸다(같은 코드로 다시 시작하면 처음부터 다시 만든다).
 7. **화면.** 키오스크는 `delta` 를 받는 즉시 이어 그린다. `result` 에 문장이 있으면 화면의 문장을 그것으로 바꾼다(서비스가 직원 도움 안내 같은 고정 문장을 붙이면 조각을 이은 것과 다르다). `result` 에 문장이 없거나 `error` 면 그린 조각을 지우고 JSON 작업의 실패와 같게 다룬다.
 8. **시간.** 값은 바뀌지 않는다. `ModelRespondLimitSeconds`, `RespondClientLimitSeconds`, `SurveyTurnLimitSeconds`, `KioskRequestLimitSeconds` 는 마지막 이벤트까지에 건다. `GatewayPatientRouteLimitSeconds` 는 JSON 작업에서는 머리글까지이지만 스트림 작업은 머리글이 곧바로 오므로 응답 끝까지에 건다. 조각 사이의 상한은 따로 두지 않는다(전체 상한이 스트림을 묶는다).
-9. **중간 장치.** 게이트웨이와 입구는 스트림을 모으거나 압축하지 않고 받는 대로 넘긴다(WHATWG HTML 9.2, RFC 9111 5.2.2.4 의 no-cache). 이는 배치·게이트웨이 설정의 일이고 서비스는 위 머리글만 준다.
+9. **중간 장치.** 게이트웨이와 입구는 스트림을 모으거나 압축하지 않고 받는 대로 넘긴다(WHATWG HTML 9.2). 서비스가 주는 `no-store, no-transform` 은 저장과 변형을 막을 뿐 버퍼링은 막지 못하므로 버퍼링을 끄는 것은 게이트웨이·입구 설정이다. 이는 배치·게이트웨이 설정의 일이고 서비스는 위 머리글만 준다.
 
 ## 계약의 판과 변경 기록
 
@@ -202,10 +202,11 @@ model-runtime 영역의 E2E 첫 실행(`deploy/docs/E2E_RESULTS.md`)이 찾은 �
 LoRA-B 응답 문장을 토큰 단위로 바로 내보내는 별도 작업을 더했다(사용자 결정 2026-11-11). 규칙은 위 '응답 문장 스트림' 절에 한 번만 적었다.
 
 - 더한 작업: `generateResponseStream`(`POST /v1/responses/stream`), `startSessionStream`(`POST /v1/sessions/stream`), `submitTurnStream`(`POST /v1/sessions/{session_id}/turns/stream`). 경로는 기존 알림 스트림(`/v1/staff-alerts/stream`)의 이름 짓기를 따른다. 기존 JSON 작업의 모양과 생성 타입은 그대로라 기존 호출자는 깨지지 않는다(SemVer 2.0.0 항목 7).
-- 더한 스키마: `StreamEventDelta`, `StreamEventResult`, `StreamEventError`, `ResponseDeltaText`, `ResponseEventStream`, `ResponseDeltaEvent`, `ResponseErrorEvent`, `ResponseResultEvent`, `SessionStartResultEvent`, `TurnResultEvent`, `ResponseStreamEvent`, `SessionStartStreamEvent`, `TurnStreamEvent`. 더한 머리글: `StreamCacheControl`. `Exposure.routes` 의 상한을 29 에서 31 로 넓혔다(서비스 하나의 작업 수 최대가 survey-service 31, 받아들이는 값을 넓히는 쪽이라 하위 호환).
+- 더한 스키마: `StreamEventDelta`, `StreamEventResult`, `StreamEventError`, `ResponseDeltaText`, `ResponseEventStream`, `ResponseDeltaEvent`, `ResponseErrorEvent`, `ResponseResultEvent`, `SessionStartResultEvent`, `TurnResultEvent`, `ResponseStreamEvent`, `SessionStartStreamEvent`, `TurnStreamEvent`. 더한 머리글: `StreamCacheControl`. 더한 사유 값: `ProblemReason.SESSION_START_IN_PROGRESS`(같은 기기·같은 코드의 시작 요청이 처리 중일 때 `startSession`·`startSessionStream` 의 409. JSON 작업에도 같은 틈이 있어 함께 정했다. 응답 열거에 값을 더하는 것이라 9.1 클라이언트는 알 수 없는 사유의 409 로 받는다. 이 계약의 클라이언트는 모르는 사유를 상태 코드로 다룬다). `Exposure.routes` 의 상한을 29 에서 31 로 넓혔다(서비스 하나의 작업 수 최대가 survey-service 31, 받아들이는 값을 넓히는 쪽이라 하위 호환).
 - 설명을 고친 것: `ProblemReason.OUTPUT_INVALID`(LoRA-B 의 문장 합격 조건과 스트림의 error), `GatewayPatientRouteLimitSeconds`·`KioskRequestLimitSeconds`(스트림 작업에서 상한을 거는 끝).
 - 독립 검토(2026-11-11)가 찾은 것을 반영했다: 처음 안은 같은 작업에 Accept 협상으로 SSE 를 더했으나 생성 타입이 깨지고(`*/*` 의 뜻도 모호), 스트림 도중 LoRA-B 실패·startSession 의 201 과 되돌리기·끊김과 기록 시점·시간 상한 두 개·중간 장치가 정해지지 않았다. 별도 작업과 위 절의 1~9항으로 정했다.
 - 영향: model-runtime(`link_engine` 이 엔진을 스트림으로 부르고 `link_api` 가 새 작업을 낸다), survey-service(`link_model_client` 가 스트림을 받고 세션·턴 작업이 조각을 바로 흘린다), kiosk-frontend(새 작업으로 바꾸고 조각을 바로 그린다), 게이트웨이와 입구(스트림 경로를 모으지 않고 넘기며 상한을 응답 끝까지에 건다), 계약 타입 생성물, `flows.md`·`traceability.md`. 판 표시는 6곳이 9.2.0 이고 `ContractsVersionLabel`(MAJOR 만)은 그대로다.
+- 올리는 순서: `Exposure` 를 읽는 deploy 를 9.2.0 으로 먼저 올린 뒤 survey-service 를 올린다. 9.1.0 의 deploy 는 경로 31개를 선언한 survey-service 를 상한 29 로 거부한다.
 
 ## 점검
 
