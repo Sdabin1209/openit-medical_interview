@@ -140,6 +140,7 @@ class SessionRow(Base):
     asked_items: Mapped[list[object]] = mapped_column(Json)
     reask_count: Mapped[int] = mapped_column(Integer())
     resume_pending: Mapped[bool] = mapped_column()
+    failed_turn_ids: Mapped[list[object]] = mapped_column(Json, default=list)
     started_at: Mapped[datetime] = mapped_column(UtcDateTime())
     last_activity_at: Mapped[datetime] = mapped_column(UtcDateTime())
     ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime())

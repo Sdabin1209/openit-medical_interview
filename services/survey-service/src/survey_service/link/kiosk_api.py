@@ -342,6 +342,45 @@ def router(rt: Runtime, background: Background) -> APIRouter:
                 raise ApiError(409, reason=ProblemReason.TURN_IN_PROGRESS, retry_after=rt.limits.retry_after_seconds)
         return TurnReady(session_id, who.subject, turn_id, utterance, current, asked_item, content, started, began)
 
+    async def skip_on_failure_limit(
+        tx: Tx,
+        ready: TurnReady,
+        latest: SessionRecord,
+        failure: TurnFailureReason,
+        extraction: ActionExtraction | None,
+        digest: str | None,
+    ) -> tuple[dict[str, object], UUID | None]:
+        """연속 실패 한도에 닿은 턴: 실패 신호 대신 지금 문항을 건너뛴 결과를 주고 턴을 기록한다(TurnFailureLimit 4항).
+        LoRA-A 가 낸 값은 저장하지 않고 LoRA-B 는 부르지 않는다."""
+        asked = latest.current_item_id or ready.asked_item
+        skip_target = question_bank.next_after(ready.content, asked, answers_of(latest))
+        moved = session.skip_for_failure_limit(
+            latest.model_copy(update={"current_item_id": asked}), skip_target=skip_target, now=rt.now()
+        )
+        text = turn.limit_skip_text(ready.content, moved.next_item_id)
+        updated = moved.session.model_copy(update={"last_assistant_text": text})
+        body: dict[str, object] = {"turn_id": str(ready.turn_id), "status": updated.status.value, "response_text": text}
+        if updated.current_item_id is not None:
+            body["current_item_id"] = updated.current_item_id
+        await tx.save_session(updated)
+        await tx.finish_turn(
+            trace.done(
+                ready.record,
+                extraction=extraction,
+                response_text=text,
+                response=body,
+                package_digest=digest,
+                reask_limit_hit=False,
+                failure_signal=failure,
+                now=rt.now(),
+            )
+        )
+        await tx.log_event("turn_failure_limit", ready.session_id, rt.now(), {"signal": failure.value})
+        ready_alert = None
+        if updated.status is SessionStatus.ENDED_COMPLETE:
+            ready_alert = await raise_result_ready(tx, updated, ready.content.title.root)
+        return body, ready_alert
+
     async def run_turn(ready: TurnReady, respond: Respond) -> dict[str, object]:
         """모델을 불러 턴을 처리하고 결과를 반영한다(JSON 작업의 본문). 값을 못 만들면 failure_signal 본문이다."""
         session_id, turn_id, current, content = ready.session_id, ready.turn_id, ready.current, ready.content
@@ -399,49 +438,57 @@ def router(rt: Runtime, background: Background) -> APIRouter:
                 raise ApiError(409, reason=ProblemReason.SESSION_NOT_ACTIVE, retry_after=rt.limits.retry_after_seconds)
             if signal is not None or extraction is None or transition is None:
                 failure = signal or TurnFailureReason.EXTRACTION_UNAVAILABLE
-                failure_body: dict[str, object] = {
+                # 왜 여기서 세나: 세션 행을 잠근 이 트랜잭션 안에서 더하고 판정하므로,
+                # 같은 세션에서 턴이 겹쳐도 한도에 닿는 더함은 하나뿐이다(TurnFailureLimit 3항, ADR 0019)
+                counted, reached = session.count_failure(latest, turn_id)
+                if not reached:
+                    if counted is not latest:
+                        await tx.save_session(counted)
+                    failure_body: dict[str, object] = {
+                        "turn_id": str(turn_id),
+                        "status": latest.status.value,
+                        "failure_signal": failure.value,
+                        "current_item_id": latest.current_item_id,
+                    }
+                    failure_body = {k: v for k, v in failure_body.items() if v is not None}
+                    await tx.finish_turn(
+                        trace.failed(
+                            started,
+                            signal=failure,
+                            response=failure_body,
+                            extraction=extraction,
+                            package_digest=digest,
+                            now=rt.now(),
+                        )
+                    )
+                    await tx.log_event("turn_failed", session_id, rt.now(), {"signal": failure.value})
+                    TURN_SECONDS.observe(time.monotonic() - ready.began)
+                    return failure_body
+                response_body, ready_alert = await skip_on_failure_limit(tx, ready, latest, failure, extraction, digest)
+            else:
+                updated = transition.session.model_copy(update={"last_assistant_text": text})
+                response_body: dict[str, object] = {
                     "turn_id": str(turn_id),
-                    "status": latest.status.value,
-                    "failure_signal": failure.value,
-                    "current_item_id": latest.current_item_id,
+                    "status": updated.status.value,
+                    "response_text": text,
                 }
-                failure_body = {k: v for k, v in failure_body.items() if v is not None}
+                if updated.current_item_id is not None:
+                    response_body["current_item_id"] = updated.current_item_id
+                await tx.save_session(updated)
                 await tx.finish_turn(
-                    trace.failed(
+                    trace.done(
                         started,
-                        signal=failure,
-                        response=failure_body,
                         extraction=extraction,
+                        response_text=text,
+                        response=response_body,
                         package_digest=digest,
+                        reask_limit_hit=transition.limit_skip,
                         now=rt.now(),
                     )
                 )
-                await tx.log_event("turn_failed", session_id, rt.now(), {"signal": failure.value})
-                TURN_SECONDS.observe(time.monotonic() - ready.began)
-                return failure_body
-            updated = transition.session.model_copy(update={"last_assistant_text": text})
-            response_body: dict[str, object] = {
-                "turn_id": str(turn_id),
-                "status": updated.status.value,
-                "response_text": text,
-            }
-            if updated.current_item_id is not None:
-                response_body["current_item_id"] = updated.current_item_id
-            await tx.save_session(updated)
-            await tx.finish_turn(
-                trace.done(
-                    started,
-                    extraction=extraction,
-                    response_text=text,
-                    response=response_body,
-                    package_digest=digest,
-                    reask_limit_hit=transition.limit_skip,
-                    now=rt.now(),
-                )
-            )
-            await tx.log_event("turn_done", session_id, rt.now(), {"action": extraction.action.value})
-            if updated.status is SessionStatus.ENDED_COMPLETE:
-                ready_alert = await raise_result_ready(tx, updated, content.title.root)
+                await tx.log_event("turn_done", session_id, rt.now(), {"action": extraction.action.value})
+                if updated.status is SessionStatus.ENDED_COMPLETE:
+                    ready_alert = await raise_result_ready(tx, updated, content.title.root)
         if ready_alert is not None:
             await push(ready_alert, AlertKind.RESULT_READY)
         TURN_SECONDS.observe(time.monotonic() - ready.began)

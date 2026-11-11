@@ -8,6 +8,7 @@ import yaml
 from pydantic import ValidationError
 from tests.support.harness import Harness
 
+from survey_service.components import session
 from survey_service.main import create_app
 from survey_service.settings import CONTRACT_LIMITS, DEFAULT_START_CODE_TTL, limits_of, load_env
 
@@ -61,6 +62,7 @@ def test_hardcoded_limits_equal_the_contract_constants() -> None:
         spec = schemas[schema]
         pinned = spec.get("const", spec.get("minimum"))
         assert spec["minimum"] == spec["maximum"] == pinned == CONTRACT_LIMITS[key], (schema, spec)
+    assert schemas["TurnFailureLimit"]["const"] == session.TURN_FAILURE_LIMIT == 3  # 설정으로 받지 않는 값
     assert schemas["StartCodeTtlSeconds"]["default"] == DEFAULT_START_CODE_TTL
     assert schemas["RetryAfterSeconds"]["maximum"] == 120
 

@@ -387,3 +387,38 @@ def test_review_decisions() -> None:
     same = CaseReview.model_validate({"base_case_version": 1, "review_status": "UNREVIEWED"})
     assert failure_case.review(case, same, "r", NOW).verdict is ReviewVerdict.UNCHANGED
     assert not failure_case.exportable(case)
+
+
+def test_fhir_absent_map_covers_every_blank_reason_and_failure_limit_is_error() -> None:
+    """계약 FhirMapping 의 absent_map: 빈칸 원인 여섯 값이 모두 있고 FAILURE_LIMIT 는 error 다."""
+    from survey_service.contract.models import FhirAbsentReason
+
+    assert set(result.FHIR_ABSENT) == set(BlankReason)
+    assert result.FHIR_ABSENT[BlankReason.FAILURE_LIMIT] is FhirAbsentReason.error
+    assert result.FHIR_ABSENT[BlankReason.REASK_LIMIT] is FhirAbsentReason.asked_unknown
+
+
+def test_failure_limit_skip_blanks_unsaved_slots_and_moves_on() -> None:
+    placeholder = make_session(
+        answers={
+            "Q1.diagnosed": AnswerRecord(key="Q1.diagnosed", value=None, precision="unspecified", status="UNCLEAR")
+        },
+        reask_count=1,
+        failed_turn_ids=(uuid.uuid4(), uuid.uuid4()),
+    )
+    moved = session.skip_for_failure_limit(placeholder, skip_target="Q2", now=NOW)
+    assert not moved.limit_skip and moved.session.current_item_id == "Q2" and moved.session.reask_count == 0
+    assert moved.session.failed_turn_ids == () and moved.session.previous_item_id == "Q1"
+    assert moved.session.blanks == (BlankRecord(item_id="Q1", key="Q1.diagnosed", reason=BlankReason.FAILURE_LIMIT),)
+
+
+def test_failure_limit_turn_is_still_a_detected_extract_failure() -> None:
+    """연속 실패 한도로 건너뛴 턴은 DONE 으로 기록되지만 추출 실패 사례를 잃지 않는다."""
+    from survey_service.contract.models import FailureKind, TurnFailureReason
+
+    done = TurnRecordData(
+        session_id=uuid.uuid4(), turn_id=uuid.uuid4(), questionnaire_id="q", item_id="Q1", outcome=TurnOutcome.DONE,
+        utterance="음", failure_signal=TurnFailureReason.EXTRACTION_UNAVAILABLE, started_at=NOW,
+    )  # fmt: skip
+    found = failure_case.detect([done], uuid.uuid4, NOW)
+    assert [f.kind for f in found] == [FailureKind.EXTRACT_FAILED]

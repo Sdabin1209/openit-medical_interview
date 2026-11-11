@@ -1,7 +1,9 @@
 """마이그레이션이 빈 DB 에서 head 까지 올라가고 내려오며 모델과 어긋나지 않는지 본다(임시 SQLite 파일,
 PostgreSQL 은 -m postgres)."""
 
+import json
 import sqlite3
+import uuid
 from pathlib import Path
 
 import pytest
@@ -9,7 +11,8 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from survey_service.store.engine import _alembic_config, make_engine, migrate  # pyright: ignore[reportPrivateUsage]
 from survey_service.store.models import Base
@@ -48,3 +51,55 @@ def test_models_match_migrations_and_downgrade_removes(tmp_path: Path) -> None:
         command.downgrade(config, "base")
     engine.dispose()
     assert not (EXPECTED & tables(tmp_path / "c.db"))
+
+
+# ---------------------------------------------------------------- 0003 survey_session.failed_turn_ids
+
+ROW = (
+    "INSERT INTO survey_session (session_id, device_id, subject_ref, questionnaire_id, question_set_version_id,"
+    " runtime_contract_version, status, last_assistant_text, answers, blanks, asked_items, reask_count,"
+    " resume_pending, started_at, last_activity_at) VALUES (:sid, 'k', 's', 'q', :qsv, 1, 'ACTIVE', 't',"
+    " '{}', '[]', '[]', 0, :no, '2026-11-11T00:00:00+00:00', '2026-11-11T00:00:00+00:00')"
+)
+QSV = (
+    "INSERT INTO question_set_version (question_set_version_id, questionnaire_id, version_number,"
+    " runtime_contract_version, content, content_hash, uploaded_by, created_at)"
+    " VALUES (:qsv, 'q', 1, 1, '{}', 'h', 'u', '2026-11-11T00:00:00+00:00')"
+)
+
+
+async def _step_roundtrip(engine: AsyncEngine) -> None:
+    """0002 에서 세션 행을 넣고 0003 으로 올리면 기존 행은 빈 목록이 되고, 내리면 칸이 사라진다."""
+    qsv, sid = uuid.uuid4(), uuid.uuid4()
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda c: command.upgrade(_alembic_config(c), "0002"))
+        await connection.execute(text(QSV).bindparams(qsv=qsv))
+        await connection.execute(text(ROW).bindparams(sid=sid, qsv=qsv, no=False))
+        await connection.run_sync(lambda c: command.upgrade(_alembic_config(c), "0003"))
+        stored = (await connection.execute(text("SELECT failed_turn_ids FROM survey_session"))).scalar_one()
+        assert (json.loads(stored) if isinstance(stored, str) else stored) == []
+        columns = await connection.run_sync(lambda c: [col["name"] for col in inspect(c).get_columns("survey_session")])
+        assert "failed_turn_ids" in columns
+        await connection.run_sync(lambda c: command.downgrade(_alembic_config(c), "0002"))
+        columns = await connection.run_sync(lambda c: [col["name"] for col in inspect(c).get_columns("survey_session")])
+        assert "failed_turn_ids" not in columns
+        remaining = (await connection.execute(text("SELECT count(*) FROM survey_session"))).scalar_one()
+        assert remaining == 1  # 내려도 세션 행은 남는다
+        await connection.run_sync(lambda c: command.upgrade(_alembic_config(c), "head"))
+
+
+async def test_0003_adds_and_removes_failed_turn_ids_sqlite(tmp_path: Path) -> None:
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 's.db'}")
+    try:
+        await _step_roundtrip(engine)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.postgres
+async def test_0003_adds_and_removes_failed_turn_ids_postgres(database_url: str) -> None:
+    engine = make_engine(database_url)
+    try:
+        await _step_roundtrip(engine)
+    finally:
+        await engine.dispose()

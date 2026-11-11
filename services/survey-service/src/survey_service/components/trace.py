@@ -32,17 +32,22 @@ def begin(session: SessionRecord, turn_id: UUID, utterance: str, now: datetime) 
 def done(
     started: TurnRecordData,
     *,
-    extraction: ActionExtraction,
+    extraction: ActionExtraction | None,
     response_text: str,
     response: dict[str, object],
     package_digest: str | None,
     reask_limit_hit: bool,
     now: datetime,
+    failure_signal: TurnFailureReason | None = None,
 ) -> TurnRecordData:
-    """값을 만든 턴의 기록."""
+    """기록된 턴. 값을 만든 턴이거나, 연속 실패 한도로 문항을 건너뛴 턴.
+
+    건너뛴 턴의 failure_signal 은 그 실패의 신호이고 추출은 없을 수 있다.
+    """
     return started.model_copy(
         update={
             "outcome": TurnOutcome.DONE,
+            "failure_signal": failure_signal,
             "extract_output": extraction,
             "response_text": response_text,
             "response": response,

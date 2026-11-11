@@ -9,6 +9,7 @@
 - 받는 환경 입력: 계약 `SurveyServiceEnv`(비밀은 `NAME_FILE` 경로, ADR 0005). `OPENIT_TLS_CERTIFICATE_FILE`·`OPENIT_TLS_PRIVATE_KEY_FILE` 은 이웃을 부를 때 보이는 클라이언트 인증서와 개인키다. `OPENIT_MACHINE_TOKENS_FILE` 은 호출자 이름과 역할의 표(`MachineTokenTable`)다.
 - 이미지 선언: [`jobs.json`](jobs.json)(JobsDeclaration), [`exposure.json`](exposure.json)(Exposure), [`inputs.json`](inputs.json)(ContainerInputs)가 라벨 `io.openit.jobs`·`exposure`·`inputs` 의 원본이다(ADR 0016).
 - 타입은 `src/survey_service/contract/models.py` 로 생성한다(손으로 고치지 않는다). 생성 대상은 `pyproject.toml` 의 `[tool.openit.contract]` 가 정한다.
+- 연속 턴 실패 한도(계약 9.3.0 `TurnFailureLimit` 3): 세션마다 실패한 서로 다른 turn_id 를 세어 3 번째 실패 턴이 지금 문항을 건너뛴 결과(`submitTurn`·`submitTurnStream` 모두)를 준다. 빈칸 원인 `FAILURE_LIMIT`, FHIR 빈칸 사유 `error`. 값은 설정으로 받지 않는 상수다(ADR 0019).
 - 이 영역이 낸 변경 요청: [`docs/change-requests/survey-service-001~007`](../../docs/change-requests/)(계약 9.0.0 이 004~007 을 반영했다. 처리 표시는 헤드가 한다).
 
 ## 3. 컴포넌트
@@ -53,11 +54,12 @@ tools/smoke service survey-service   # 이미지 스모크(/healthz, /readyz, �
 pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytest-tmp`)로 준다: `TMPDIR=$PWD/.pytest-tmp uv run pytest`.
 
 ## 5. 시험 상태
-(2026-11-11, 영역 작업자가 응답 문장 스트림(ADR 0018)을 더한 작업에서 실행한 결과. 작업 트리 `openit-v7-s-ss`, 계약 9.2.0)
+(2026-11-11, 영역 작업자가 연속 턴 실패 한도(계약 9.3.0 `TurnFailureLimit`, ADR 0019)를 더한 작업에서 실행한 결과. 작업 트리 `openit-v7-f-ss`, 계약 9.3.0)
 
 | 명령 | 결과 |
 |---|---|
-| `uv run pytest`(SQLite) | 통과 — 145개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
+| `uv run pytest`(SQLite) | 통과 — 158개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
+| `uv run pytest -m postgres`(PostgreSQL 16 컨테이너) | 통과 — 86개 |
 | `uv run lint-imports` | 통과 — 계약 5개 |
 | `uv run pyright`(strict) | 오류 0 |
 | `uv run ruff check`, `ruff format --check` | 통과 |
@@ -65,7 +67,7 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 | `./deploy/deploy build survey-service`(Trivy 포함) | 통과 |
 | `tools/smoke service survey-service --no-build` | 통과 — 6개 |
 
-이 작업에서 하지 않은 것: `uv run pytest -m postgres`(PostgreSQL 16 컨테이너). 새 표 `start_attempt` 의 마이그레이션은 SQLite 에서 모델과의 일치·올림·내림만 확인했다.
+이 작업의 마이그레이션 0003(`survey_session.failed_turn_ids`)은 SQLite 와 PostgreSQL 에서 올림·내림과 기존 행의 빈 목록 채움을 확인했다. 같은 세션에서 실패하는 두 턴이 겹쳐도 문항을 한 번만 건너뛰는 시험도 두 DB 에서 통과했다.
 
 확인하지 못한 것: 실제 Keycloak·model-runtime·영역 게이트웨이·인증서 에이전트·브라우저 푸시 서비스와의 연동(시험은 서명한 시험 토큰, 가짜 발급자, 가짜 model-runtime, 로컬 TLS 서버, RFC 8291 시험 벡터), platform 의 실제 라우트 생성과 `exposure.json` 의 일치(영역 시험은 같은 규칙의 요약 구현), 운영 부하와 응답 시간(측정하지 않았다), 한도 값(시작 코드 실패 10회·5분, 알림 폴링 1초, 토큰 갱신 여유 30초 등)의 적정성.
 
@@ -88,3 +90,4 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 - [0016 이미지 선언(잡·노출·입력)의 원본 파일과 노출·나가는 호출 선언](docs/adr/0016-이미지-선언과-노출-나가는-호출.md)
 - [0017 유휴 만료는 서버가 판정한다, 문진표 선택은 422, 실패한 턴은 기록하지 않는다, 활성 표시](docs/adr/0017-유휴-만료는-서버가-판정하고-문진표-선택은-422.md)
 - [0018 응답 문장 스트림: SSE 서버·클라이언트의 선택과 끊김 처리](docs/adr/0018-응답-문장-스트림-SSE-서버와-클라이언트와-끊김-처리.md)
+- [0019 연속 턴 실패 수의 저장과 원자적 더함](docs/adr/0019-연속-턴-실패-수의-저장과-원자적-더함.md)

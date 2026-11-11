@@ -171,6 +171,10 @@ class SessionRecord(_Value):
     )
     reask_count: int = Field(default=0, ge=0, description="지금 문항에서 이어진 REASK·CONFIRM 횟수")
     resume_pending: bool = Field(default=False, description="정지가 풀린 뒤 다음 발화 턴 전이라 resume_text 를 줄 때")
+    failed_turn_ids: tuple[UUID, ...] = Field(
+        default=(),
+        description="턴이 기록되거나 정지가 풀린 뒤로 실패한 서로 다른 turn_id 들(연속 실패 수는 이 길이)",
+    )
     started_at: datetime = Field(description="시작한 때")
     last_activity_at: datetime = Field(description="환자가 마지막으로 움직인 때(유휴 만료의 기준)")
     ended_at: datetime | None = Field(default=None, description="끝난 때")
@@ -307,6 +311,7 @@ class ModelCallError(Exception):
 class StaffHelpText(StrEnum):
     """서비스의 고정 문장(모델이 쓰지 않는다, v7-flow-resolutions). 값은 환자에게 그대로 보인다."""
 
+    # 왜 연속 실패 한도로 건너뛸 때도 이 문장: 계약 TurnFailureLimit 이 되묻기 한도와 같다고 정했다
     REASK_LIMIT_SKIP = "정확히 알아듣지 못해서 이 질문은 건너뛸게요."
     FINISHED = "문진이 모두 끝났어요. 답해 주셔서 감사합니다."
     RESUMED = "문진을 이어서 할게요."

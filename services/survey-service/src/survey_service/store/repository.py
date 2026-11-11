@@ -316,7 +316,8 @@ class SqlTx:
             answers={k: AnswerRecord.model_validate(v) for k, v in row.answers.items()},
             blanks=tuple(BlankRecord.model_validate(b) for b in row.blanks),
             asked_items=tuple(str(i) for i in row.asked_items), reask_count=row.reask_count,
-            resume_pending=row.resume_pending, started_at=row.started_at, last_activity_at=row.last_activity_at,
+            resume_pending=row.resume_pending, failed_turn_ids=tuple(UUID(str(i)) for i in row.failed_turn_ids),
+            started_at=row.started_at, last_activity_at=row.last_activity_at,
             ended_at=row.ended_at, model_io_version=row.model_io_version,
         )  # fmt: skip
 
@@ -334,6 +335,7 @@ class SqlTx:
         row.blanks = [b.model_dump(mode="json") for b in v.blanks]
         row.asked_items = list(v.asked_items)
         row.reask_count, row.resume_pending = v.reask_count, v.resume_pending
+        row.failed_turn_ids = [str(i) for i in v.failed_turn_ids]
         row.started_at, row.last_activity_at, row.ended_at = v.started_at, v.last_activity_at, v.ended_at
         row.model_io_version = v.model_io_version
 
@@ -346,6 +348,15 @@ class SqlTx:
     async def get_session(self, session_id: UUID, for_update: bool = False) -> SessionRecord | None:
         stmt = select(m.SessionRow).where(m.SessionRow.session_id == session_id)
         if for_update:
+            if self._s.get_bind().dialect.name == "sqlite":
+                # 왜 먼저 쓰나: SQLite 는 FOR UPDATE 가 없고 읽기는 잠그지 않아, 두 트랜잭션이 같은 값을 읽고
+                # 각자 더할 수 있다. 같은 값을 다시 써서 쓰기 잠금을 먼저 잡으면 뒤 트랜잭션은 앞이 끝난 뒤의
+                # 값을 읽는다(개발·시험용 DB 가 운영 DB 와 같은 약속을 지킨다, ADR 0019)
+                await self._s.execute(
+                    update(m.SessionRow)
+                    .where(m.SessionRow.session_id == session_id)
+                    .values(session_id=m.SessionRow.session_id)
+                )
             stmt = stmt.with_for_update()
         row = await self._s.scalar(stmt)
         return None if row is None else self._session(row)

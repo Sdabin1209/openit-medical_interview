@@ -18,6 +18,9 @@ from survey_service.contract.models import (
 from survey_service.types import AnswerRecord, BlankRecord, SessionRecord, SessionTransition, unwrap
 
 END = "END"
+# 왜 3: 계약 TurnFailureLimit(const 3, 사용자 결정 2026-11-11, 측정하지 않은 값). 설치마다 바꾸지 않는다고 계약이 정해
+# 환경 변수·설정으로 받지 않는다(시험이 계약의 const 와 같은지 본다)
+TURN_FAILURE_LIMIT = 3
 ENDED = frozenset({SessionStatus.ENDED_COMPLETE, SessionStatus.ENDED_PARTIAL, SessionStatus.EXPIRED})
 
 
@@ -71,6 +74,7 @@ def resume(session: SessionRecord, now: datetime) -> SessionRecord:
             "status": SessionStatus.ACTIVE,
             "pause_reason": None,
             "resume_pending": True,
+            "failed_turn_ids": (),  # 왜 비우나: 직원이 다시 이으면 연속 실패 수를 0 으로 되돌린다(TurnFailureLimit 2항)
             "last_activity_at": now,
         }
     )
@@ -141,7 +145,21 @@ def apply_extraction(
         "reask_count": reask_count,
         "last_activity_at": now,
         "resume_pending": False,
+        "failed_turn_ids": (),  # 왜 비우나: 턴이 기록되면 연속 실패 수는 0 이다(TurnFailureLimit 2항)
     }
+    return _moved(session, update, current=current, next_item=next_item, now=now, limit_skip=limit_skip)
+
+
+def _moved(
+    session: SessionRecord,
+    update: dict[str, object],
+    *,
+    current: str | None,
+    next_item: str,
+    now: datetime,
+    limit_skip: bool,
+) -> SessionTransition:
+    """다음 자리로 옮긴 세션. 되묻기 한도 건너뛰기와 연속 실패 한도 건너뛰기가 같은 규칙을 쓴다."""
     if next_item == END:
         update.update(status=SessionStatus.ENDED_COMPLETE, current_item_id=None, ended_at=now, reask_count=0)
     else:
@@ -156,6 +174,36 @@ def apply_extraction(
         next_item_id=next_item,
         limit_skip=limit_skip,
     )
+
+
+def count_failure(session: SessionRecord, turn_id: UUID) -> tuple[SessionRecord, bool]:
+    """실패한 턴을 연속 실패 수에 센다(TurnFailureLimit 1항). 이미 센 turn_id 의 재전송은 다시 세지 않는다.
+
+    호출한 쪽이 세션 행을 잠근 트랜잭션 안에서 부른다(3항, 수를 더하고 판정하는 일이 한 번에 일어난다).
+    돌려주는 참거짓은 이 더함이 한도에 닿았는지다.
+    """
+    if turn_id in session.failed_turn_ids:
+        return session, False
+    ids = (*session.failed_turn_ids, turn_id)
+    return session.model_copy(update={"failed_turn_ids": ids}), len(ids) >= TURN_FAILURE_LIMIT
+
+
+def skip_for_failure_limit(session: SessionRecord, *, skip_target: str, now: datetime) -> SessionTransition:
+    """연속 실패 한도에 닿은 턴이 지금 문항을 건너뛴다(TurnFailureLimit 4항).
+
+    이번 턴의 값은 저장하지 않고(건너뛰어 갈 자리는 그 값 없이 호출한 쪽이 순서표로 계산해 넘긴다),
+    문항에서 저장되지 않은 칸에 FAILURE_LIMIT 를 남긴다.
+    """
+    current = session.current_item_id
+    blanks = (*session.blanks, *_blanks_for_item(current, session.answers, BlankReason.FAILURE_LIMIT))
+    update: dict[str, object] = {
+        "blanks": blanks,
+        "reask_count": 0,
+        "last_activity_at": now,
+        "resume_pending": False,
+        "failed_turn_ids": (),
+    }
+    return _moved(session, update, current=current, next_item=skip_target, now=now, limit_skip=False)
 
 
 def _target_blanks(item_id: str | None, keys: list[str], reason: BlankReason) -> list[BlankRecord]:

@@ -32,7 +32,12 @@ def detect(turns: Iterable[TurnRecordData], new_id: Callable[[], UUID], now: dat
     found: list[FailureCaseData] = []
     for turn in turns:
         kind: FailureKind | None = None
-        if turn.outcome is TurnOutcome.FAILED and turn.failure_signal is TurnFailureReason.EXTRACTION_UNAVAILABLE:
+        # 왜 DONE 도 보나: 연속 실패 한도로 건너뛴 턴은 기록된(DONE) 턴이지만
+        # 추출이 실패한 사례다(failure_signal 이 남는다)
+        if (
+            turn.outcome in (TurnOutcome.FAILED, TurnOutcome.DONE)
+            and turn.failure_signal is TurnFailureReason.EXTRACTION_UNAVAILABLE
+        ):
             kind = FailureKind.EXTRACT_FAILED
         elif turn.outcome is TurnOutcome.DONE and turn.reask_limit_hit:
             kind = FailureKind.REASK_STREAK

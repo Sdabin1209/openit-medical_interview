@@ -32,6 +32,7 @@ FHIR_ABSENT = {
     BlankReason.UNKNOWN: FhirAbsentReason.asked_unknown,
     BlankReason.UNCLEAR: FhirAbsentReason.asked_unknown,
     BlankReason.REASK_LIMIT: FhirAbsentReason.asked_unknown,
+    BlankReason.FAILURE_LIMIT: FhirAbsentReason.error,
     BlankReason.REJECTED: FhirAbsentReason.asked_declined,
     BlankReason.UNASKED: FhirAbsentReason.not_asked,
 }
