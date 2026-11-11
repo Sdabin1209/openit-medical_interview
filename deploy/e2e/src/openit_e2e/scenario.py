@@ -4,8 +4,9 @@
 ⑤ 키오스크 세션(시작, 턴 여러 번, 종료) ⑥ 의사가 결과 조회·확인 표시 ⑦ 병원 시스템이 결과·FHIR 로 당겨 감 ⑧ 직원 호출 알림.
 
 모든 호출은 계약 검증을 거친다(contract.Contract.call): 상태 코드가 계약에 있고 기대한 것인지, 응답이 그 상태의 스키마를 지키는지.
-pipeline 모드는 계약대로 응답하는지와 실패 처리(출력 불가 -> 실패 신호, 세션 상태 불변)를 본다. product 모드는 더해 대본의 기대 값이 결과에 저장되는지와 문진이 끝까지 가는지를 본다.
-실패한 호출을 다시 시도하지 않는다. 기다림은 상태를 보는 것(적재 상태 조회)뿐이고 상한 안에서만 한다.
+pipeline 모드는 계약대로 응답하는지와 실패 처리를 본다: 출력 불가 -> 실패 신호(저장된 답·지금 문항 불변), 연속 실패가 TurnFailureLimit(계약 9.3.0)에 닿는 턴 -> 실패 신호 없이 그 문항을 건너뛴
+결과(빈칸 원인 FAILURE_LIMIT, FHIR data-absent-reason error), 같은 turn_id 의 재전송은 연속 실패 수를 올리지 않는다. product 모드는 더해 대본의 기대 값이 결과에 저장되는지와 문진이 끝까지 가는지를 본다.
+성공을 바라고 실패한 호출을 다시 시도하지 않는다(재전송 시험은 계약 규칙을 보려는 한 번의 의도된 호출이다). 기다림은 상태를 보는 것(적재 상태 조회)뿐이고 상한 안에서만 한다.
 """
 
 from __future__ import annotations
@@ -32,7 +33,12 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 # 왜 계약에서 읽나: 모델 적재 완료의 상한은 계약 9.1.0 의 TimeBudgetTable.model_load(ModelLoadLimitSeconds)다. 복사하지 않는다
 LOAD_LIMIT_SCHEMA = "ModelLoadLimitSeconds"
 POLL_INTERVAL = 2  # 계약 SessionStatePollSeconds(2초)와 같은 간격으로 상태를 본다
-PIPELINE_TURNS = 6  # pipeline 모드가 보내는 턴 수. 어댑터가 학습되지 않아 문진이 끝까지 가지 않으므로 상한을 둔다(대본의 앞 문항들)
+# 왜 6: 어댑터가 학습되지 않아 문진이 끝까지 가지 않으므로 상한을 둔다(대본의 앞 문항들). 연속 실패 한도(TurnFailureLimit, 계약 9.3.0)가 3 이므로
+# 건너뛰기가 두 번 일어나 '건너뛴 뒤 수가 0 으로 돌아가 같은 모양이 되풀이됨'까지 본다. 한도는 계약에서 읽고(session), 이 수가 한도의 두 배보다 작으면 단계가 실패한다
+PIPELINE_TURNS = 6
+FAILURE_LIMIT_SCHEMA = "TurnFailureLimit"
+BLANK_REASON = "FAILURE_LIMIT"  # 계약 BlankReason
+FHIR_ABSENT_ERROR = "error"  # 계약 FhirAbsentReason: FAILURE_LIMIT 칸의 FHIR 빈칸 사유(FhirMapping.absent_map)
 PRODUCT_TURN_GUARD = len(script.SCRIPT) + 5  # product 모드: 순서표가 대본보다 길게 이어지면 멈춘다(대본에 없는 문항에서 막힌다)
 SUBJECT = "e2e-subject-001"
 SUBJECT_CALL = "e2e-subject-002"
@@ -55,6 +61,8 @@ class Context:
     session_id: str = ""
     turn_failures: int = 0
     turn_successes: int = 0
+    turn_skips: int = 0
+    skipped: list[tuple[str, str | None]] = field(default_factory=lambda: list[tuple[str, str | None]]())  # (건너뛴 문항, 다음 문항)
     last_status: str = ""
     streams: list[StreamOutcome] = field(default_factory=lambda: list[StreamOutcome]())
     result: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
@@ -212,11 +220,60 @@ def start_code(ctx: Context, checks: list[str], findings: list[str]) -> None:
 
 
 # ---------------------------------------------------------------- ⑤ 세션
-def _check_turn(ctx: Context, previous_item: str | None, reply: dict[str, Any], turn_checks: dict[str, int]) -> None:
-    """한 턴의 응답 판정: 계약 검증은 호출이 했다. 실패 신호이면 세션 상태가 바뀌지 않았는지 본다(D75)."""
+@dataclass
+class TurnLedger:
+    """연속 실패 수의 기대치. 서비스가 세는 방식(계약 TurnFailureLimit)을 이 시험이 따로 세어 서비스의 응답과 맞춘다."""
+
+    limit: int
+    streak: int = 0
+
+
+def _check_skip(ctx: Context, previous_item: str | None, reply: dict[str, Any], ledger: TurnLedger) -> None:
+    """한도에 닿은 턴: 실패 신호 없이 문장과 다음 자리를 준다(계약 필드만 본다. 고정 문장의 글은 계약이 정하지 않아 비교하지 않는다)."""
+    sentence = reply.get("response_text")
+    if not isinstance(sentence, str) or not sentence.strip():
+        raise StepFailure(
+            f"연속 실패 {ledger.limit}번째 턴인데 response_text 가 없거나 비어 있다(건너뛴 결과는 안내 문장과 다음 질문을 준다)"
+        )
+    if errors := ctx.contract.schema_errors(ctx.contract.named("ResponseSentence"), sentence):
+        raise StepFailure(f"건너뛴 턴의 response_text 가 ResponseSentence 를 어겼다: {errors}")
+    next_item = reply.get("current_item_id")
+    if reply["status"] == "ACTIVE":
+        if next_item is None or next_item == previous_item:
+            raise StepFailure(f"연속 실패 {ledger.limit}번째 턴이 문항 {previous_item} 을 건너뛰어야 하는데 지금 문항이 {next_item} 이다")
+    elif reply["status"] != "ENDED_COMPLETE" or next_item is not None:
+        raise StepFailure(f"건너뛴 턴 뒤 세션 상태가 ACTIVE 도 ENDED_COMPLETE(끝)도 아니다: {reply['status']}, 지금 문항 {next_item}")
+    ctx.skipped.append((previous_item or "?", next_item))
+
+
+def _check_turn(
+    ctx: Context,
+    previous_item: str | None,
+    reply: dict[str, Any],
+    turn_checks: dict[str, int],
+    ledger: TurnLedger,
+    *,
+    resend: bool = False,
+) -> None:
+    """한 턴의 응답 판정: 계약 검증은 호출이 했다.
+
+    실패 신호이면 저장된 답과 지금 문항이 바뀌지 않았는지 본다(D75, 9.3.0 에서 연속 실패 수만 예외). 연속 실패 수가 한도에 닿는 턴은 실패 신호를 내면 안 되고
+    건너뛴 결과를 줘야 한다. 같은 turn_id 의 재전송(resend)은 실패 신호가 다시 와야 하고 수를 올리지 않는다.
+    """
     if "failure_signal" not in reply:
-        ctx.turn_successes += 1
+        if resend:
+            raise StepFailure("실패한 turn_id 의 재전송이 실패 신호 없이 끝났다(모델이 바뀐 것이 아니면 같은 실패여야 한다)")
+        if ledger.streak == ledger.limit - 1 and ledger.streak > 0:
+            _check_skip(ctx, previous_item, reply, ledger)
+            ctx.turn_skips += 1
+        else:
+            ctx.turn_successes += 1
+        ledger.streak = 0
         return
+    if not resend and ledger.streak + 1 >= ledger.limit:
+        raise StepFailure(
+            f"연속 {ledger.limit}번째 실패인데 실패 신호({reply['failure_signal']})를 냈다(문항 {previous_item}). 한도에 닿으면 그 문항을 건너뛴 결과여야 한다"
+        )
     ctx.turn_failures += 1
     if reply["status"] != "ACTIVE":
         raise StepFailure(f"실패 신호({reply['failure_signal']})인데 세션 상태가 {reply['status']} 로 바뀌었다")
@@ -225,6 +282,8 @@ def _check_turn(ctx: Context, previous_item: str | None, reply: dict[str, Any], 
             f"실패 신호({reply['failure_signal']})인데 지금 문항이 {previous_item} 에서 {reply['current_item_id']} 로 바뀌었다"
         )
     turn_checks[reply["failure_signal"]] = turn_checks.get(reply["failure_signal"], 0) + 1
+    if not resend:
+        ledger.streak += 1
 
 
 def _stream_result(
@@ -271,8 +330,14 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
         f"startSessionStream 200·SSE(결과는 SessionStarted, ACTIVE, 모델이 만든 첫 문장 {len(started['response_text'])}자, 지금 문항 {item})"
     )
     failures: dict[str, int] = {}
+    ledger = TurnLedger(limit=ctx.contract.integer_constant(FAILURE_LIMIT_SCHEMA))
+    if ctx.mode == "pipeline" and 2 * ledger.limit > PIPELINE_TURNS:
+        raise StepFailure(
+            f"pipeline 의 턴 수 {PIPELINE_TURNS} 가 연속 실패 한도 {ledger.limit} 의 두 배보다 작아 건너뛰기 되풀이를 볼 수 없다"
+        )
     limit = PIPELINE_TURNS if ctx.mode == "pipeline" else PRODUCT_TURN_GUARD
     sent = 0
+    resent = False
     status = "ACTIVE"
     while status == "ACTIVE" and sent < limit:
         turn = script.BY_ITEM.get(item)
@@ -280,17 +345,28 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
             if ctx.mode == "product":
                 raise StepFailure(f"서비스가 알려 준 지금 문항 {item} 의 발화가 대본에 없다")
             turn = script.SCRIPT[sent % len(script.SCRIPT)]
+        turn_body = {"turn_id": str(uuid.uuid4()), "utterance": turn.utterance}
         reply = _stream_result(
-            ctx,
-            kiosk,
-            "submitTurnStream",
-            f"{sent + 1}번째 턴",
-            checks,
-            path={"session_id": ctx.session_id},
-            body={"turn_id": str(uuid.uuid4()), "utterance": turn.utterance},
+            ctx, kiosk, "submitTurnStream", f"{sent + 1}번째 턴", checks, path={"session_id": ctx.session_id}, body=turn_body
         )
         sent += 1
-        _check_turn(ctx, item, reply, failures)
+        _check_turn(ctx, item, reply, failures, ledger)
+        if ctx.mode == "pipeline" and "failure_signal" in reply and ledger.streak == 1 and not resent:
+            # 같은 turn_id 의 재전송은 연속 실패 수를 올리지 않는다(계약 TurnFailureLimit (1)). 다음 새 turn_id 가 3번째가 아니라 2번째 실패로 세어지는지가 그 증거다
+            again = _stream_result(
+                ctx,
+                kiosk,
+                "submitTurnStream",
+                f"{sent}번째 턴 같은 turn_id 재전송",
+                checks,
+                path={"session_id": ctx.session_id},
+                body=turn_body,
+            )
+            _check_turn(ctx, item, again, failures, ledger, resend=True)
+            resent = True
+            checks.append(
+                f"실패한 turn_id 를 다시 보내도 연속 실패 수는 {ledger.streak} 그대로다(다음 새 턴이 {ledger.limit - 1}번째 실패로 세어져야 한다)"
+            )
         if "failure_signal" in reply and ctx.mode == "product":
             raise StepFailure(
                 f"product 모드에서 턴이 실패 신호({reply['failure_signal']})를 냈다(문항 {item}, {sent}번째 턴). 실패한 턴을 다시 보내지 않는다"
@@ -301,10 +377,17 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
         if state["status"] != status:
             raise StepFailure(f"턴 응답의 상태 {status} 와 getSessionState 의 {state['status']} 가 다르다")
     ctx.last_status = status
-    checks.append(f"submitTurnStream {sent}번 모두 200·SSE·계약 일치(성공 {ctx.turn_successes}, 실패 신호 {ctx.turn_failures})")
+    checks.append(
+        f"submitTurnStream {sent}번 모두 200·SSE·계약 일치(성공 {ctx.turn_successes}, 실패 신호 {ctx.turn_failures}, 한도 {ledger.limit}에 닿아 건너뜀 {ctx.turn_skips})"
+    )
     if failures:
         checks.append(
             "실패 신호 " + ", ".join(f"{name} {count}" for name, count in sorted(failures.items())) + "건 모두 세션 상태·지금 문항 불변"
+        )
+    if ctx.skipped:
+        checks.append(
+            "연속 실패 한도로 건너뜀(실패 신호 없이 안내 문장 ResponseSentence 와 다음 문항): "
+            + ", ".join(f"{src} -> {dst or '끝'}" for src, dst in ctx.skipped)
         )
     elif ctx.mode == "pipeline":
         checks.append("실패 신호는 관측되지 않았다(실패 경로는 이 실행에서 시험되지 않았다)")
@@ -327,6 +410,27 @@ def _same(value: Any, expected: Any) -> bool:
     return bool(value == expected)
 
 
+def check_limit_blanks(ctx: Context, result: dict[str, Any], checks: list[str]) -> None:
+    """연속 실패 한도로 건너뛴 문항(⑤가 본 것)과 결과의 FAILURE_LIMIT 빈칸이 맞는지 본다.
+
+    pipeline 은 실패가 결정적이라 두 쪽이 같아야 한다: 건너뛰었다고 본 문항에 빈칸이 없으면 안 되고, 건너뜀으로 보지 않은 문항에 있어도 안 된다(예: 재전송을 세는 서비스는
+    우리가 센 것보다 먼저 건너뛴다). product 는 실패 신호를 바로 실패로 다루므로 건너뛴 문항이 없는 것이 정상이지만, 결과에 있으면 실패로 보지 않고 적는다.
+    """
+    limit_items = sorted({blank["item_id"] for blank in result["blanks"] if blank["reason"] == BLANK_REASON})
+    skipped = [source for source, _ in ctx.skipped]
+    reasons = sorted({blank["reason"] for blank in result["blanks"]})
+    if missing := [item for item in skipped if item not in limit_items]:
+        raise StepFailure(f"연속 실패 한도로 건너뛴 문항 {missing} 의 빈칸 원인에 {BLANK_REASON} 가 없다(빈칸 원인 {reasons})")
+    if ctx.mode == "pipeline" and (extra := [item for item in limit_items if item not in skipped]):
+        raise StepFailure(
+            f"결과에 {BLANK_REASON} 빈칸이 있는 문항 {extra} 을 이 시험은 건너뛴 턴으로 세지 않았다(서비스의 연속 실패 수가 시험이 센 것과 다르다)"
+        )
+    if skipped:
+        checks.append(f"건너뛴 문항 {len(skipped)}개 모두 결과의 빈칸 원인이 {BLANK_REASON} 다(문항 {', '.join(skipped)})")
+    elif limit_items:
+        checks.append(f"연속 실패 한도로 건너뛴 문항 {len(limit_items)}개가 결과에 있다(실패로 보지 않음): {', '.join(limit_items)}")
+
+
 def doctor(ctx: Context, checks: list[str], findings: list[str]) -> None:
     clinician = ctx.human("clinician-e2e")
     listing = ctx.call(clinician, "survey-service", "listResults", expect=(200,), query={"subject_ref": SUBJECT}).body
@@ -340,6 +444,7 @@ def doctor(ctx: Context, checks: list[str], findings: list[str]) -> None:
     checks.append(
         f"listResults·getResult 200(상태 {result['status']}, 저장된 답 {len(result['answers'])}개, 빈칸 {len(result['blanks'])}개)"
     )
+    check_limit_blanks(ctx, result, checks)
     if ctx.mode == "product":
         stored = {answer["key"]: answer["value"] for answer in result["answers"]}
         expected = {key: value for turn in script.SCRIPT for key, value in turn.expected.items()}
@@ -361,6 +466,43 @@ def doctor(ctx: Context, checks: list[str], findings: list[str]) -> None:
 
 
 # ---------------------------------------------------------------- ⑦ 병원 시스템
+ABSENT_REASON_URL = "http://hl7.org/fhir/StructureDefinition/data-absent-reason"  # HL7 FHIR R4 표준 확장. 계약 FhirMapping 은 '빈칸은 answer 없이 data-absent-reason 확장'이라고만 적는다
+
+
+def fhir_absent_codes(fhir: dict[str, Any]) -> dict[str, list[str]]:
+    """FHIR QuestionnaireResponse 에서 linkId 마다 data-absent-reason 확장의 valueCode 를 모은다(item 은 중첩될 수 있다)."""
+    found: dict[str, list[str]] = {}
+
+    def walk(items: list[dict[str, Any]]) -> None:
+        for entry in items:
+            for extension in entry.get("extension", []):
+                if extension.get("url") == ABSENT_REASON_URL and "valueCode" in extension:
+                    found.setdefault(entry.get("linkId", ""), []).append(extension["valueCode"])
+            walk(entry.get("item", []))
+
+    walk(fhir.get("item", []))
+    return found
+
+
+def check_fhir_blanks(result: dict[str, Any], fhir: dict[str, Any]) -> str | None:
+    """결과의 FAILURE_LIMIT 빈칸이 FHIR 에서 data-absent-reason `error` 인지 본다. 해당 빈칸이 없으면 None, 있으면 확인한 내용을 돌려준다."""
+    blanks = [blank for blank in result["blanks"] if blank["reason"] == BLANK_REASON]
+    if not blanks:
+        return None
+    codes = fhir_absent_codes(fhir)
+    wrong: list[str] = []
+    for blank in blanks:
+        link_id = blank.get("key") or blank["item_id"]  # 계약 FhirMapping: item.linkId 는 문항이면 문항 식별자, 칸이면 칸 식별자
+        if codes.get(link_id) != [FHIR_ABSENT_ERROR]:
+            wrong.append(f"{link_id}: {codes.get(link_id, '(data-absent-reason 없음)')}")
+    if wrong:
+        raise StepFailure(
+            f"{BLANK_REASON} 빈칸이 FHIR 에서 data-absent-reason {FHIR_ABSENT_ERROR} 가 아니다({len(wrong)}/{len(blanks)}): "
+            + "; ".join(wrong[:8])
+        )
+    return f"결과의 {BLANK_REASON} 빈칸 {len(blanks)}개가 FHIR 에서 모두 data-absent-reason {FHIR_ABSENT_ERROR} 다"
+
+
 def hospital(ctx: Context, checks: list[str], findings: list[str]) -> None:
     client = ctx.hospital()
     listing = ctx.call(client, "survey-service", "listResults", expect=(200,), query={"subject_ref": SUBJECT}).body
@@ -375,6 +517,10 @@ def hospital(ctx: Context, checks: list[str], findings: list[str]) -> None:
     checks.append(
         f"기계 토큰(result-reader)으로 listResults·getResult 200, 의사가 본 결과와 같다. getResultFhir 200(QuestionnaireResponse, status {fhir.get('status')})"
     )
+    if note := check_fhir_blanks(result, fhir):
+        checks.append(note)
+    elif ctx.skipped:
+        raise StepFailure("건너뛴 문항이 있는데 결과에 FAILURE_LIMIT 빈칸이 없다")
 
 
 # ---------------------------------------------------------------- ⑧ 직원 호출
