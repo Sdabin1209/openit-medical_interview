@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.2.0
+  version: 9.2.1
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -391,7 +391,7 @@ components:
     SessionId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "문진 세션 하나의 식별자. 서버가 발급한다", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D110(서버 발급 session_id)" }
     TurnId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
     UtteranceText: { type: string, minLength: 1, maxLength: 300, examples: [ "뇌졸중 진단 받았고 약도 먹고 있어요" ], description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36,145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배, docs/v7-flow-resolutions.md), 학습 서버 final·finaltest 93,429행 실측(2026-11-10)로 A 입력 46655행의 user_utterance 최대 140자 확인, D88 U3(음성은 기기 안 처리)" }
-    ResponseSentence: { type: string, minLength: 1, maxLength: 344, examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 추출 요청(ExtractionRequest.current_question)에도 들어가므로 그 자리의 상한을 겸한다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
+    ResponseSentence: { type: string, minLength: 1, maxLength: 344, pattern: "^[^\\s{\\[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F](?:[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F])?$", examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D117(받아들이는 조건은 스키마에 둔다. 앞뒤 공백·제어 문자·JSON 감싸기 조건은 7.0.0 부터 model-runtime 의 responder 가 코드로 지키던 것을 9.2.1 에서 스키마로 옮겼다), D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 추출 요청(ExtractionRequest.current_question)에도 들어가므로 그 자리의 상한을 겸한다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
     QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, examples: [ "Q1.D01" ], description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SessionStatus:
       type: string

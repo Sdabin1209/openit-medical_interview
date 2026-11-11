@@ -507,7 +507,7 @@ export interface components {
          */
         UtteranceText: string;
         /**
-         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
          * @example 뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다.
          */
         ResponseSentence: string;
