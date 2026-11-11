@@ -8,6 +8,7 @@
 - 영역 폴더는 `tools/new-area` 로 만들고 ADR 0003 구조를 따른다. 계약 타입은 생성 명령으로만 만든다(손으로 옮기지 않는다). 영역 안 컴포넌트 사이 값은 영역의 `types` 에 한 번만 정의한다.
 - 컴포넌트는 `types` 와 생성 타입만 import 한다. 영역 밖 통신은 `link_` 컴포넌트만 한다. 이웃 영역은 계약 타입으로 만든 가짜(메모리 구현)로 대신해 혼자 시험한다.
 - 값은 낸 쪽이 한 번만 검증한다(R7). 받은 계약 값을 다시 검사하지 않는다.
+- 삭제에 `rm -rf` 와 와일드카드를 쓰지 않는다(사용자 승인 창에 걸려 작업이 멈춘다). 폴더 안 비우기는 `find <폴더> -mindepth 1 -delete`, 볼륨은 `docker volume rm`, 프로젝트는 `docker compose down -v` 를 쓴다.
 - 시험은 통제 가능한 시간만 쓴다. 시계는 주입하고(Python 은 Callable[[], datetime], TS 는 now 함수) 화면은 가짜 타이머를 쓴다. 고정 시간 대기(sleep, setTimeout)와 라이브러리·외부 제품의 타이머나 실제 경과 시간을 재는 시험은 두지 않는다(우리 코드만 시험한다). 기다림은 이벤트나 상태를 보는 방식으로만 한다.
 - 기술은 ADR 0001(Python 3.12·FastAPI·Pydantic v2·SQLAlchemy 2·asyncpg·Alembic·PostgreSQL 16 / React·Vite·TS). 새 의존은 표준 오픈소스, 배포물은 허용형 라이선스만, 버전 지정 없이 설치.
 - 비자명한 선택은 영역 `docs/adr/` 에 ADR, 상수에는 근거 주석.
