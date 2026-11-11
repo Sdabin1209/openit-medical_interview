@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.1.0
+  version: 9.2.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -558,6 +558,85 @@ components:
         sequence: { $ref: "#/components/schemas/EventSequence", description: "이벤트 순번" }
         alert: { $ref: "#/components/schemas/StaffAlert", description: "alert 와 resolved 이벤트가 가리키는 알림" }
     ServerSentEventStream: { type: string, format: binary, contentMediaType: text/event-stream, description: "알림 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). 끝이 없는 스트림이라 길이 상한이 없다. 이벤트 하나의 data 는 StaffAlertEvent 다", x-owner: survey-service, x-basis: "WHATWG HTML 9.2(Server-sent events), OpenAPI 3.1 4.8(미디어 유형 text/event-stream 의 schema 는 본문 전체), D66(4), D87" }
+    StreamEventDelta: { const: delta, description: "응답 문장 스트림의 delta 이벤트 이름(SSE event 줄과 같다). 응답 문장의 다음 조각이고 받은 즉시 화면에 이어 붙인다", x-owner: head, x-basis: "WHATWG HTML 9.2.6(event 줄로 이벤트 종류를 가른다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    StreamEventResult: { const: result, description: "응답 문장 스트림의 result 이벤트 이름(SSE event 줄과 같다). 확정 결과이고 스트림의 마지막 이벤트다. 화면의 문장은 이 결과의 문장으로 바꾼다", x-owner: head, x-basis: "WHATWG HTML 9.2.6, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    StreamEventError: { const: error, description: "응답 문장 스트림의 error 이벤트 이름(SSE event 줄과 같다). 헤더를 이미 보내 상태 코드로 알릴 수 없는 스트림 도중의 실패이고 스트림의 마지막 이벤트다", x-owner: head, x-basis: "WHATWG HTML 9.2.6, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseDeltaText: { type: string, minLength: 1, maxLength: 344, description: "응답 문장의 한 조각(추론 엔진이 낸 토큰 하나 이상을 글자로 푼 것). 조각을 차례로 이은 것이 모델이 낸 문장이다", x-owner: head, x-basis: "ResponseSentence 의 상한 344(조각 하나는 문장 전체보다 길 수 없다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseEventStream: { type: string, format: binary, contentMediaType: text/event-stream, description: "응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)", x-owner: head, x-basis: "WHATWG HTML 9.2(Server-sent events), OpenAPI 3.1 4.8(text/event-stream 의 schema 는 본문 전체), RFC 9110 12.5.1(Accept 로 응답 형식을 고른다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseDeltaEvent:
+      type: object
+      additionalProperties: false
+      description: "응답 문장 스트림의 delta 이벤트 data"
+      x-owner: head
+      x-basis: "사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, text]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventDelta", description: "응답 문장의 조각" }
+        text: { $ref: "#/components/schemas/ResponseDeltaText", description: "다음 조각" }
+    ResponseErrorEvent:
+      type: object
+      additionalProperties: false
+      description: "응답 문장 스트림의 error 이벤트 data. 본문은 같은 실패를 JSON 응답으로 알렸을 때의 문제 상세와 같다"
+      x-owner: head
+      x-basis: "RFC 9457(문제 상세), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, problem]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventError", description: "스트림 도중의 실패" }
+        problem: { $ref: "#/components/schemas/ProblemDetails", description: "실패의 문제 상세(status 는 같은 실패를 JSON 으로 알렸을 때의 상태 코드)" }
+    ResponseResultEvent:
+      type: object
+      additionalProperties: false
+      description: "generateResponse 스트림의 result 이벤트 data"
+      x-owner: head
+      x-basis: "사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/ResponseResult", description: "만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다)" }
+    SessionStartResultEvent:
+      type: object
+      additionalProperties: false
+      description: "startSession 스트림의 result 이벤트 data"
+      x-owner: survey-service
+      x-basis: "N01, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/SessionStarted", description: "시작한 세션(JSON 응답의 본문과 같다)" }
+    TurnResultEvent:
+      type: object
+      additionalProperties: false
+      description: "submitTurn 스트림의 result 이벤트 data"
+      x-owner: survey-service
+      x-basis: "N01, N02, D86, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/TurnResponse", description: "턴 결과(JSON 응답의 본문과 같다)" }
+    ResponseStreamEvent:
+      description: "generateResponse 스트림의 이벤트 하나의 data 본문"
+      x-owner: head
+      x-basis: "D74(문장은 LoRA-B 가 만든다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/ResponseResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
+    SessionStartStreamEvent:
+      description: "startSession 스트림의 이벤트 하나의 data 본문"
+      x-owner: survey-service
+      x-basis: "N01, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/SessionStartResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
+    TurnStreamEvent:
+      description: "submitTurn 스트림의 이벤트 하나의 data 본문"
+      x-owner: survey-service
+      x-basis: "N01, N02, D86, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/TurnResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
     InterventionAction:
       type: string
       enum: [ACKNOWLEDGE, RESUME]

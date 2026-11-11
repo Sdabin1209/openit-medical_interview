@@ -183,6 +183,17 @@ model-runtime 영역의 E2E 첫 실행(`deploy/docs/E2E_RESULTS.md`)이 찾은 �
 - `activateModelPackage`·`rollbackModelPackage` 설명에 적재가 이 안에 끝나야 하고 넘기면 FAILED 라고 적었다(이전 패키지 유지, D46).
 - 영향: model-runtime(적재 상한을 건다, ADR 0012), deploy 의 E2E(빌려 쓰던 190초를 이 값으로 바꾼다), 계약 타입 생성물. 판 표시는 `components.yaml` 과 `openapi/*.yaml` 6곳이 9.1.0 이고 `ContractsVersionLabel`(MAJOR 만)은 그대로다.
 
+### 9.2.0 (2026-11-11, 하위 호환 추가)
+
+LoRA-B 응답 문장을 토큰 단위로 바로 내보낸다(사용자 결정 2026-11-11). 환자가 느끼는 응답 시간은 첫 글자가 보이는 때로 정해지므로, 문장이 다 만들어지기를 기다리지 않고 엔진이 낸 조각을 키오스크까지 그대로 흘린다. LoRA-A(추출)는 영역 안의 결정이라 스트림으로 바꾸지 않는다.
+
+- 응답 형식은 요청의 `Accept` 로 고른다(RFC 9110 12.5.1). `text/event-stream` 이면 Server-Sent Events 스트림이고, 없거나 `application/json` 이면 지금과 같은 JSON 이다. 그래서 기존 호출자는 깨지지 않는다.
+- 스트림을 주는 작업: `generateResponse`(model-runtime), `startSession`·`submitTurn`(survey-service). 이벤트는 `delta`(조각, 0개 이상) 뒤에 `result`(JSON 응답의 본문과 같다)나 `error`(문제 상세) 하나로 끝난다. 요청을 받아들일지 정하는 실패는 스트림을 열기 전에 JSON 과 같은 상태 코드로 답한다. 시간 상한(`ModelRespondLimitSeconds`, `RespondClientLimitSeconds`, `SurveyTurnLimitSeconds`)은 값이 같고 `result`·`error` 까지에 건다.
+- 문장의 합격 조건(`ResponseSentence` 1~344자)은 model-runtime 이 스트림에서도 지킨다. 이은 글자가 344자를 넘는 순간 그 조각을 보내지 않고 `error`(OUTPUT_INVALID)로 끝내고, 끝에서 빈 문장이면 `error` 다. 받는 쪽은 다시 검사하지 않는다(R7).
+- 턴은 `result` 를 보내기 전에 기록한다. `result` 전에 끊기거나 `error` 로 끝난 턴은 기록하지 않은 것과 같아(failure_signal 과 같은 규칙, D86) 같은 `turn_id` 로 다시 보내면 다시 처리한다. 화면은 `delta` 를 이어 붙이다가 `result` 의 문장으로 바꾼다(서비스가 고정 문장을 붙이면 둘이 다를 수 있다).
+- 더한 스키마: `StreamEventDelta`, `StreamEventResult`, `StreamEventError`, `ResponseDeltaText`, `ResponseEventStream`, `ResponseDeltaEvent`, `ResponseErrorEvent`, `ResponseResultEvent`, `SessionStartResultEvent`, `TurnResultEvent`, `ResponseStreamEvent`, `SessionStartStreamEvent`, `TurnStreamEvent`. 이벤트 data 의 스키마는 기존 알림 스트림처럼 미디어 유형의 `x-event-data-schema` 로 가리킨다.
+- 영향: model-runtime(`link_engine` 이 엔진을 스트림으로 부르고 `link_api` 가 SSE 를 낸다), survey-service(`link_model_client` 가 스트림을 받고 세션·턴 작업이 조각을 바로 흘린다), kiosk-frontend(조각을 바로 그린다), 경로의 게이트웨이와 입구(스트림을 모으지 않고 바로 넘긴다), 계약 타입 생성물. 판 표시는 6곳이 9.2.0 이고 `ContractsVersionLabel`(MAJOR 만)은 그대로다.
+
 ## 점검
 
 ```

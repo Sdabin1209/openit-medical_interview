@@ -55,7 +55,7 @@ export interface paths {
         put?: never;
         /**
          * 시작 코드로 세션 시작
-         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것으로 정하고 활성 문진표가 하나뿐이면 그것이다. 모두 없고 활성 문진표가 둘 이상이면 환자가 골라야 하므로 422 QUESTIONNAIRE_REQUIRED 로 답하며, 이 응답은 시작 코드를 쓰지 않은 것으로 한다. 키오스크는 먼저 questionnaire_id 없이 보내고(같은 기기·같은 코드 재전송은 멱등) 이 사유일 때만 선택 화면을 보여 고른 값을 더해 다시 보낸다. 시작은 세션의 첫 활동이다(유휴 만료 기준은 getSessionState).
+         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것으로 정하고 활성 문진표가 하나뿐이면 그것이다. 모두 없고 활성 문진표가 둘 이상이면 환자가 골라야 하므로 422 QUESTIONNAIRE_REQUIRED 로 답하며, 이 응답은 시작 코드를 쓰지 않은 것으로 한다. 키오스크는 먼저 questionnaire_id 없이 보내고(같은 기기·같은 코드 재전송은 멱등) 이 사유일 때만 선택 화면을 보여 고른 값을 더해 다시 보낸다. 시작은 세션의 첫 활동이다(유휴 만료 기준은 getSessionState). 요청의 Accept 가 text/event-stream 이면 같은 결과를 Server-Sent Events 스트림으로 준다(RFC 9110 12.5.1, 사용자 결정 2026-11-11). LoRA-B 가 토큰을 내는 대로 delta 이벤트로 바로 보내고 마지막에 result(JSON 응답의 본문과 같다) 하나를 보낸다. 요청을 받아들일지 정하는 실패(인증, 검증, 없는 대상, 충돌, 준비 안 됨)는 스트림을 열기 전에 JSON 과 같은 상태 코드로 답하고, 스트림을 연 뒤의 실패는 error 이벤트 하나로 끝낸다. 시간 상한은 JSON 과 같고 result 나 error 까지에 건다. Accept 가 없거나 application/json 이면 지금처럼 JSON 으로 답한다. 스트림의 상태 코드(201 새 세션, 200 같은 세션 재시작)는 JSON 과 같다. 다시 시작한 세션(200)은 delta 없이 result 하나다. 스트림이 result 전에 끊기면 세션은 이미 만들어졌을 수 있으므로 같은 코드로 다시 시작하면 같은 세션을 200 으로 받는다.
          */
         post: operations["startSession"];
         delete?: never;
@@ -78,7 +78,7 @@ export interface paths {
         put?: never;
         /**
          * 환자 발화 한 턴 보내기
-         * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다. failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 세션 상태를 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
+         * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다. failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 세션 상태를 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다. 요청의 Accept 가 text/event-stream 이면 같은 결과를 Server-Sent Events 스트림으로 준다(RFC 9110 12.5.1, 사용자 결정 2026-11-11). LoRA-B 가 토큰을 내는 대로 delta 이벤트로 바로 보내고 마지막에 result(JSON 응답의 본문과 같다) 하나를 보낸다. 요청을 받아들일지 정하는 실패(인증, 검증, 없는 대상, 충돌, 준비 안 됨)는 스트림을 열기 전에 JSON 과 같은 상태 코드로 답하고, 스트림을 연 뒤의 실패는 error 이벤트 하나로 끝낸다. 시간 상한은 JSON 과 같고 result 나 error 까지에 건다. Accept 가 없거나 application/json 이면 지금처럼 JSON 으로 답한다. 턴은 result 를 보내기 전에 기록한다. result 전에 끊기거나 error 로 끝난 턴은 기록하지 않은 것과 같아(failure_signal 과 같은 규칙) 같은 turn_id 로 다시 보내면 다시 처리한다. 이미 성공한 turn_id 를 다시 보내면 delta 없이 result 하나다. failure_signal 을 주는 턴(문장이 없다)도 delta 없이 result 하나다. 서비스가 모델 문장에 고정 문장(직원 도움 안내 등)을 붙이면 result 의 response_text 가 delta 를 이은 것과 다를 수 있고, 화면은 result 의 문장으로 바꾼다.
          */
         post: operations["submitTurn"];
         delete?: never;
@@ -795,6 +795,11 @@ export interface components {
             /** @description 지금 묻는 문항 */
             current_item_id?: components["schemas"]["QuestionItemId"];
         };
+        /**
+         * Format: binary
+         * @description 응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)
+         */
+        ResponseEventStream: string;
         /**
          * Format: uuid
          * @description 환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)
@@ -1813,6 +1818,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionStarted"];
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };
             /** @description 시작한 세션 */
@@ -1822,6 +1828,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionStarted"];
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -1858,6 +1865,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TurnResponse"];
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };
             400: components["responses"]["BadRequest"];

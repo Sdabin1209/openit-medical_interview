@@ -659,6 +659,69 @@ export interface components {
          */
         ServerSentEventStream: string;
         /**
+         * @description 응답 문장 스트림의 delta 이벤트 이름(SSE event 줄과 같다). 응답 문장의 다음 조각이고 받은 즉시 화면에 이어 붙인다
+         * @constant
+         */
+        StreamEventDelta: "delta";
+        /**
+         * @description 응답 문장 스트림의 result 이벤트 이름(SSE event 줄과 같다). 확정 결과이고 스트림의 마지막 이벤트다. 화면의 문장은 이 결과의 문장으로 바꾼다
+         * @constant
+         */
+        StreamEventResult: "result";
+        /**
+         * @description 응답 문장 스트림의 error 이벤트 이름(SSE event 줄과 같다). 헤더를 이미 보내 상태 코드로 알릴 수 없는 스트림 도중의 실패이고 스트림의 마지막 이벤트다
+         * @constant
+         */
+        StreamEventError: "error";
+        /** @description 응답 문장의 한 조각(추론 엔진이 낸 토큰 하나 이상을 글자로 푼 것). 조각을 차례로 이은 것이 모델이 낸 문장이다 */
+        ResponseDeltaText: string;
+        /**
+         * Format: binary
+         * @description 응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)
+         */
+        ResponseEventStream: string;
+        /** @description 응답 문장 스트림의 delta 이벤트 data */
+        ResponseDeltaEvent: {
+            /** @description 응답 문장의 조각 */
+            event: components["schemas"]["StreamEventDelta"];
+            /** @description 다음 조각 */
+            text: components["schemas"]["ResponseDeltaText"];
+        };
+        /** @description 응답 문장 스트림의 error 이벤트 data. 본문은 같은 실패를 JSON 응답으로 알렸을 때의 문제 상세와 같다 */
+        ResponseErrorEvent: {
+            /** @description 스트림 도중의 실패 */
+            event: components["schemas"]["StreamEventError"];
+            /** @description 실패의 문제 상세(status 는 같은 실패를 JSON 으로 알렸을 때의 상태 코드) */
+            problem: components["schemas"]["ProblemDetails"];
+        };
+        /** @description generateResponse 스트림의 result 이벤트 data */
+        ResponseResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다) */
+            result: components["schemas"]["ResponseResult"];
+        };
+        /** @description startSession 스트림의 result 이벤트 data */
+        SessionStartResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 시작한 세션(JSON 응답의 본문과 같다) */
+            result: components["schemas"]["SessionStarted"];
+        };
+        /** @description submitTurn 스트림의 result 이벤트 data */
+        TurnResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 턴 결과(JSON 응답의 본문과 같다) */
+            result: components["schemas"]["TurnResponse"];
+        };
+        /** @description generateResponse 스트림의 이벤트 하나의 data 본문 */
+        ResponseStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["ResponseResultEvent"] | components["schemas"]["ResponseErrorEvent"];
+        /** @description startSession 스트림의 이벤트 하나의 data 본문 */
+        SessionStartStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["SessionStartResultEvent"] | components["schemas"]["ResponseErrorEvent"];
+        /** @description submitTurn 스트림의 이벤트 하나의 data 본문 */
+        TurnStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["TurnResultEvent"] | components["schemas"]["ResponseErrorEvent"];
+        /**
          * @description 직원이 알림에 대해 내리는 결정
          * @enum {string}
          */
