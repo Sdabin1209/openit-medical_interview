@@ -25,6 +25,8 @@ export interface ConversationViewProps {
   title?: string | undefined;
   /** 화면에 보일 질문·응답 문장(계약 ResponseSentence) */
   sentence: string;
+  /** 문장을 스트림으로 받아 그리는 중이다. 조각마다 읽어 주지 않도록 끝날 때까지 보조 기술의 알림을 미룬다(WAI-ARIA aria-busy) */
+  streaming?: boolean;
   /** 서비스의 고정 문장으로 직원 도움을 안내하는 중이다(계약 staff_help_notice) */
   staffHelpNotice: boolean;
   draft: string;
@@ -53,7 +55,7 @@ export function ConversationView(props: ConversationViewProps) {
   return (
     <section className="conversation" aria-labelledby="sentence">
       {props.title !== undefined && <p className="questionnaire-title">{props.title}</p>}
-      <p id="sentence" className="sentence" aria-live="polite">
+      <p id="sentence" className="sentence" aria-live="polite" aria-busy={props.streaming === true}>
         {props.sentence}
       </p>
       {props.staffHelpNotice && (

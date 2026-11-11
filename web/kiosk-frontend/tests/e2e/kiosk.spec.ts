@@ -120,3 +120,16 @@ test("보안 헤더: 연결은 같은 출처로만 허용한다(CSP connect-src 
   const response = await page.goto("/kiosk/");
   expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'");
 });
+
+// 브라우저의 fetch 가 SSE 본문을 읽는다(page.route 는 본문을 한 번에 내므로 조각 단위 전달은 단위 시험 tests/contract/stream.test.ts 가 본다)
+test("스트림 도중 error 는 같은 turn_id 로 다시 보내 다음 문장을 보인다", async ({ page }) => {
+  const fake = createFakeSurveyService();
+  await open(page, fake);
+  await enterCode(page, CODES.ok);
+  fake.faultTimes("error");
+  await say(page, "안 피웁니다");
+  await expect(page.getByText(/일주일에 술을 몇 번/)).toBeVisible();
+  const ids = fake.requests.filter((r) => r.path.endsWith("/turns/stream")).map((r) => (r.body as { turn_id: string }).turn_id);
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).toBe(ids[1]);
+});

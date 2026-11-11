@@ -16,6 +16,26 @@ export interface FakeResponse {
   status: number;
   headers?: Record<string, string>;
   body: unknown;
+  /** 있으면 본문 대신 이 조각들을 차례로 보내는 text/event-stream 이다(청크 경계가 이벤트 중간에 걸릴 수 있다) */
+  chunks?: string[];
+}
+
+/** 스트림 data 의 모양(계약 SessionStartStreamEvent·TurnStreamEvent). 생성 타입에 data 스키마가 없어 생성된 조각으로 맞춘다 */
+export type FakeStreamEvent =
+  | { event: "delta"; text: string }
+  | { event: "result"; result: S["SessionStarted"] | S["TurnResponse"] }
+  | { event: "error"; problem: S["ProblemDetails"]; retry_after_seconds?: number };
+
+/** 이벤트를 SSE 글로 만든다(WHATWG HTML 9.2: event 줄, data 줄, 빈 줄) */
+export function sse(events: FakeStreamEvent[]): string {
+  return events.map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e)}\n\n`).join("");
+}
+
+/** 글을 n 자씩 잘라 청크로 만든다. 이벤트 중간에서 끊긴다 */
+export function sliceChunks(text: string, n: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += n) out.push(text.slice(i, i + n));
+  return out;
 }
 
 /** 시험 대본의 시작 코드. 계약 startSession 의 오류마다 코드 하나를 두었다 */
@@ -57,10 +77,52 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
   let unavailableNext = 0;
   const seenTurns = new Map<string, S["TurnResponse"]>();
   const requests: FakeRequest[] = [];
+  let startInProgressNext = 0;
+  let faultNext: { kind: "error" | "drop"; times: number } | undefined;
 
-  function handle(request: FakeRequest): FakeResponse {
-    requests.push(request);
+  const pieces = (text: string) => text.match(/\S+\s*/g) ?? [text];
+
+  /** 스트림 작업: JSON 작업과 같은 판정을 하고, 받아들이면 200 스트림(delta 뒤 result)으로 바꾼다(계약 README 응답 문장 스트림 1·4·6항) */
+  function stream(request: FakeRequest, jsonPath: string): FakeResponse {
+    const turnId = (request.body as Partial<S["TurnRequest"]> | undefined)?.turn_id;
+    const replay = turnId !== undefined && seenTurns.has(turnId);
+    const fault = faultNext;
+    const head = { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-store, no-transform" } };
+    if (fault !== undefined && fault.times > 0 && !replay && jsonPath !== "") {
+      fault.times -= 1;
+      const deltas: FakeStreamEvent[] = pieces("네, 알겠").map((text) => ({ event: "delta", text }));
+      const events: FakeStreamEvent[] =
+        fault.kind === "error"
+          ? [...deltas, { event: "error", problem: { type: "about:blank", title: "지금은 처리할 수 없다", status: 503, reason: "DEADLINE_EXCEEDED" }, retry_after_seconds: 0 }]
+          : deltas;
+      return { ...head, body: null, chunks: sliceChunks(sse(events), 9) };
+    }
+    const json = handle({ ...request, path: jsonPath }, false);
+    if (json.status !== 200 && json.status !== 201) return json;
+    const result = json.body as S["SessionStarted"] | S["TurnResponse"];
+    const text = result.response_text;
+    const events: FakeStreamEvent[] = [];
+    // 재생과 LoRA-B 를 부르지 않은 턴은 delta 없이 result 하나, 실패 신호도 조각을 먼저 보낼 수 있다
+    if (!replay) {
+      const spoken = text ?? "네, 알겠습니다.";
+      events.push(...pieces(spoken).map((piece): FakeStreamEvent => ({ event: "delta", text: piece })));
+    }
+    events.push({ event: "result", result });
+    return { ...head, body: null, chunks: sliceChunks(sse(events), 9) };
+  }
+
+  function handle(request: FakeRequest, record = true): FakeResponse {
+    if (record) requests.push(request);
     const { method, path } = request;
+    if (method === "POST" && path === "/v1/sessions/stream") {
+      if (startInProgressNext > 0) {
+        startInProgressNext -= 1;
+        return problem(409, "앞선 시작 요청이 처리 중이다", "SESSION_START_IN_PROGRESS", { "retry-after": "0" });
+      }
+      return stream(request, "/v1/sessions");
+    }
+    const streamTurn = /^\/v1\/sessions\/([^/]+)\/turns\/stream$/.exec(path);
+    if (method === "POST" && streamTurn !== null) return stream(request, `/v1/sessions/${streamTurn[1] ?? ""}/turns`);
     if (unavailableNext > 0 && path.startsWith("/v1/sessions")) {
       unavailableNext -= 1;
       return problem(503, "지금은 처리할 수 없다", "DEADLINE_EXCEEDED", { "retry-after": "0" });
@@ -153,6 +215,14 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
     },
     expire() {
       status = "EXPIRED";
+    },
+    /** 다음 시작 스트림 요청 n 번에 409 SESSION_START_IN_PROGRESS(Retry-After 0)를 낸다 */
+    startInProgressTimes(n: number) {
+      startInProgressNext = n;
+    },
+    /** 다음 스트림 n 번이 조각을 보낸 뒤 error 이벤트로 끝나거나(error) result 없이 끊긴다(drop). 기록되지 않는다 */
+    faultTimes(kind: "error" | "drop", n = 1) {
+      faultNext = { kind, times: n };
     },
     /** 세션 작업에 503 을 n 번 낸다(변경은 되돌렸다) */
     unavailableTimes(n: number) {
