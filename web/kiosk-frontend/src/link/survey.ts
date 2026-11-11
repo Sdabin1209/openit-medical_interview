@@ -4,6 +4,7 @@
 import { createParser } from "eventsource-parser";
 import createClient from "openapi-fetch";
 
+import type { components as components_ } from "../contract/components";
 import type { components, paths } from "../contract/survey-service";
 
 export type ActiveQuestionnaireList = components["schemas"]["ActiveQuestionnaireList"];
@@ -16,14 +17,9 @@ export type ProblemDetails = components["schemas"]["ProblemDetails"];
 export type ProblemReason = components["schemas"]["ProblemReason"];
 export type SessionStartRequest = components["schemas"]["SessionStartRequest"];
 
-/**
- * 응답 문장 스트림의 이벤트 data(계약 SessionStartStreamEvent·TurnStreamEvent: delta, result, error).
- * 왜 여기서 조립: 생성 타입(src/contract)에 이 data 스키마가 없어(작업 응답이 text/event-stream 의 문자열이다) 생성된 조각(SessionStarted, TurnResponse, ProblemDetails)으로 맞춘다.
- */
-type StreamEventData<R> =
-  | { event: "delta"; text: string }
-  | { event: "result"; result: R }
-  | { event: "error"; problem: ProblemDetails; retry_after_seconds?: number };
+/** 응답 문장 스트림의 이벤트 data(계약 SessionStartStreamEvent, TurnStreamEvent. src/contract/components.d.ts 에서 생성, 한 번만 정의 D117) */
+type StreamEventData = components_["schemas"]["SessionStartStreamEvent"] | components_["schemas"]["TurnStreamEvent"];
+type ResultOf<E> = E extends { event: "result"; result: infer R } ? R : never;
 
 /** 화면에 보일 문장 전체를 알린다. 빈 문자열은 그린 조각을 지우라는 뜻이다(계약 README 응답 문장 스트림 7항) */
 export type SentenceSink = (text: string) => void;
@@ -141,12 +137,12 @@ export function createSurveyLink(options: SurveyLinkOptions) {
    * 요청 상한(KioskRequestLimitSeconds)은 같은 신호로 마지막 이벤트까지 건다(계약 README 8항).
    * 문장은 sink 로 알린다: delta 는 이어 붙인 전체 글, result 에 문장이 있으면 그 글, 실패(문장 없는 result·error·끊김)는 빈 글.
    */
-  async function streamOnce<R extends { response_text?: string | undefined }>(
+  async function streamOnce<E extends StreamEventData>(
     path: string,
     body: unknown,
     sink: SentenceSink | undefined,
     outer: AbortSignal | undefined,
-  ): Promise<R> {
+  ): Promise<ResultOf<E>> {
     const signal = AbortSignal.any([AbortSignal.timeout(options.requestLimitSeconds * 1000), ...(outer ? [outer] : [])]);
     let shown = "";
     const show = (text: string) => {
@@ -156,7 +152,7 @@ export function createSurveyLink(options: SurveyLinkOptions) {
     const clear = () => {
       if (shown !== "") show("");
     };
-    const state: { end?: StreamEventData<R> } = {};
+    const state: { end?: E } = {};
     try {
       const response = await fetch(`${options.baseUrl}${path}`, {
         method: "POST",
@@ -172,7 +168,7 @@ export function createSurveyLink(options: SurveyLinkOptions) {
       const parser = createParser({
         onEvent: (message) => {
           if (state.end !== undefined) return;
-          const data = JSON.parse(message.data) as StreamEventData<R>;
+          const data = JSON.parse(message.data) as E;
           if (data.event === "delta") show(shown + data.text);
           else state.end = data;
         },
@@ -203,12 +199,12 @@ export function createSurveyLink(options: SurveyLinkOptions) {
     // 왜 result 의 문장으로 바꾼다: 서비스가 고정 문장을 붙이면 조각을 이은 것과 다르다. 문장이 없으면(failure_signal) 조각을 지운다
     if (end.result.response_text === undefined) clear();
     else show(end.result.response_text);
-    return end.result;
+    return end.result as ResultOf<E>;
   }
 
   /** 스트림 작업을 총 시간 예산 안에서 같은 요청으로 다시 보낸다. 다시 보내기 전에 그린 조각은 이미 지워졌다. */
-  const streaming = <R extends { response_text?: string | undefined }>(path: string, body: unknown, sink: SentenceSink | undefined, outer: AbortSignal | undefined) =>
-    retrying(() => streamOnce<R>(path, body, sink, outer), outer);
+  const streaming = <E extends StreamEventData>(path: string, body: unknown, sink: SentenceSink | undefined, outer: AbortSignal | undefined) =>
+    retrying(() => streamOnce<E>(path, body, sink, outer), outer);
 
   return {
     listActiveQuestionnaires: (signal?: AbortSignal) =>
@@ -216,11 +212,11 @@ export function createSurveyLink(options: SurveyLinkOptions) {
 
     /** startSessionStream. 같은 기기가 같은 코드로 다시 시작하면 같은 세션이 온다(멱등)이므로 다시 보내도 된다. 첫 문장은 sink 로 알린다. */
     startSession: (body: SessionStartRequest, signal?: AbortSignal, sink?: SentenceSink) =>
-      streaming<SessionStarted>("/v1/sessions/stream", body, sink, signal),
+      streaming<components_["schemas"]["SessionStartStreamEvent"]>("/v1/sessions/stream", body, sink, signal),
 
     /** submitTurnStream. 같은 turn_id 의 재전송은 같은 결과를 받는다(멱등). 호출자가 turn_id 를 정한다. 응답 문장은 sink 로 알린다. */
     submitTurn: (sessionId: string, turnId: string, utterance: string, signal?: AbortSignal, sink?: SentenceSink) =>
-      streaming<TurnResponse>(`/v1/sessions/${encodeURIComponent(sessionId)}/turns/stream`, { turn_id: turnId, utterance }, sink, signal),
+      streaming<components_["schemas"]["TurnStreamEvent"]>(`/v1/sessions/${encodeURIComponent(sessionId)}/turns/stream`, { turn_id: turnId, utterance }, sink, signal),
 
     endSession: (sessionId: string, signal?: AbortSignal) =>
       withRetry<SessionEnded>((s) => client.POST("/v1/sessions/{session_id}/end", { params: { path: { session_id: sessionId } }, signal: s }), signal),

@@ -1,9 +1,11 @@
 // 가짜 survey-service(메모리 구현). 응답 본문은 계약에서 생성한 타입(src/contract/survey-service.d.ts)으로 만든다.
 // 이웃 영역 없이 혼자 시험하려고 단위 시험(MSW)과 브라우저 시험(Playwright page.route)이 같은 가짜를 쓴다(ADR 0012).
 // 계약의 오류 사유(ProblemReason)와 상태 코드를 따르되, 서버의 문진 로직은 흉내 내지 않고 시험에 필요한 만큼의 대본만 가진다.
+import type { components as componentsShared } from "../../src/contract/components";
 import type { components } from "../../src/contract/survey-service";
 
 type S = components["schemas"];
+type C = componentsShared["schemas"];
 
 export interface FakeRequest {
   method: string;
@@ -20,11 +22,8 @@ export interface FakeResponse {
   chunks?: string[];
 }
 
-/** 스트림 data 의 모양(계약 SessionStartStreamEvent·TurnStreamEvent). 생성 타입에 data 스키마가 없어 생성된 조각으로 맞춘다 */
-export type FakeStreamEvent =
-  | { event: "delta"; text: string }
-  | { event: "result"; result: S["SessionStarted"] | S["TurnResponse"] }
-  | { event: "error"; problem: S["ProblemDetails"]; retry_after_seconds?: number };
+/** 스트림 data(계약 SessionStartStreamEvent·TurnStreamEvent, 생성 타입 src/contract/components.d.ts) */
+export type FakeStreamEvent = C["SessionStartStreamEvent"] | C["TurnStreamEvent"];
 
 /** 이벤트를 SSE 글로 만든다(WHATWG HTML 9.2: event 줄, data 줄, 빈 줄) */
 export function sse(events: FakeStreamEvent[]): string {
@@ -107,7 +106,8 @@ export function createFakeSurveyService(options: FakeOptions = {}) {
       const spoken = text ?? "네, 알겠습니다.";
       events.push(...pieces(spoken).map((piece): FakeStreamEvent => ({ event: "delta", text: piece })));
     }
-    events.push({ event: "result", result });
+    // 왜 단언: 시작 스트림은 SessionStarted, 턴 스트림은 TurnResponse 를 result 에 싣는다. 어느 쪽인지는 위 jsonPath 가 정하고 두 타입의 합집합을 한 곳에서 다룬다
+    events.push({ event: "result", result } as FakeStreamEvent);
     return { ...head, body: null, chunks: sliceChunks(sse(events), 9) };
   }
 
