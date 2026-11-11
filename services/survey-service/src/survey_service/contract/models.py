@@ -107,13 +107,14 @@ class BackupSnapshotId(RootModel[str]):
 
 class BlankReason(StrEnum):
     """
-    결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 한도로 건너뛴 것이 REASK_LIMIT, 묻지 못한 것이 UNASKED 다
+    결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 되묻기 한도로 건너뛴 것이 REASK_LIMIT, 연속 실패 한도로 건너뛴 것이 FAILURE_LIMIT, 묻지 못한 것이 UNASKED 다
     """
 
     UNKNOWN = 'UNKNOWN'
     REJECTED = 'REJECTED'
     UNCLEAR = 'UNCLEAR'
     REASK_LIMIT = 'REASK_LIMIT'
+    FAILURE_LIMIT = 'FAILURE_LIMIT'
     UNASKED = 'UNASKED'
 
 
@@ -1693,7 +1694,7 @@ class TokenId(RootModel[str]):
 
 class TurnFailureReason(StrEnum):
     """
-    턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다
+    턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)
     """
 
     EXTRACTION_UNAVAILABLE = 'EXTRACTION_UNAVAILABLE'
@@ -3376,9 +3377,9 @@ class FhirMapping(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    absent_map: Annotated[list[FhirAbsentMapEntry], Field(max_length=5)]
+    absent_map: Annotated[list[FhirAbsentMapEntry], Field(max_length=6)]
     """
-    빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)
+    빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)
     """
     status_map: Annotated[list[FhirStatusMapEntry], Field(max_length=5)]
     """

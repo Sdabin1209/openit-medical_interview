@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 업무 화면(admin-console) API
-  version: 9.2.1
+  version: 9.3.0
   description: >-
     모든 사람 화면(직원, 의사, 문항 세트를 올리는 사람, 실패 사례 검토자, 모델 활성화 승인자, 운영자)을 담은 정적 화면이며 서버 작업이 없다. 건강 상태와 지표만 낸다. 서버와의 대화는 survey-service 와 model-runtime 의 작업으로 한다(N05, N07).
   contact: { name: head }

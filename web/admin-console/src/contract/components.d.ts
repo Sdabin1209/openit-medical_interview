@@ -527,7 +527,7 @@ export interface components {
          */
         PauseReason: "RISK_SIGNAL" | "STAFF_CALL";
         /**
-         * @description 턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다
+         * @description 턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)
          * @enum {string}
          */
         TurnFailureReason: "EXTRACTION_UNAVAILABLE" | "RESPONSE_UNAVAILABLE" | "DEADLINE_EXCEEDED";
@@ -1320,10 +1320,10 @@ export interface components {
             loaded_at?: components["schemas"]["Timestamp"];
         };
         /**
-         * @description 결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 한도로 건너뛴 것이 REASK_LIMIT, 묻지 못한 것이 UNASKED 다
+         * @description 결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 되묻기 한도로 건너뛴 것이 REASK_LIMIT, 연속 실패 한도로 건너뛴 것이 FAILURE_LIMIT, 묻지 못한 것이 UNASKED 다
          * @enum {string}
          */
-        BlankReason: "UNKNOWN" | "REJECTED" | "UNCLEAR" | "REASK_LIMIT" | "UNASKED";
+        BlankReason: "UNKNOWN" | "REJECTED" | "UNCLEAR" | "REASK_LIMIT" | "FAILURE_LIMIT" | "UNASKED";
         /** @description 결과에 저장된 답 하나(칸, 값, 정확도) */
         ResultAnswer: {
             /** @description 답이 담긴 칸 */
@@ -1446,7 +1446,7 @@ export interface components {
         FhirMapping: {
             /** @description 세션 상태에서 FHIR status 로 가는 대응(ACTIVE 와 PAUSED 는 in-progress, ENDED_COMPLETE 는 completed, ENDED_PARTIAL 과 EXPIRED 는 stopped) */
             status_map: components["schemas"]["FhirStatusMapEntry"][];
-            /** @description 빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked) */
+            /** @description 빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked) */
             absent_map: components["schemas"]["FhirAbsentMapEntry"][];
         };
         /**
@@ -2096,6 +2096,12 @@ export interface components {
          * @example 2
          */
         ReaskLimit: number;
+        /**
+         * @description 환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. 세션마다 연속 실패 수를 세고, 턴이 기록되면(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴) 0 으로 되돌린다. 이 수에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다: 저장된 답은 그 턴의 값 없이 그대로이고, 지금 문항의 칸은 빈칸 원인 FAILURE_LIMIT 로 남기고, 다음 문항은 저장된 답으로 정한 다음 자리이며, 환자에게는 되묻기 한도와 같은 서비스의 고정 안내 문장과 다음 질문을 보인다(LoRA-B 를 부르지 않는다). 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 설치마다 바꾸지 않는다
+         * @example 3
+         * @constant
+         */
+        TurnFailureLimit: 3;
         /**
          * @description 한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
          * @example 3

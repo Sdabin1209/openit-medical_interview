@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.2.1
+  version: 9.3.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -421,7 +421,7 @@ components:
         EXTRACTION_UNAVAILABLE: "LoRA-A 추출 출력을 받지 못했다(출력 불가 포함)"
         RESPONSE_UNAVAILABLE: "LoRA-B 응답 문장을 받지 못했다"
         DEADLINE_EXCEEDED: "시간 상한을 넘겼다"
-      description: "턴이 값을 만들지 못한 까닭. 세션 상태는 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다"
+      description: "턴이 값을 만들지 못한 까닭. 저장된 답과 지금 문항은 바뀌지 않으므로 같은 발화를 다시 보낼 수 있다. 바뀌는 것은 연속 실패 수 하나이고, TurnFailureLimit 에 닿는 턴은 실패 신호 대신 그 문항을 건너뛴 결과를 준다(TurnFailureLimit)"
       x-owner: survey-service
       x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), D75(1)(실패한 턴은 세션 상태를 바꾸지 않는다), D125(시간 상한). 턴이 실패하는 원인은 model-runtime 의 두 출력과 시간 상한뿐이다"
     StaffHelpNotice: { type: boolean, description: "이 응답이 서비스의 고정 문장으로 직원 도움을 안내하는지(참이면 안내). 안전과 닿는 안내 문장은 모델이 아니라 서비스가 쓴다. 모델 입출력 v3 부터 쓰인다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(질문의 뜻·대상을 묻는 되물음은 한도에 세지 않고 설명 요청만 3번 이어지면 직원 도움을 안내한다, 모델 입출력 v3 에 의존). 안내 문장을 서비스가 고정 문장으로 쓰는 것은 모델의 출력이 아니라 서비스가 맡는 안전 안내라는 이 계약의 정의이고 정본 입력에 그 책임 문장은 없다" }
@@ -1301,11 +1301,11 @@ components:
     # ======================================================================
     BlankReason:
       type: string
-      enum: [UNKNOWN, REJECTED, UNCLEAR, REASK_LIMIT, UNASKED]
-      x-enum-descriptions: { UNASKED: "끝나거나 만료되어 아직 묻지 못한 문항이다(부분 결과)", UNKNOWN: "환자가 모른다고 했다", REJECTED: "환자가 거절하거나 보류했다", UNCLEAR: "불분명하거나 범위 밖이었다", REASK_LIMIT: "되묻기 한도(처음 질문 1회와 되묻기 2회)까지 물어도 정해지지 않아 건너뛰었다" }
-      description: "결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 한도로 건너뛴 것이 REASK_LIMIT, 묻지 못한 것이 UNASKED 다"
+      enum: [UNKNOWN, REJECTED, UNCLEAR, REASK_LIMIT, FAILURE_LIMIT, UNASKED]
+      x-enum-descriptions: { UNASKED: "끝나거나 만료되어 아직 묻지 못한 문항이다(부분 결과)", UNKNOWN: "환자가 모른다고 했다", REJECTED: "환자가 거절하거나 보류했다", UNCLEAR: "불분명하거나 범위 밖이었다", REASK_LIMIT: "되묻기 한도(처음 질문 1회와 되묻기 2회)까지 물어도 정해지지 않아 건너뛰었다", FAILURE_LIMIT: "턴이 연속 실패 한도(TurnFailureLimit)만큼 이어서 실패해(모델 출력 불가, 응답 문장 불가, 시간 초과) 건너뛰었다" }
+      description: "결과에서 칸이 비어 있는 원인. 모델 사유에서 옮기는 규칙은 HOLD(UNCERTAIN)가 UNKNOWN, SKIP(REFUSED)이 REJECTED, SKIP(REQUEST_SKIP)이 REJECTED, 값을 정하지 못한 REASK(UNCLEAR 계열)가 UNCLEAR, 서비스가 되묻기 한도로 건너뛴 것이 REASK_LIMIT, 연속 실패 한도로 건너뛴 것이 FAILURE_LIMIT, 묻지 못한 것이 UNASKED 다"
       x-owner: survey-service
-      x-basis: "U35(UNKNOWN 모름, REJECTED 거절·보류, UNCLEAR 불분명·범위 밖), U100(REASK_LIMIT), 되묻기 한도 뒤 건너뛰고 빈칸 사유를 남긴다(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10와 OPEN_GAPS U36), D85(1)(부분 결과도 상태와 함께 조회), SQL.md resolution_status 의 UNASKED(묻지 않았다)"
+      x-basis: "U35(UNKNOWN 모름, REJECTED 거절·보류, UNCLEAR 불분명·범위 밖), U100(REASK_LIMIT), 사용자 결정 2026-11-11(FAILURE_LIMIT, 연속 실패 한도), 되묻기 한도 뒤 건너뛰고 빈칸 사유를 남긴다(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10와 OPEN_GAPS U36), D85(1)(부분 결과도 상태와 함께 조회), SQL.md resolution_status 의 UNASKED(묻지 않았다)"
     ResultAnswer:
       type: object
       additionalProperties: false
@@ -1440,7 +1440,7 @@ components:
       required: [status_map, absent_map]
       properties:
         status_map: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/FhirStatusMapEntry" }, description: "세션 상태에서 FHIR status 로 가는 대응(ACTIVE 와 PAUSED 는 in-progress, ENDED_COMPLETE 는 completed, ENDED_PARTIAL 과 EXPIRED 는 stopped)", x-basis: "SessionStatus 값의 수 5" }
-        absent_map: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/FhirAbsentMapEntry" }, description: "빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)", x-basis: "BlankReason 값의 수 5" }
+        absent_map: { type: array, maxItems: 6, items: { $ref: "#/components/schemas/FhirAbsentMapEntry" }, description: "빈칸 원인에서 FHIR 빈칸 사유로 가는 대응(UNKNOWN 과 UNCLEAR 와 REASK_LIMIT 와 FAILURE_LIMIT 는 asked-unknown, REJECTED 는 asked-declined, UNASKED 는 not-asked)", x-basis: "BlankReason 값의 수 6" }
     RiskCategory:
       type: string
       enum: [SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS]
@@ -2022,6 +2022,7 @@ components:
     VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, examples: [ 300 ], description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
     ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(되묻기 한도는 처음 질문 1회에 되묻기 2회), D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
+    TurnFailureLimit: { type: integer, const: 3, minimum: 3, maximum: 3, examples: [ 3 ], description: "환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. 세션마다 연속 실패 수를 세고, 턴이 기록되면(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴) 0 으로 되돌린다. 이 수에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다: 저장된 답은 그 턴의 값 없이 그대로이고, 지금 문항의 칸은 빈칸 원인 FAILURE_LIMIT 로 남기고, 다음 문항은 저장된 답으로 정한 다음 자리이며, 환자에게는 되묻기 한도와 같은 서비스의 고정 안내 문장과 다음 질문을 보인다(LoRA-B 를 부르지 않는다). 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 설치마다 바꾸지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-11(연속 실패는 따로 세고 성공하면 초기화, 한도 3, 닿으면 그 문항을 건너뛴다. 3 은 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다), D86(실패 턴은 답과 문항을 바꾸지 않는다)을 좁힘" }
     ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, examples: [ 180 ], description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: survey-service, x-basis: "L12(사용자 결정: 180일 유지), C03" }

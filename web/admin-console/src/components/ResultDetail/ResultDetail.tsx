@@ -18,6 +18,7 @@ const BLANK_LABEL: Record<BlankReason, string> = {
   REJECTED: "답하지 않겠다고 함",
   UNCLEAR: "알아듣지 못함",
   REASK_LIMIT: "되묻기 한도",
+  FAILURE_LIMIT: "처리 실패 반복으로 건너뜀",
   UNASKED: "묻지 않음",
 };
 const PRECISION_LABEL: Record<ValuePrecision, string> = { exact: "정확", approximate: "대략", unspecified: "정하지 않음" };
