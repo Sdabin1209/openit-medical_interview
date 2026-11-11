@@ -106,6 +106,16 @@ class StartFailureRow(Base):
     at: Mapped[datetime] = mapped_column(UtcDateTime())
 
 
+class StartAttemptRow(Base):
+    """처리 중인 세션 시작 하나(같은 기기·같은 시작 코드의 재전송을 409 SESSION_START_IN_PROGRESS 로 거르는 표시)."""
+
+    __tablename__ = "start_attempt"
+
+    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime())
+
+
 class SessionRow(Base):
     """문진 세션."""
 

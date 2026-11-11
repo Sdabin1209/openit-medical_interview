@@ -5,11 +5,14 @@
 계약 값 검증은 받는 쪽(model-runtime)이 한 번 했으므로 응답을 계약 타입으로 읽을 뿐 의미를 다시 검사하지 않는다(R7).
 """
 
+import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
 import httpx
+from httpx_sse import EventSource, SSEError
 from prometheus_client import Histogram
 from pydantic import ValidationError
 
@@ -17,8 +20,10 @@ from survey_service.contract.models import (
     ExtractionRequest,
     ExtractionResult,
     ModelStatus,
+    ResponseDeltaEvent,
     ResponseGenerationRequest,
     ResponseResult,
+    ResponseResultEvent,
 )
 from survey_service.link.machine_token import MachineTokenSource, TokenError
 from survey_service.link.tls import ClientTls
@@ -97,6 +102,43 @@ class HttpModelClient:
             return ResponseResult.model_validate_json(response.content)
         except ValidationError as error:
             raise ModelCallError(ModelCallFailure.UNAVAILABLE) from error
+
+    async def respond_stream(
+        self, request: ResponseGenerationRequest, on_delta: Callable[[str], Awaitable[None]]
+    ) -> ResponseResult:
+        """generateResponseStream 을 부르고 SSE 를 읽는다. 조각은 받는 대로 on_delta 로 넘기고(모으지 않는다) result 를
+        돌려준다. error 이벤트나 result 없이 끝난 스트림은 JSON 작업의 503 과 같이 UNAVAILABLE 이다.
+        모델 출력은 다시 검증하지 않는다(R7): 이벤트를 계약 타입으로 읽을 뿐이다."""
+        started = time.monotonic()
+        body = request.model_dump_json(exclude_none=True)
+        try:
+            # 왜 asyncio.timeout: httpx 의 timeout 은 읽기 한 번마다라서 조각이 계속 오면 끝나지 않는다.
+            # 계약 8항은 상한을 마지막 이벤트까지에 건다(RespondClientLimitSeconds)
+            async with asyncio.timeout(self._limits.respond_seconds):
+                headers = {**await self._headers(), "Content-Type": "application/json", "Accept": "text/event-stream"}
+                async with self._client.stream("POST", "/v1/responses/stream", content=body, headers=headers) as reply:
+                    if reply.status_code == 401:
+                        self._tokens.invalidate()
+                    if reply.status_code != 200:
+                        raise ModelCallError(ModelCallFailure.UNAVAILABLE)
+                    # 왜 EventSource 를 직접 쓰나: aconnect_sse 와 달리 상태 코드를 먼저 우리가 판정한다
+                    async for event in EventSource(reply).aiter_sse():
+                        if event.event == "delta":
+                            await on_delta(ResponseDeltaEvent.model_validate_json(event.data).text.root)
+                        elif event.event == "result":
+                            return ResponseResultEvent.model_validate_json(event.data).result
+                        elif event.event == "error":
+                            raise ModelCallError(ModelCallFailure.UNAVAILABLE)
+                        # 그 밖의 이벤트 이름은 WHATWG HTML 9.2.6 대로 무시한다
+        except TimeoutError as error:
+            raise ModelCallError(ModelCallFailure.DEADLINE) from error
+        except httpx.TimeoutException as error:
+            raise ModelCallError(ModelCallFailure.DEADLINE) from error
+        except (httpx.HTTPError, SSEError, ValidationError) as error:
+            raise ModelCallError(ModelCallFailure.UNAVAILABLE) from error
+        finally:
+            MODEL_CALL_SECONDS.labels(op="respond_stream").observe(time.monotonic() - started)
+        raise ModelCallError(ModelCallFailure.UNAVAILABLE)  # result 도 error 도 없이 끝났다(끊김)
 
     async def model_io_version(self) -> str | None:
         """활성 모델 패키지의 입출력 버전. 알 수 없으면 None(그러면 v3 의존 기능은 꺼진 채로 둔다)."""

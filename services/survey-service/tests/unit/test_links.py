@@ -1,5 +1,6 @@
 """이웃·IdP 호출(link): model-runtime 클라이언트, JWKS, 기계 토큰 표."""
 
+import asyncio
 import base64
 import contextlib
 import datetime
@@ -392,3 +393,110 @@ def test_client_certificate_that_cannot_be_read_does_not_stop_requests(tmp_path:
     _write_pair(tmp_path, "client-1", ("test-root", key))
     tls.refresh()
     assert tls.context.get_ca_certs()  # 루트 인증서는 그대로다
+
+
+# ------------------------------------------------------------ 응답 문장 스트림(generateResponseStream)
+
+
+def start_request() -> ResponseGenerationRequest:
+    return ResponseGenerationRequest.model_validate(
+        {
+            "runtime_contract_version": 1,
+            "action": "START",
+            "next": {"type": "NEXT", "question_id": "Q1", "text": "질문"},
+        }
+    )
+
+
+def sse(*frames: tuple[str, dict[str, object]]) -> httpx.Response:
+    body = "".join(f"event: {e}\ndata: {json.dumps({'event': e, **d}, ensure_ascii=False)}\n\n" for e, d in frames)
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body.encode())
+
+
+async def collect(model: HttpModelClient) -> tuple[list[str], str]:
+    got: list[str] = []
+
+    async def on_delta(text: str) -> None:
+        got.append(text)
+
+    result = await model.respond_stream(start_request(), on_delta)
+    return got, result.text.root
+
+
+async def test_stream_client_parses_sse_and_passes_deltas_in_order() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return sse(
+            ("delta", {"text": "안녕"}),
+            ("delta", {"text": "하세요"}),
+            ("result", {"result": {"package_digest": DIGEST, "text": "안녕하세요"}}),
+        )
+
+    model = client(httpx.MockTransport(handler))
+    assert await collect(model) == (["안녕", "하세요"], "안녕하세요")
+    assert seen[0].url.path == "/v1/responses/stream" and seen[0].headers["authorization"] == "Bearer jwt-for-tests"
+    assert seen[0].headers["accept"] == "text/event-stream"
+    await model.close()
+
+
+async def test_stream_client_ignores_comments_and_unknown_events() -> None:
+    body = (
+        ": 주석\n\nevent: ping\ndata: {}\n\n"
+        'event: delta\r\ndata: {"event":"delta","text":"가"}\r\n\r\n'
+        f'event: result\ndata: {{"event":"result","result":{{"package_digest":"{DIGEST}","text":"가"}}}}\n\n'
+    )
+    handler = httpx.MockTransport(
+        lambda _r: httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body.encode())
+    )
+    assert await collect(client(handler)) == (["가"], "가")
+
+
+async def test_stream_client_error_event_and_missing_result_are_unavailable() -> None:
+    problem: dict[str, object] = {"problem": {"type": "about:blank", "title": "x", "status": 503}}
+    cases = [
+        sse(("delta", {"text": "가"}), ("error", problem)),
+        sse(("delta", {"text": "가"})),  # result 도 error 도 없이 끊겼다
+        sse(("delta", {"text": ""})),  # 계약 밖의 조각은 읽지 못한다(받는 쪽은 다시 검사하지 않고 읽기만 한다)
+        httpx.Response(200, json={"text": "x"}),  # 스트림이 아니다
+        httpx.Response(503, json={"status": 503}),
+        httpx.Response(409, json={"status": 409}),
+    ]
+    for reply in cases:
+        model = client(httpx.MockTransport(lambda _r, reply=reply: reply))
+        with pytest.raises(ModelCallError) as error:
+            await collect(model)
+        assert error.value.failure is ModelCallFailure.UNAVAILABLE
+
+
+async def test_stream_client_timeouts_and_token_failures() -> None:
+    def late(_r: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("느리다")
+
+    with pytest.raises(ModelCallError) as error:
+        await collect(client(httpx.MockTransport(late)))
+    assert error.value.failure is ModelCallFailure.DEADLINE
+    # 전체 상한은 마지막 이벤트까지에 건다: 끝나지 않는 스트림에 상한 0 을 주면 첫 기다림에서 바로 시간 초과다(실제 대기 없음)
+    from dataclasses import replace
+
+    async def never(_r: httpx.Request) -> httpx.Response:
+        await asyncio.Event().wait()
+        raise AssertionError
+
+    zero = HttpModelClient(
+        "https://model-runtime",
+        StaticTokens(),
+        replace(LIMITS, respond_seconds=0),
+        egress_proxy=None,
+        tls=None,
+        transport=httpx.MockTransport(never),
+    )
+    with pytest.raises(ModelCallError) as expired:
+        await collect(zero)
+    assert expired.value.failure is ModelCallFailure.DEADLINE
+    tokens = StaticTokens()
+    unauthorized = client(httpx.MockTransport(lambda _r: httpx.Response(401, json={"status": 401})), tokens)
+    with pytest.raises(ModelCallError):
+        await collect(unauthorized)
+    assert tokens.invalidated == 1

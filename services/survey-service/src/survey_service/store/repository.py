@@ -281,6 +281,28 @@ class SqlTx:
         )
         return int(await self._s.scalar(stmt) or 0)
 
+    async def begin_start_attempt(self, device_id: str, code: str, at: datetime, stale_before: datetime) -> bool:
+        """같은 기기·같은 코드의 시작 처리를 표시한다. 앞선 처리가 살아 있으면 False(오래 멈춘 표시는 넘겨받는다)."""
+        key = (device_id, code)
+        row = await self._s.get(m.StartAttemptRow, key, with_for_update=True)
+        if row is None:
+            try:
+                async with self._s.begin_nested():
+                    self._s.add(m.StartAttemptRow(device_id=device_id, code=code, started_at=at))
+            except IntegrityError:
+                return False  # 왜: 같은 기기·코드의 동시 요청이 먼저 표시했다
+            return True
+        if row.started_at < stale_before:
+            row.started_at = at
+            await self._s.flush()
+            return True
+        return False
+
+    async def end_start_attempt(self, device_id: str, code: str) -> None:
+        await self._s.execute(
+            delete(m.StartAttemptRow).where(m.StartAttemptRow.device_id == device_id, m.StartAttemptRow.code == code)
+        )
+
     # ------------------------------------------------------------ 세션
     @staticmethod
     def _session(row: m.SessionRow) -> SessionRecord:
@@ -650,6 +672,9 @@ class SqlTx:
         count += cast("int", (await self._s.execute(gone)).rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
         old = delete(m.StartFailureRow).where(m.StartFailureRow.at < now - timedelta(days=1))
         count += cast("int", (await self._s.execute(old)).rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
+        # 왜 하루: 표시는 끝나면 지우고 죽은 프로세스의 표시는 마감(50초) 뒤 넘겨받으므로 남은 것은 쓰레기다
+        stuck = delete(m.StartAttemptRow).where(m.StartAttemptRow.started_at < now - timedelta(days=1))
+        count += cast("int", (await self._s.execute(stuck)).rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
         return count
 
     async def mark_expired_sessions(self, idle_cutoff: datetime) -> tuple[SessionRecord, ...]:

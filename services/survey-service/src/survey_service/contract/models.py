@@ -2675,6 +2675,24 @@ class ResponseResult(BaseModel):
     """
 
 
+class ResponseResultEvent(BaseModel):
+    """
+    generateResponse 스트림의 result 이벤트 data
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    event: StreamEventResult
+    """
+    확정 결과
+    """
+    result: ResponseResult
+    """
+    만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다)
+    """
+
+
 class ResultAcknowledgement(BaseModel):
     """
     의사가 결과를 확인했다는 기록

@@ -8,6 +8,8 @@ Schemathesis 가 계약의 모든 작업에서 입력을 만들고, 앱(ASGI, �
 값으로 바꾼 DB.
 
 streamStaffAlerts 는 끝나지 않는 응답이라 Schemathesis 가 읽을 수 없어 뺀다(tests/unit/test_stream.py 가 따로 본다).
+startSessionStream·submitTurnStream 은 끝나는 응답이라 다른 작업과 함께 본다(상태 코드·내용 형식·머리글, 성공한 스트림의
+이벤트 모양은 tests/api/test_streams.py 가 계약 타입으로 본다).
 """
 
 # schemathesis 는 일부 타입이 제네릭 인자 없이 열려 있어 그 경계에서만 pyright 의 Unknown 보고를 끈다
@@ -117,7 +119,7 @@ def collect_cases(operation: Any) -> list[Case[Any]]:
 async def run_conformance(h: Harness, ids: dict[str, str]) -> dict[str, set[int]]:
     schema = schemathesis.openapi.from_path(CONTRACT)
     operations = [r.ok() for r in schema.get_all_operations() if r.ok().label.split()[0] != ""]
-    assert len(operations) == 29  # 계약의 작업 26개 + healthz·readyz·metrics
+    assert len(operations) == 31  # 계약의 작업 28개(스트림 둘 포함) + healthz·readyz·metrics
     seen: dict[str, set[int]] = {}
     async with h.client() as client:
         for operation in operations:

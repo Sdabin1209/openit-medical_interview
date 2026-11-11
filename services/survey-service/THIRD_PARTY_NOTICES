@@ -3,7 +3,7 @@ THIRD_PARTY_NOTICES
 이 이미지에 들어가는 제3자 소프트웨어(python 제품 의존)의 이름, 버전, 라이선스, 저작권 표시, 라이선스 전문이다.
 uv.lock 에서 `openit-notices generate` 가 만든다. 직접 고치지 않는다.
 
-패키지 30개
+패키지 31개
 - alembic 1.20.1 (MIT)
 - annotated-doc 0.0.5 (MIT)
 - annotated-types 0.8.0 (MIT)
@@ -18,6 +18,7 @@ uv.lock 에서 `openit-notices generate` 가 만든다. 직접 고치지 않는�
 - h11 0.16.0 (MIT License)
 - httpcore 1.0.9 (BSD-3-Clause)
 - httpx 0.28.1 (BSD License)
+- httpx-sse 0.4.3 (MIT)
 - idna 3.20 (BSD-3-Clause)
 - Mako 1.4.3 (MIT)
 - MarkupSafe 3.0.4 (BSD-3-Clause)
@@ -924,6 +925,37 @@ Redistribution and use in source and binary forms, with or without modification,
 * Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+httpx-sse 0.4.3
+================================================================================
+라이선스: MIT
+주소: https://github.com/florimondmanca/httpx-sse
+저작권:
+  Copyright (c) 2022 Florimond Manca
+
+--- 라이선스 전문 (LICENSE) ---
+MIT License
+
+Copyright (c) 2022 Florimond Manca
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ================================================================================
 idna 3.20
