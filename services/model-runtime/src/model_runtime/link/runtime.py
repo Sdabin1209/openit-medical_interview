@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+import time
+from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
-from model_runtime.components.inference import call_engine
+from model_runtime.components.inference import call_engine, deadline_fault, engine_fault
 from model_runtime.components.output_guard import guard
 from model_runtime.components.package_catalog import CursorError, PackageCatalog
 from model_runtime.components.package_loader import (
@@ -27,7 +28,7 @@ from model_runtime.components.package_loader import (
 )
 from model_runtime.components.prompt import extraction_input, extraction_request, response_input, response_request
 from model_runtime.components.release import Release
-from model_runtime.components.responder import validate_sentence
+from model_runtime.components.responder import SentenceStream, validate_sentence
 from model_runtime.contract.models import (
     ModelLoadState,
     ModelPackageManifest,
@@ -39,6 +40,7 @@ from model_runtime.types import (
     AdapterRegistry,
     AdapterRole,
     ChatEngine,
+    ChatRequest,
     EngineError,
     ExtractionQuestion,
     GuardRequest,
@@ -49,6 +51,10 @@ from model_runtime.types import (
     RegistryUnavailableError,
     ReleaseEventKind,
     ServiceFault,
+    StreamDelta,
+    StreamEvent,
+    StreamFailure,
+    StreamResult,
 )
 
 logger = logging.getLogger("model_runtime")
@@ -79,6 +85,7 @@ class Runtime:
         base_model: str,
         registry: CollectorRegistry,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        respond_limit_seconds: float = RESPOND_LIMIT_SECONDS,
     ) -> None:
         self._release = release
         self._source = source
@@ -91,6 +98,7 @@ class Runtime:
         )
         self._catalog = PackageCatalog(source, workdir)
         self._clock = clock
+        self._respond_limit = respond_limit_seconds  # 왜 주입: 시험이 시간 상한을 실제 대기 없이 넘기게 한다
         self._serving: LoadedPackage | None = None
         self._resident: list[LoadedPackage] = []
         self._tasks: set[asyncio.Task[None]] = set()
@@ -223,6 +231,57 @@ class Runtime:
         )
         self._call_seconds.labels("respond").observe(seconds)
         return serving.digest, validate_sentence(text)
+
+    async def respond_stream(self, request: Mapping[str, Any]) -> AsyncIterator[StreamEvent]:
+        """LoRA-B 응답 문장을 조각으로 낸다. 받아들이지 못하는 요청(409, 503)은 여기서 ServiceFault 로 던진다.
+
+        받아들였으면 delta 0개 이상 뒤에 result 나 failure 하나로 끝나는 이벤트를 낸다. 처리는 호출자가 이벤트를
+        읽다 멈춰도 끝까지 한다(계약 README 응답 문장 스트림 3항).
+        """
+        serving = self._serving_for(int(request["runtime_contract_version"]))
+        chat_request = response_request(response_input(request), serving.adapters[AdapterRole.LORA_B])
+        # 왜 큐와 별도 작업: 시간 상한(asyncio.timeout)은 한 작업 안에서 걸어야 하고, 비동기 제너레이터는 yield 를
+        # 가로질러 걸 수 없다. 작업이 큐에 쓰고 호출자가 읽으면 호출자가 끊어도 처리는 끝난다
+        queue: asyncio.Queue[StreamEvent] = asyncio.Queue()
+        self._spawn(self._produce_response(serving.digest, chat_request, queue))
+        return self._drain(queue)
+
+    @staticmethod
+    async def _drain(queue: asyncio.Queue[StreamEvent]) -> AsyncIterator[StreamEvent]:
+        while True:
+            event = await queue.get()
+            yield event
+            if not isinstance(event, StreamDelta):
+                return
+
+    async def _produce_response(
+        self, digest: str, chat_request: ChatRequest, queue: asyncio.Queue[StreamEvent]
+    ) -> None:
+        sentence = SentenceStream()
+        started = time.monotonic()
+        try:
+            # 왜 전체를 한 번에: 상한(ModelRespondLimitSeconds)은 마지막 이벤트까지에 건다(계약 README 8항)
+            async with asyncio.timeout(self._respond_limit):
+                async for fragment in self._chat.stream(chat_request):
+                    sent = sentence.accept(fragment)
+                    if sent is not None:
+                        queue.put_nowait(StreamDelta(sent))
+                text = sentence.finish()
+        except TimeoutError:
+            queue.put_nowait(StreamFailure(deadline_fault(self._respond_limit)))
+        except EngineError:
+            queue.put_nowait(StreamFailure(engine_fault()))
+        except ServiceFault as fault:
+            queue.put_nowait(StreamFailure(fault))
+        except Exception:
+            # 왜 모두 잡나: 이벤트 하나로 끝나지 않으면 읽는 쪽이 영원히 기다린다. 원인은 로그에 남기고 JSON 작업의 엔진
+            # 실패와 같은 503 으로 끝낸다
+            logger.exception("응답 문장 스트림 처리가 예기치 않게 실패했다")
+            queue.put_nowait(StreamFailure(engine_fault()))
+        else:
+            queue.put_nowait(StreamResult(digest, text))
+        finally:
+            self._call_seconds.labels("respond").observe(time.monotonic() - started)
 
     # ---- 모델 패키지 -----------------------------------------------------------------------
 

@@ -101,3 +101,21 @@ async def test_ready_only_when_the_engine_serves_the_profile_base_model() -> Non
     assert await client(fake).healthy()
     fake.base_model = "Qwen/Qwen3-1.7B"  # 엔진이 프로파일과 다른 기반 모델로 떠 있다
     assert not await client(fake).healthy()
+
+
+async def test_stream_sends_the_same_conditions_and_yields_fragments_unchanged() -> None:
+    """stream=True 의 조각을 바꾸지 않고 낸다. 비생각 모드 조건은 JSON 경로와 같다(ADR 0010)."""
+    fake = FakeEngine(answer=lambda _a, _u: " 안녕 하세요.\n")
+    engine = client(fake)
+    fake.loaded["m"] = "/x"
+    pieces = [piece async for piece in engine.stream(ChatRequest("m", "s", "u", 10, 0.3))]
+    assert "".join(pieces) == " 안녕 하세요.\n" and len(pieces) > 1
+    call = fake.calls[0]
+    assert call.stream and call.chat_template_kwargs == {"enable_thinking": False} and call.response_format is None
+    assert (call.system, call.user, call.max_tokens, call.temperature) == ("s", "u", 10, 0.3)
+
+
+async def test_stream_failure_is_engine_error() -> None:
+    fake = FakeEngine(answer=lambda _a, _u: "x")
+    with pytest.raises(EngineError):
+        _ = [piece async for piece in client(fake).stream(ChatRequest("nope", "s", "u", 10, 0.0))]

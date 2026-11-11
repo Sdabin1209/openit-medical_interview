@@ -7,11 +7,12 @@ openapi/model-runtime.yaml).
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, FastAPI, Header, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
 from model_runtime.contract.models import (
@@ -21,18 +22,19 @@ from model_runtime.contract.models import (
     PageLimit,
     ProblemDetails,
     ResponseGenerationRequest,
+    ResponseStreamEvent,
     RollbackCommand,
 )
 from model_runtime.link.auth import Authenticator, forbidden, unauthorized
 from model_runtime.link.runtime import Runtime
-from model_runtime.types import ActivationOutcome, ServiceFault
+from model_runtime.types import ActivationOutcome, ServiceFault, StreamDelta, StreamEvent, StreamFailure, StreamResult
 
 PROBLEM_JSON = "application/problem+json"
 _DIGEST_PATTERN = r"^sha256:[a-f0-9]{64}$"  # 계약 OciDigest 의 패턴(OCI Image Spec 1.1)
 _MAX_ERRORS = 100  # 계약 ProblemFieldErrors 의 maxItems
 
 
-def _problem(fault: ServiceFault, instance: str) -> JSONResponse:
+def _problem_body(fault: ServiceFault, instance: str) -> dict[str, Any]:
     body: dict[str, Any] = {
         "type": f"https://openit/problems/{fault.reason.value}" if fault.reason else "about:blank",
         "title": fault.title,
@@ -45,10 +47,44 @@ def _problem(fault: ServiceFault, instance: str) -> JSONResponse:
     if fault.errors:
         body["errors"] = fault.errors
     ProblemDetails.model_validate(body)  # 낸 값은 계약을 지킨다
+    return body
+
+
+def _problem(fault: ServiceFault, instance: str) -> JSONResponse:
+    body = _problem_body(fault, instance)
     headers = dict(fault.headers)
     if fault.retry_after is not None:
         headers["Retry-After"] = str(fault.retry_after)
     return JSONResponse(body, status_code=fault.status, media_type=PROBLEM_JSON, headers=headers)
+
+
+# 왜 이 머리글: 계약 StreamCacheControl(RFC 9111 5.2.2.5 no-store, 5.2.2.6 no-transform). 압축은 하지 않는다
+_STREAM_HEADERS = {"Cache-Control": "no-store, no-transform"}
+
+
+def _sse(data: dict[str, Any]) -> bytes:
+    """이벤트 하나를 WHATWG HTML 9.2 의 Server-Sent Events 로 쓴다. event 줄은 data.event 와 같다."""
+    ResponseStreamEvent.model_validate(data)  # 낸 값은 계약을 지킨다
+    # 왜 JSON 한 줄: JSON 문자열은 줄바꿈을 \n 으로 이스케이프하므로 data 줄이 하나로 끝난다
+    return f"event: {data['event']}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+
+
+def _event_data(event: StreamEvent, instance: str) -> dict[str, Any]:
+    match event:
+        case StreamDelta(text):
+            return {"event": "delta", "text": text}
+        case StreamResult(digest, text):
+            return {"event": "result", "result": {"package_digest": digest, "text": text}}
+        case StreamFailure(fault):
+            data: dict[str, Any] = {"event": "error", "problem": _problem_body(fault, instance)}
+            if fault.retry_after is not None:
+                data["retry_after_seconds"] = fault.retry_after
+            return data
+
+
+async def _event_stream(events: AsyncIterator[StreamEvent], instance: str) -> AsyncIterator[bytes]:
+    async for event in events:
+        yield _sse(_event_data(event, instance))
 
 
 def _pointer(location: tuple[Any, ...]) -> str:
@@ -109,6 +145,20 @@ def api_router(runtime: Runtime, auth: Authenticator) -> APIRouter:
         _validated(ResponseGenerationRequest, raw)
         digest, text = await runtime.respond(raw)
         return JSONResponse({"package_digest": digest, "text": text})
+
+    @router.post("/v1/responses/stream", tags=["inference"])
+    async def generate_response_stream(  # pyright: ignore[reportUnusedFunction]
+        request: Request, authorization: Annotated[str | None, Header()] = None
+    ) -> Response:
+        await auth.require(authorization, machine_roles=["inference-caller"])
+        raw = await _json_body(request)
+        _validated(ResponseGenerationRequest, raw)
+        # 받아들이지 못하는 요청은 여기서 ServiceFault 로 던져 스트림을 열기 전에 JSON 작업과 같은 상태로 답한다
+        events = await runtime.respond_stream(raw)
+        # 왜 StreamingResponse: SSE 는 text/event-stream 본문일 뿐이고 ASGI 가 조각을 바로 흘린다(ADR 0013)
+        return StreamingResponse(
+            _event_stream(events, request.url.path), media_type="text/event-stream", headers=_STREAM_HEADERS
+        )
 
     @router.get("/v1/model-status", tags=["model"])
     async def get_model_status(authorization: Annotated[str | None, Header()] = None) -> Response:  # pyright: ignore[reportUnusedFunction]

@@ -22,7 +22,7 @@ from model_runtime.link.engine import VllmEngine
 from model_runtime.link.health import ReadinessCheck, health_router
 from model_runtime.link.hosts import install_hosts_table, read_hosts_table
 from model_runtime.link.registry import OciPackageSource, basic_credentials
-from model_runtime.link.runtime import Runtime
+from model_runtime.link.runtime import RESPOND_LIMIT_SECONDS, Runtime
 from model_runtime.store.profiles import load_profile
 from model_runtime.store.release_log import ReleaseLogFile
 from model_runtime.types import AdapterRegistry, ChatEngine, PackageSource
@@ -141,6 +141,7 @@ def create_app(
     settings: Settings,
     deps: Dependencies | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    respond_limit_seconds: float = RESPOND_LIMIT_SECONDS,
 ) -> FastAPI:
     """앱 팩토리. 시작할 때 저장된 기록에서 활성 패키지를 스스로 적재한다."""
     resolved = deps or default_dependencies(settings)
@@ -156,6 +157,7 @@ def create_app(
         base_model=load_profile(settings.model_profile.root).base_model.root,
         registry=registry,
         clock=clock,
+        respond_limit_seconds=respond_limit_seconds,
     )
 
     async def store_writable() -> bool:
