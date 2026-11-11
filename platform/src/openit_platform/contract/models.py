@@ -170,7 +170,7 @@ class GatewayConnectLimitSeconds(RootModel[Literal[1]]):
 class GatewayPatientRouteLimitSeconds(RootModel[Literal[55]]):
     root: Annotated[Literal[55], Field(ge=55, le=55)]
     """
-    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)
+    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다
     """
 
 
@@ -929,7 +929,7 @@ class Exposure(BaseModel):
     """
     나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)
     """
-    routes: Annotated[list[ExposureRoute], Field(max_length=29)]
+    routes: Annotated[list[ExposureRoute], Field(max_length=31)]
     """
     노출 경로들
     """

@@ -5,21 +5,21 @@
 ## N01 kiosk-frontend → survey-service
 
 - 무엇: 세션 시작(시작 코드, 문진표 선택), 환자 발화 턴(글자와 턴 ID), 세션 종료, 세션 상태 확인, 직원 다시 부르기
-- 작업: listActiveQuestionnaires, startSession, submitTurn, endSession, getSessionState, requestStaffCall
+- 작업: listActiveQuestionnaires, startSession, startSessionStream, submitTurn, submitTurnStream, endSession, getSessionState, requestStaffCall
 - 대표 스키마: ActiveQuestionnaireList, SessionStartRequest, StartCodeValue, TurnRequest, UtteranceText, TurnId, SessionId
 - 참조의 닫힘 25개: Timestamp, DeviceId, QuestionnaireId, QuestionnaireTitle, QuestionnaireSummary, ActiveQuestionnaireList, StartCodeValue, SessionId, TurnId, UtteranceText, ResponseSentence, QuestionItemId, SessionStatus, PauseReason, TurnFailureReason, StaffHelpNotice, SessionStartRequest, SessionStarted, TurnRequest, TurnResponse, SessionEnded, SessionState, AlertId, AlertKind, StaffAlert
 
 ## N02 survey-service → kiosk-frontend
 
 - 무엇: N01 작업의 응답: 세션 시작 결과, 턴 응답(다음 질문, 응답 문장, 실패 신호), 세션 상태, 활성 문진표 목록
-- 작업: 같은 작업의 응답(startSession, submitTurn, endSession, getSessionState, listActiveQuestionnaires)
+- 작업: 같은 작업의 응답(startSession, startSessionStream, submitTurn, submitTurnStream, endSession, getSessionState, listActiveQuestionnaires)
 - 대표 스키마: SessionStarted, TurnResponse, SessionEnded, SessionState, TurnFailureReason, PauseReason, ResponseSentence
 - 참조의 닫힘 25개: Timestamp, DeviceId, QuestionnaireId, QuestionnaireTitle, QuestionnaireSummary, ActiveQuestionnaireList, StartCodeValue, SessionId, TurnId, UtteranceText, ResponseSentence, QuestionItemId, SessionStatus, PauseReason, TurnFailureReason, StaffHelpNotice, SessionStartRequest, SessionStarted, TurnRequest, TurnResponse, SessionEnded, SessionState, AlertId, AlertKind, StaffAlert
 
 ## N03 survey-service → model-runtime
 
 - 무엇: 추출 요청(지금 문항, 직전에 물은 문항, 직전 화면 문장, 발화, 저장된 칸 값, 순서표, 칸 규격, 문항 은행 버전)과 응답 문장 요청(행동, 사유, 추출 출력의 값·칸·노트, 발화, 저장된 칸 값, 다음 자리). 모델 입력의 글은 요청에 없고 model-runtime 이 만든다
-- 작업: extractAction, generateResponse
+- 작업: extractAction, generateResponse, generateResponseStream
 - 대표 스키마: ExtractionRequest, ResponseGenerationRequest, StoredSlots, ResponseNext, QuestionFlowTable, QuestionFieldSpecs, RuntimeContractVersion, ActionExtractionRules
 - 참조의 닫힘 64개: UtteranceText, ResponseSentence, QuestionItemId, SlotKey, SlotRefString, RepeatKey, RepeatKeys, SlotDataType, SlotUnit, SlotNumber, OptionCode, OptionLabel, QuestionOption, QuestionOptions, QuestionFieldSpec, QuestionFieldSpecs, QuestionText, FlowTarget, FlowComparison, ConditionValue, FlowCondition, FlowBranch, FlowRule, QuestionFlowTable, RuntimeContractVersion, YesNoAnswer, NoValue, SlotText, SlotAnswer, StoredSlotStatus, StoredSlot, StoredSlots, ModelIoFeature, MinimumModelIoVersion, ModelIoFeatureRequirement, ModelIoFeatureRequirements, NextItemRuleKind, NextItemRule, CurrentItemScope, CurrentItemRule, ActionExtractionRules, AlphabeticalOrder, EnsureAscii, InsertionOrder, ModelInputSerialization, ExtractionAction, ActionReason, ValueStatus, ValuePrecision, ValueSave, ExtractedValue, ExtractedValues, SlotRefStrings, OutOfSchemaNote, ActionExtraction, ExtractionRequest, ExtractionResult, ResponseAction, ResponseNextType, ResponseNext, ResponseGenerationRequest, ResponseResult, OciDigest, ViolationCode
 

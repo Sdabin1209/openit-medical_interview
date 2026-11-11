@@ -35,9 +35,29 @@ export interface paths {
         put?: never;
         /**
          * LoRA-B 로 응답 문장 만들기
-         * @description 행동과 사유, A 출력의 값·칸·노트, 환자 발화, 저장된 칸 값, 다음 자리(종류와 문항), 문항 은행 버전을 구조화된 값으로 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold, 다음 질문 문장)은 이 작업이 데이터셋 정본의 표와 규칙(labels.py)으로 만들고 요청에는 그 글이 없다(ADR 0019). 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(D74, D77). 요청의 runtime_contract_version 이 적재한 패키지의 값과 다르면 409 QUESTION_BANK_VERSION_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다(N03). 요청의 Accept 가 text/event-stream 이면 같은 결과를 Server-Sent Events 스트림으로 준다(RFC 9110 12.5.1, 사용자 결정 2026-11-11). LoRA-B 가 토큰을 내는 대로 delta 이벤트로 바로 보내고 마지막에 result(JSON 응답의 본문과 같다) 하나를 보낸다. 요청을 받아들일지 정하는 실패(인증, 검증, 없는 대상, 충돌, 준비 안 됨)는 스트림을 열기 전에 JSON 과 같은 상태 코드로 답하고, 스트림을 연 뒤의 실패는 error 이벤트 하나로 끝낸다. 시간 상한은 JSON 과 같고 result 나 error 까지에 건다. Accept 가 없거나 application/json 이면 지금처럼 JSON 으로 답한다. 스트림에서는 엔진이 낸 조각을 바꾸지 않고 보내며, 문장의 합격 조건(ResponseSentence 1~344자)은 이은 글자가 344자를 넘는 순간 그 조각을 보내지 않고 error(OUTPUT_INVALID)로, 끝에서 빈 문장이면 error 로 판정한다. result 의 text 는 보낸 조각을 이은 것과 같다.
+         * @description 행동과 사유, A 출력의 값·칸·노트, 환자 발화, 저장된 칸 값, 다음 자리(종류와 문항), 문항 은행 버전을 구조화된 값으로 받아 LoRA-B 로 환자에게 보일 문장을 만든다. 시작(START)은 LoRA-A 를 거치지 않고 이 작업만 부른다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold, 다음 질문 문장)은 이 작업이 데이터셋 정본의 표와 규칙(labels.py)으로 만들고 요청에는 그 글이 없다(ADR 0019). 모델 입력 글자는 학습 데이터와 글자 단위로 같게 직렬화한다(D74, D77). 요청의 runtime_contract_version 이 적재한 패키지의 값과 다르면 409 QUESTION_BANK_VERSION_MISMATCH, 적재 전이면 503 MODEL_NOT_LOADED 다(N03).
          */
         post: operations["generateResponse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/responses/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * LoRA-B 로 응답 문장 만들기(스트림)
+         * @description generateResponse 와 같은 요청·인증·규칙으로 문장을 만들되 추론 엔진이 낸 조각을 바꾸지 않고 Server-Sent Events 의 delta 로 바로 보낸다(사용자 결정 2026-11-11). 공통 규칙은 계약 README 의 "응답 문장 스트림" 절이다. 요청을 받아들일지 정하는 실패(409 QUESTION_BANK_VERSION_MISMATCH, 503 MODEL_NOT_LOADED 등)는 스트림을 열기 전에 generateResponse 와 같은 상태 코드로 답한다. 문장의 합격 조건(ResponseSentence 1~344자)은 이 작업이 지킨다. 이은 글자가 344자를 넘게 되는 조각은 보내지 않고 error(503, OUTPUT_INVALID)로 끝내고, 끝에서 빈 문장이면 error(503, OUTPUT_INVALID)다. 엔진 실패와 시간 상한은 generateResponse 가 503 으로 답했을 문제 상세를 error 로 보낸다. result 의 text 는 보낸 delta 를 이은 것과 같다.
+         */
+        post: operations["generateResponseStream"];
         delete?: never;
         options?: never;
         head?: never;
@@ -597,7 +617,7 @@ export interface components {
         };
         /**
          * Format: binary
-         * @description 응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)
+         * @description 응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
          */
         ResponseEventStream: string;
         /**
@@ -991,6 +1011,8 @@ export interface components {
         WwwAuthenticate: components["schemas"]["AuthenticateChallenge"];
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
+        /** @description 응답 문장 스트림은 저장하지 않는다. 중간 장치가 모으거나 저장하지 않고 바로 넘기게 한다(RFC 9111 5.2.2.4, WHATWG HTML 9.2) */
+        StreamCacheControl: "no-cache";
     };
     pathItems: never;
 }
@@ -1038,13 +1060,42 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 응답 문장(Accept 가 text/event-stream 이면 스트림) */
+            /** @description 응답 문장 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ResponseResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    generateResponseStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResponseGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description 응답 문장 스트림(delta 0개 이상 뒤 result 나 error 하나) */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StreamCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
                     "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };

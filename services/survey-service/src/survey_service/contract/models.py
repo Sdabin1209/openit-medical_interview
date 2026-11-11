@@ -401,7 +401,7 @@ class GatewayConnectLimitSeconds(RootModel[Literal[1]]):
 class GatewayPatientRouteLimitSeconds(RootModel[Literal[55]]):
     root: Annotated[Literal[55], Field(ge=55, le=55)]
     """
-    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)
+    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다
     """
 
 
@@ -592,7 +592,7 @@ class KioskProgressNoticeSeconds(RootModel[Literal[1]]):
 class KioskRequestLimitSeconds(RootModel[Literal[60]]):
     root: Annotated[Literal[60], Field(ge=60, le=60)]
     """
-    키오스크가 서버 응답을 기다리는 실패 판정 상한(초)
+    키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다
     """
 
 
@@ -1242,7 +1242,7 @@ class ResponseEventStream(RootModel[bytes]):
         bytes, Field(json_schema_extra={'contentMediaType': 'text/event-stream'})
     ]
     """
-    응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)
+    응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
     """
 
 
@@ -1610,7 +1610,7 @@ class TimeBudgetTable(BaseModel):
     """
     gateway_patient_route: GatewayPatientRouteLimitSeconds
     """
-    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)
+    환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다
     """
     kiosk_idle_reset: KioskIdleResetSeconds
     """
@@ -1622,7 +1622,7 @@ class TimeBudgetTable(BaseModel):
     """
     kiosk_request: KioskRequestLimitSeconds
     """
-    키오스크가 서버 응답을 기다리는 실패 판정 상한(초)
+    키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다
     """
     kiosk_retry_budget: KioskRetryBudgetSeconds
     """
@@ -2625,7 +2625,11 @@ class ResponseErrorEvent(BaseModel):
     """
     problem: ProblemDetails
     """
-    실패의 문제 상세(status 는 같은 실패를 JSON 으로 알렸을 때의 상태 코드)
+    실패의 문제 상세(status 는 같은 실패를 JSON 작업이 알렸을 때의 상태 코드)
+    """
+    retry_after_seconds: RetryAfterSeconds | None = None
+    """
+    다시 보내기 전에 기다릴 초(JSON 작업이 Retry-After 머리글을 주었을 실패에만 있다)
     """
 
 
@@ -3873,7 +3877,7 @@ class Exposure(BaseModel):
     """
     나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)
     """
-    routes: Annotated[list[ExposureRoute], Field(max_length=29)]
+    routes: Annotated[list[ExposureRoute], Field(max_length=31)]
     """
     노출 경로들
     """

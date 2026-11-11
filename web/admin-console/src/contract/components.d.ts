@@ -94,7 +94,7 @@ export interface components {
          */
         PageCursor: string;
         /**
-         * @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초)
+         * @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다
          * @constant
          */
         KioskRequestLimitSeconds: 60;
@@ -119,7 +119,7 @@ export interface components {
          */
         GatewayConnectLimitSeconds: 1;
         /**
-         * @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)
+         * @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다
          * @constant
          */
         GatewayPatientRouteLimitSeconds: 55;
@@ -165,7 +165,7 @@ export interface components {
         ModelLoadLimitSeconds: 180;
         /** @description 영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버, 사람 화면의 활성화 대기 > 모델 적재). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다 */
         TimeBudgetTable: {
-            /** @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초) */
+            /** @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다 */
             kiosk_request: components["schemas"]["KioskRequestLimitSeconds"];
             /** @description 키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초) */
             kiosk_retry_budget: components["schemas"]["KioskRetryBudgetSeconds"];
@@ -175,7 +175,7 @@ export interface components {
             kiosk_progress_notice: components["schemas"]["KioskProgressNoticeSeconds"];
             /** @description 영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초) */
             gateway_connect: components["schemas"]["GatewayConnectLimitSeconds"];
-            /** @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초) */
+            /** @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다 */
             gateway_patient_route: components["schemas"]["GatewayPatientRouteLimitSeconds"];
             /** @description survey-service 가 환자 턴 하나를 마치는 총 마감(초) */
             survey_turn: components["schemas"]["SurveyTurnLimitSeconds"];
@@ -677,7 +677,7 @@ export interface components {
         ResponseDeltaText: string;
         /**
          * Format: binary
-         * @description 응답 문장 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 이 스트림에는 id 와 재개(Last-Event-ID)가 없다. 끊기면 같은 요청을 다시 보낸다(submitTurn 은 같은 turn_id)
+         * @description 응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
          */
         ResponseEventStream: string;
         /** @description 응답 문장 스트림의 delta 이벤트 data */
@@ -691,8 +691,10 @@ export interface components {
         ResponseErrorEvent: {
             /** @description 스트림 도중의 실패 */
             event: components["schemas"]["StreamEventError"];
-            /** @description 실패의 문제 상세(status 는 같은 실패를 JSON 으로 알렸을 때의 상태 코드) */
+            /** @description 실패의 문제 상세(status 는 같은 실패를 JSON 작업이 알렸을 때의 상태 코드) */
             problem: components["schemas"]["ProblemDetails"];
+            /** @description 다시 보내기 전에 기다릴 초(JSON 작업이 Retry-After 머리글을 주었을 실패에만 있다) */
+            retry_after_seconds?: components["schemas"]["RetryAfterSeconds"];
         };
         /** @description generateResponse 스트림의 result 이벤트 data */
         ResponseResultEvent: {
@@ -2768,6 +2770,8 @@ export interface components {
     };
     requestBodies: never;
     headers: {
+        /** @description 응답 문장 스트림은 저장하지 않는다. 중간 장치가 모으거나 저장하지 않고 바로 넘기게 한다(RFC 9111 5.2.2.4, WHATWG HTML 9.2) */
+        StreamCacheControl: "no-cache";
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
         /** @description 인증 방식의 도전(RFC 9110 11.6.1, Bearer 는 RFC 6750 3) */
