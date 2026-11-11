@@ -13,7 +13,7 @@
 7. 모델 패키지 게시와 활성화
 8. 업데이트
 9. 롤백
-10. 백업과 복구
+10. 백업과 복구(잡 스케줄러 포함)
 11. 장애 확인
 12. 지우기
 
@@ -213,7 +213,7 @@ git checkout <이전 커밋> -- deploy/images.lock
 ./deploy status
 ```
 
-## 10. 백업과 복구
+## 10. 백업과 복구(잡 스케줄러 포함)
 
 백업 설정은 5절의 `backup` 칸이다(배치 설정 파일이 없으면 백업을 시작하지 않는다). 결정과 근거는 [ADR 0027](../../docs/adr/0027-백업과-복구.md) 이다.
 
@@ -229,10 +229,29 @@ git checkout <이전 커밋> -- deploy/images.lock
 
 - **무엇을 백업하나:** compose 서비스 라벨 `io.openit.backup: postgres` 인 PostgreSQL 모두와 `io.openit.backup: files` 인 서비스의 상태 파일, 각각 그것이 있는 서버에서. 지금은 platform 의 `postgres`(Keycloak 의 사용자·realm), survey-service 의 `survey-db`(문진 결과), model-runtime 의 활성화·롤백 기록(승인자·시각·사유, 활성 패키지는 이 기록에서 구한다)이다. 서버가 달라도 한 번의 `backup` 이 한 스냅샷에 담는다. 백업하는 동안 관리 노드의 `deploy/backups/` 에 덤프 크기만큼의 임시 디스크가 필요하다(끝나면 지운다).
 - **무엇을 백업하지 않나:** step-ca·레지스트리·감시의 볼륨(다시 받거나 다시 올린다), model-runtime 이 받은 패키지와 기반 모델 가중치(`model-runtime-data` 의 활성화 기록 밖: 레지스트리에서 다시 받는다. 레지스트리 볼륨도 백업하지 않으므로 서버를 통째로 잃으면 모델 패키지는 학습 쪽에서 다시 게시한다), 그리고 관리 노드의 `deploy/secrets/`, `deploy/pki/`, `deploy/.env`, `deploy/layout.json`, 백업 비밀 파일 네 개. 이것들은 직접 안전한 곳에 보관한다(루트 CA 키를 잃으면 신뢰의 뿌리를 다시 만들어야 하고 백업 암호를 잃으면 백업을 읽을 수 없다).
-- **일정:** 각 명령은 잡 한 번이다(끝에 표준 출력으로 한 줄 JSON, 종료 코드 0 성공·75 일시적 실패(다음 실행에서 다시)·1 실패). 하루 한 번 `backup` 다음 `offsite-sync`, 정기적으로 `restore-test`(서버 밖 사본은 `--offsite`)를 돌린다. 일정은 deploy 의 스케줄러가 정하고(D39) 지금 deploy 에는 스케줄러가 없으므로 systemd timer 등 설치처의 일정 도구로 부른다.
+- **일정:** 각 명령은 잡 한 번이다(끝에 표준 출력으로 한 줄 JSON, 종료 코드 0 성공·75 일시적 실패(다음 실행에서 다시)·1 실패). 자동으로 도는 일정은 deploy 의 스케줄러가 정한다(아래 '잡 스케줄러', D39): 백업 매일 02:00, 서버 밖 동기 매일 03:00, 복구 시험 매주 일요일 04:00(서버 밖 사본은 `./deploy restore-test --offsite` 로 사람이 따로 시험한다).
 - **보관:** 14일(`forget --keep-within 14d`, 운영 데이터의 가장 짧은 보존 30일 이하). 서버 밖 저장소에도 같은 정리를 한다.
 - **복구 절차:** `restore` 는 스냅샷에 있는 데이터베이스를 지우고 다시 만들고(상태 파일은 백업한 경로를 비우고 되돌리고), 그것을 쓰는 서비스는 멈췄다가 다시 띄운다. model-runtime 은 복구한 기록의 마지막 활성 패키지를 레지스트리에서 받아 다시 적재한다. 서버를 처음부터 다시 세웠다면 먼저 `./deploy bootstrap` 으로 빈 상태를 세운 뒤(저장소가 비어 있으면 `--offsite` 로) `restore` 한다. 이전 형식(`deploy/backups/postgres-<시각>/` 폴더)의 백업은 새 `restore` 가 읽지 않는다.
 - `./deploy down --volumes` 는 백업 저장소의 볼륨도 지운다(서버 밖 사본은 남는다).
+
+### 잡 스케줄러
+
+잡(백업, 서버 밖 동기, 복구 시험, 영역이 선언한 DETECT_FAILURES·PURGE_EXPIRED)은 관리 노드의 systemd 타이머가 돌린다. 일정·근거·값은 [ADR 0028](../../docs/adr/0028-잡-스케줄러는-systemd-타이머.md) 이다. 설치하지 않으면 잡이 자동으로 돌지 않는다(`./deploy doctor` 가 설치 여부를 알린다).
+
+```
+./deploy schedule list                  # 잡마다 주인, 도는 서버, 주기와 근거, 시간 상한, 다음 실행
+./deploy schedule render                # 유닛 파일을 deploy/generated/schedule/ 에 만든다(설치하지 않는다)
+./deploy schedule status                # 잡마다 마지막 결과. 실패(1)이거나 두 주기 넘게 성공이 없으면 rc=1
+./deploy schedule run BACKUP            # 잡 하나를 타이머가 부르는 것과 같게 한 번 실행한다(결과 기록·감시 포함)
+./deploy schedule install               # 유닛을 /etc/systemd/system 에 두고 타이머를 켠다(root 권한 필요)
+./deploy schedule uninstall             # 이 설치의 잡 타이머를 끄고 지운다
+```
+
+- **설치(root):** `sudo env "PATH=$PATH" ./deploy schedule install --user "$USER"`. `--user` 는 잡을 실행할 사용자이고 docker 를 쓸 수 있어야 한다(8절의 배포 계정). 다시 실행해도 같고, 지금 스케줄에 없는 이 설치의 잡 유닛만 지운다. 새 영역 이미지를 만들어 잡 선언이 바뀌면 `./deploy build` 뒤에 다시 설치한다.
+- **어디서 도나:** 타이머는 관리 노드 한 곳에만 둔다. 영역의 잡은 그 영역이 있는 서버의 엔진에서 일회용 컨테이너로 돌고(배치 설정이 정한다) deploy 의 잡은 서버마다 엔진을 부른다. 관리 노드가 꺼져 있으면 잡이 돌지 않는다(일일·주간 잡은 켜질 때 한 번 보충한다).
+- **결과:** 잡의 표준 출력(JobRunResult 한 줄)은 저널에 남는다: `journalctl -u <프로젝트>-job-backup.service`. 마지막 결과는 `deploy/job-runs/<잡>.json`. 같은 잡이 이미 돌고 있으면 새로 시작하지 않는다(종료 코드 75).
+- **경보:** 잡의 마지막 실행이 실패(1)면 `OpenitJobFailed`, 마지막 성공이 두 주기보다 오래되면 `OpenitJobStale`, 한 번도 성공하지 못하면 `OpenitJobNeverSucceeded`, 결과를 받는 Pushgateway 를 읽지 못하면 `OpenitJobGatewayDown` 이 `OPENIT_ALERT_RECEIVER_URL` 의 수신처로 간다. 서버 밖 백업 설정이 틀려 백업이 시작하지 못하면 `OpenitJobFailed(BACKUP)` 다(D88 U6).
+- 스케줄에서 뺀 잡의 지표는 Pushgateway 에 남아 `OpenitJobStale` 이 울린다. `docker compose up -d --force-recreate pushgateway`(서버 프로젝트 안) 로 비운다.
 
 ## 11. 장애 확인
 

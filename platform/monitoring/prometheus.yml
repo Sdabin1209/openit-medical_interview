@@ -4,6 +4,7 @@ global:
   evaluation_interval: 1m
 rule_files:
   - /etc/prometheus/rules.yml
+  - /etc/prometheus/job-rules.yml # ./deploy 가 스케줄에 있는 잡마다 만든다(성공 기록 없음 경보, deploy ADR 0028)
 alerting:
   alertmanagers:
     - static_configs:
@@ -31,3 +32,10 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox:9115
+  # 스케줄러가 돌린 잡의 결과(종료 코드, 마지막 성공 시각, 주기). ./deploy schedule run 이 Pushgateway 에 올린 것을 긁는다(deploy ADR 0028).
+  # 왜 honor_labels: 올릴 때 정한 job·job_name 라벨을 긁는 쪽이 덮지 않는다(Pushgateway 문서의 권고). 왜 평문: backend 내부 네트워크에서만 닿는다
+  - job_name: openit-jobs
+    honor_labels: true
+    scheme: http
+    static_configs:
+      - targets: ['pushgateway:9091']

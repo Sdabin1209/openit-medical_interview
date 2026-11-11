@@ -33,6 +33,26 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: "{{ $labels.instance }} 의 /metrics 를 읽지 못한다"
+      - alert: OpenitJobFailed
+        # 스케줄러가 돌린 잡의 마지막 실행이 종료 코드 1(실패)이다. 75(일시적 실패)는 다음 실행에서 다시 하므로 여기서 울리지 않고 아래 OpenitJobStale 이 본다(D130).
+        # 서버 밖 백업 설정이 틀려 백업이 시작하지 못한 것도 종료 코드 1 이다(D88 U6: CRIT)
+        expr: openit_job_last_exit_code{job="openit-jobs"} == 1
+        labels: { severity: critical }
+        annotations:
+          summary: "잡 {{ $labels.job_name }} 의 마지막 실행이 실패했다(종료 코드 1, ./deploy schedule status)"
+      - alert: OpenitJobStale
+        # 마지막 성공이 두 주기보다 오래됐다(주기는 D131 의 선언 상한에서 deploy 가 만들고 지표로 올린다). 2배는 한 번 늦거나 못 도는 것을 넘기려는 선택값이고 측정하지 않았다(deploy ADR 0028)
+        expr: time() - openit_job_last_success_timestamp_seconds{job="openit-jobs"} > 2 * openit_job_period_seconds{job="openit-jobs"}
+        labels: { severity: critical }
+        annotations:
+          summary: "잡 {{ $labels.job_name }} 이 두 주기 동안 성공하지 못했다(일시적 실패가 이어지거나 스케줄러가 멈췄다)"
+      - alert: OpenitJobGatewayDown
+        # 잡 결과를 받는 Pushgateway 를 읽지 못한다. 이때는 위 두 경보도 새로 갱신되지 않는다
+        expr: up{job="openit-jobs"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "잡 결과를 받는 Pushgateway 를 읽지 못한다"
       - alert: Watchdog
         # 늘 켜져 있는 경보. 수신처가 이 신호의 끊김으로 서버 전체의 중단을 알아차린다(서버 안의 감시는 서버가 멈추면 말이 없다, D10, platform ADR 0005)
         expr: vector(1)

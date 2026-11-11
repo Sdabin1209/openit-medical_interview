@@ -9,6 +9,7 @@ dist/
 deploy/.env
 deploy/secrets/
 deploy/backups/
+deploy/job-runs/
 deploy/.build-meta/
 deploy/pki/
 deploy/generated/

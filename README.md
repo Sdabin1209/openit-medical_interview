@@ -34,6 +34,8 @@ openit-v7/
 | 처음 설치(신뢰의 뿌리, 레지스트리, 이미지, 기동) | `deploy/deploy bootstrap` |
 | 서버 두 대 배치 시험(샌드박스, ADR 0026) | `tools/layout-sandbox` |
 | 백업·복구와 기기별 문진표 배치 시험(샌드박스, 서버 한 대와 두 대, ADR 0027) | `tools/backup-sandbox` |
+| 잡 스케줄러 시험(샌드박스, 서버 한 대와 두 대, ADR 0028) | `tools/schedule-sandbox` |
+| 잡 스케줄 확인·타이머 설치 | `deploy/deploy schedule list`, `deploy/deploy schedule install`(INSTALL.md 10절) |
 | 설치 안내서(운영자, 처음부터) | [deploy/docs/INSTALL.md](deploy/docs/INSTALL.md) |
 | 사설 CA 상태·교체 | `deploy/deploy ca status`, `deploy/deploy ca rotate` ([절차](deploy/docs/CA.md)) |
 
@@ -67,3 +69,5 @@ openit-v7/
 - [0024 빌드는 설치 설정을 읽지 않는다](docs/adr/0024-빌드는-설치-설정을-읽지-않는다.md)
 - [0025 E2E 실행 규약과 두 모드](docs/adr/0025-E2E-실행-규약과-두-모드.md)
 - [0026 여러 서버 배치: 서버마다 compose 프로젝트, 가장자리 Envoy, 엔진 API 로 파일 올리기](docs/adr/0026-여러-서버-배치.md)
+- [0027 백업과 복구: 영역 DB 마다 pg_dump, 상태 파일 tar, restic 으로 한 스냅샷, 서버 밖 사본, 일회용 DB 로 복구 시험](docs/adr/0027-백업과-복구.md)
+- [0028 잡 스케줄러: 관리 노드의 systemd 타이머를 deploy 가 만들고, 잡 결과는 Pushgateway 로 감시에 올린다](docs/adr/0028-잡-스케줄러는-systemd-타이머.md)

@@ -29,6 +29,35 @@ tests:
         values: "1+0x400"
       - series: 'up{job="openit-areas",instance="model-runtime:9100"}'
         values: "0+0x400"
+      # 잡 결과(스케줄러가 Pushgateway 에 올린 지표). BACKUP: 마지막 실행이 실패(1). PURGE_EXPIRED: 성공이 t=0 에서 멈췄다(주기 900초, 40분 뒤면 두 주기를 넘는다).
+      # DETECT_FAILURES: 성공이 계속 갱신된다. OFFSITE_SYNC: 마지막 실행이 일시적 실패(75)이고 성공이 최근이다(경보 아님)
+      - series: 'openit_job_last_exit_code{job="openit-jobs",job_name="BACKUP"}'
+        values: "1+0x400"
+      - series: 'openit_job_last_exit_code{job="openit-jobs",job_name="PURGE_EXPIRED"}'
+        values: "75+0x400"
+      - series: 'openit_job_last_exit_code{job="openit-jobs",job_name="DETECT_FAILURES"}'
+        values: "0+0x400"
+      - series: 'openit_job_last_exit_code{job="openit-jobs",job_name="OFFSITE_SYNC"}'
+        values: "75+0x400"
+      - series: 'openit_job_last_success_timestamp_seconds{job="openit-jobs",job_name="PURGE_EXPIRED"}'
+        values: "0+0x400"
+      - series: 'openit_job_last_success_timestamp_seconds{job="openit-jobs",job_name="DETECT_FAILURES"}'
+        values: "0+60x400"
+      - series: 'openit_job_last_success_timestamp_seconds{job="openit-jobs",job_name="OFFSITE_SYNC"}'
+        values: "0+60x400"
+      - series: 'openit_job_last_success_timestamp_seconds{job="openit-jobs",job_name="BACKUP"}'
+        values: "0+60x400"
+      - series: 'openit_job_period_seconds{job="openit-jobs",job_name="PURGE_EXPIRED"}'
+        values: "900+0x400"
+      - series: 'openit_job_period_seconds{job="openit-jobs",job_name="DETECT_FAILURES"}'
+        values: "900+0x400"
+      - series: 'openit_job_period_seconds{job="openit-jobs",job_name="OFFSITE_SYNC"}'
+        values: "86400+0x400"
+      - series: 'openit_job_period_seconds{job="openit-jobs",job_name="BACKUP"}'
+        values: "86400+0x400"
+      # Pushgateway 를 읽지 못한다
+      - series: 'up{job="openit-jobs",instance="pushgateway:9091"}'
+        values: "0+0x400"
     alert_rule_test:
       # 값은 만료의 절대 시각(초)이고 시험의 time() 은 0 에서 시작한다. soon 은 남은 시간이 2시간 미만이라 5분 뒤부터 경보다
       - eval_time: 10m
@@ -63,3 +92,28 @@ tests:
           - exp_labels: { severity: none }
             exp_annotations:
               summary: "감시가 살아 있다(생존 신호)"
+      # 잡: 마지막 실행이 실패(1)면 바로 경보, 일시적 실패(75)는 경보가 아니다. 두 주기 넘게 성공이 없으면 경보, 갱신되는 잡은 조용하다
+      - eval_time: 10m
+        alertname: OpenitJobFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-jobs, job_name: BACKUP }
+            exp_annotations:
+              summary: "잡 BACKUP 의 마지막 실행이 실패했다(종료 코드 1, ./deploy schedule status)"
+      - eval_time: 10m
+        alertname: OpenitJobStale
+        exp_alerts: []  # 10분은 PURGE_EXPIRED 의 두 주기(30분)보다 짧다
+      - eval_time: 40m
+        alertname: OpenitJobStale
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-jobs, job_name: PURGE_EXPIRED }
+            exp_annotations:
+              summary: "잡 PURGE_EXPIRED 이 두 주기 동안 성공하지 못했다(일시적 실패가 이어지거나 스케줄러가 멈췄다)"
+      - eval_time: 3m
+        alertname: OpenitJobGatewayDown
+        exp_alerts: []  # 5분 동안 이어져야 한다
+      - eval_time: 20m
+        alertname: OpenitJobGatewayDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: openit-jobs, instance: "pushgateway:9091" }
+            exp_annotations:
+              summary: "잡 결과를 받는 Pushgateway 를 읽지 못한다"

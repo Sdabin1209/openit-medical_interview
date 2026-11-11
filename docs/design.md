@@ -100,7 +100,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | release_view | 모델 패키지 평가 보고서 확인, 활성화 승인, 롤백 |
 
 ### deploy (도구)
-`./deploy` 명령(doctor, secrets, build, up, down, status, job, backup, offsite-sync, restore, restore-test, bootstrap, ca, pull, e2e)과 배치 설정(서버, 기기별 기본 문진표, 백업). ADR 0004·0013, `e2e` 는 ADR 0025, 서버 나누기는 ADR 0026, 백업·복구와 기기별 문진표 배치는 ADR 0027.
+`./deploy` 명령(doctor, secrets, build, up, down, status, job, schedule, backup, offsite-sync, restore, restore-test, bootstrap, ca, pull, e2e)과 배치 설정(서버, 기기별 기본 문진표, 백업). ADR 0004·0013, `e2e` 는 ADR 0025, 서버 나누기는 ADR 0026, 백업·복구와 기기별 문진표 배치는 ADR 0027, 잡 스케줄러(systemd 타이머, 결과의 감시 연결)는 ADR 0028.
 
 ## 3. 영역 사이 흐름(계약 대상)
 
