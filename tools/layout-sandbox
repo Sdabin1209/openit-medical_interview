@@ -17,7 +17,7 @@
 
 `--single` 은 배치 설정 없이 서버 한 대(기존 동작)로 같은 설치(secrets init, doctor, bootstrap, status, up 다시, down)를 확인한다.
 
-사용: tools/layout-sandbox [--keep] [--single]    종료 코드: 0 통과, 1 실패, 3 두 주소를 고르지 못해 시험할 수 없음.
+사용: tools/layout-sandbox [--keep] [--single]    종료 코드: 0 통과, 1 실패, 3 시험할 수 없음(두 주소를 고르지 못함, 또는 같은 엔진에서 다른 샌드박스가 돌고 있음).
 """
 
 from __future__ import annotations
@@ -417,11 +417,41 @@ def force_clean() -> None:
                 docker([*removal, *ids], context=SERVER_A, check=False)
 
 
+_ENGINE_LOCK: object = None  # 프로세스가 끝날 때까지 잠금을 쥐는 파일(닫히면 운영체제가 잠금을 푼다)
+
+
+def hold_engine_lock() -> bool:
+    """같은 도커 엔진에서 이 샌드박스(layout·backup·schedule)는 한 번에 하나만 돈다. 잠금을 얻으면 참, 다른 실행이 쥐고 있으면 거짓.
+
+    왜: 샌드박스는 서버를 이 PC 의 IPv4 주소로 흉내 내고 서버마다 설치와 같은 포트(443, 80, 8443, 9000)를 게시한다. 두 실행이 겹치면 같은 주소·포트를
+    두고 다투어 한 실행이 다른 실행의 레지스트리에 닿는다(TLS 검증 실패). 호스트 주소·포트는 프로젝트 이름으로 나눌 수 없다.
+    왜 flock: 프로세스가 죽어도 운영체제가 잠금을 풀어 남는 잠금이 없다(flock(2)). 기다리지 않고 바로 알린다(시험할 수 없음, 종료 코드 3).
+    잠금 파일은 엔진 ID 마다 하나이고 리포 밖 실행 시간 폴더(XDG_RUNTIME_DIR, 없으면 임시 폴더)에 둔다: 사본·작업 트리가 달라도 같은 엔진이면 같은 잠금이어야 한다.
+    """
+    global _ENGINE_LOCK  # noqa: PLW0603
+    import fcntl  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    engine = docker(["info", "--format", "{{.ID}}"]).stdout.strip()
+    folder = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
+    path = folder / f"openit-sandbox-{hashlib.sha256(engine.encode()).hexdigest()[:16]}.lock"
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        print(f"이 도커 엔진에서 다른 샌드박스 시험이 돌고 있다(잠금 {path}). 끝난 뒤 다시 실행한다", file=sys.stderr)
+        return False
+    _ENGINE_LOCK = handle
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--keep", action="store_true", help="끝나도 사본과 컨테이너를 지우지 않는다(진단용)")
     parser.add_argument("--single", action="store_true", help="배치 설정 없이 서버 한 대로 설치를 확인한다(기존 동작)")
-    parser.add_argument("--project", default=None, help=f"프로젝트 이름(컨테이너·볼륨·네트워크 이름의 앞부분). 기본 {PROJECT}. 같은 엔진에서 이 시험이 겹쳐 돌 때 바꾼다")
+    parser.add_argument("--project", default=None, help=f"프로젝트 이름(컨테이너·볼륨·네트워크 이름의 앞부분). 기본 {PROJECT}. 남은 자원 이름을 나눌 때 바꾼다(같은 엔진에서 겹쳐 돌리지는 못한다, 엔진 잠금)")
     args = parser.parse_args()
     if args.project:
         set_project(args.project)
@@ -431,6 +461,8 @@ def main() -> int:
         print(f"이 엔진에 영역 이미지가 없다: {', '.join(missing)} (./deploy build)", file=sys.stderr)
         return 1
     (WORK / PROJECT / ".docker-config").mkdir(parents=True, exist_ok=True)
+    if not hold_engine_lock():
+        return 3
     if args.single:
         return main_single(args.keep)
     addresses = reachable_addresses(LOGS)
