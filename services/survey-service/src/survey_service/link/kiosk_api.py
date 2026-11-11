@@ -5,13 +5,15 @@
 """
 
 import asyncio
+import contextlib
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from prometheus_client import Histogram
 
 from survey_service.components import alert, question_bank, session, start_code, trace, turn
@@ -21,6 +23,8 @@ from survey_service.contract.models import (
     PauseReason,
     ProblemReason,
     QuestionSetContent,
+    ResponseGenerationRequest,
+    ResponseResult,
     SessionStartRequest,
     SessionStatus,
     TurnFailureReason,
@@ -29,6 +33,7 @@ from survey_service.contract.models import (
 from survey_service.link import auth as authn
 from survey_service.link.common import content_of, reply
 from survey_service.link.problem import ApiError
+from survey_service.link.stream import Background, Emit, event_stream, result_frame
 from survey_service.types import (
     ModelCallError,
     ModelCallFailure,
@@ -36,7 +41,9 @@ from survey_service.types import (
     SessionRecord,
     SlotValue,
     StartCodeVerdict,
+    StoredQuestionSet,
     TurnOutcome,
+    TurnRecordData,
     Tx,
 )
 
@@ -58,8 +65,53 @@ async def call_twice[T](make: Callable[[], Awaitable[T]]) -> T:
     return await make()
 
 
-def router(rt: Runtime) -> APIRouter:
-    """키오스크 경로 여섯 개(listActiveQuestionnaires 는 직원도 읽는다)."""
+# 응답 문장을 받는 방법. JSON 작업은 한 번에 받고(call_twice), 스트림 작업은 조각을 emit 으로 흘린다
+type Respond = Callable[[ResponseGenerationRequest], Awaitable[ResponseResult]]
+
+
+@dataclass(frozen=True)
+class StartReplay:
+    """이미 시작한 세션을 같은 기기가 같은 코드로 다시 시작했다. 본문은 처음과 같다."""
+
+    body: dict[str, object]
+
+
+@dataclass(frozen=True)
+class StartReady:
+    """받아들인 세션 시작(처리 중 표시를 마쳤다). 첫 문장을 받아 세션과 함께 저장하는 일이 남았다."""
+
+    code: str
+    subject_ref: str
+    stored: StoredQuestionSet
+    content: QuestionSetContent
+    first_item_id: str
+    model_io_version: str | None
+
+
+@dataclass(frozen=True)
+class TurnReplay:
+    """이미 기록한 turn_id 의 재전송. 저장한 응답을 그대로 준다."""
+
+    body: dict[str, object]
+
+
+@dataclass(frozen=True)
+class TurnReady:
+    """받아들인 턴(처리 중 기록을 마쳤다). 모델을 부르고 결과를 반영하는 일이 남았다."""
+
+    session_id: UUID
+    device_id: str
+    turn_id: UUID
+    utterance: str
+    current: SessionRecord
+    asked_item: str
+    content: QuestionSetContent
+    record: TurnRecordData
+    began: float
+
+
+def router(rt: Runtime, background: Background) -> APIRouter:
+    """키오스크 경로(listActiveQuestionnaires 는 직원도 읽는다). background 는 스트림 작업의 처리를 연결과 따로 쥔다."""
     api = APIRouter()
 
     # ------------------------------------------------------------ 도구
@@ -110,7 +162,7 @@ def router(rt: Runtime) -> APIRouter:
     def answers_of(current: SessionRecord) -> dict[str, SlotValue]:
         return {key: a.value for key, a in current.answers.items() if a.status == "ANSWERED"}
 
-    def started_body(started: SessionRecord, content: QuestionSetContent) -> JSONResponse:
+    def started_body(started: SessionRecord, content: QuestionSetContent) -> dict[str, object]:
         body: dict[str, object] = {
             "session_id": str(started.session_id),
             "questionnaire_id": started.questionnaire_id,
@@ -120,7 +172,28 @@ def router(rt: Runtime) -> APIRouter:
         }
         if started.current_item_id is not None:
             body["current_item_id"] = started.current_item_id
-        return JSONResponse(body, status_code=200)
+        return body
+
+    async def respond_streamed(request: ResponseGenerationRequest, emit: Emit) -> ResponseResult:
+        """응답 문장을 스트림으로 받아 조각을 바로 흘린다. 출력 불가는 같은 요청 1회 재시도(D75)하되
+        조각을 이미 흘렸으면 하지 않는다: 키오스크가 이어 그린 조각 뒤에 새 문장의 조각이 붙어 글이
+        섞이기 때문이다(재시도 없이 실패 신호)."""
+        sent = False
+
+        async def relay(text: str) -> None:
+            nonlocal sent
+            sent = True
+            await emit(text)
+
+        try:
+            return await rt.model.respond_stream(request, relay)
+        except ModelCallError as error:
+            if error.failure is ModelCallFailure.DEADLINE or sent:
+                raise
+        return await rt.model.respond_stream(request, relay)
+
+    async def respond_once(request: ResponseGenerationRequest) -> ResponseResult:
+        return await call_twice(lambda: rt.model.respond(request))
 
     # ------------------------------------------------------------ 문진표 목록
     @api.get("/v1/questionnaires", tags=["questionnaires"])
@@ -131,8 +204,8 @@ def router(rt: Runtime) -> APIRouter:
         return JSONResponse({"questionnaires": items})
 
     # ------------------------------------------------------------ 세션 시작
-    @api.post("/v1/sessions", tags=["sessions"])
-    async def start_session(body: SessionStartRequest, who: authn.Device) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+    async def prepare_start(body: SessionStartRequest, who: authn.Device) -> StartReplay | StartReady:
+        """세션 시작을 받아들일지 정한다. 받아들이지 않으면 ApiError(스트림 작업도 열기 전에 같은 상태 코드)."""
         now = rt.now()
         window_start = now - timedelta(seconds=rt.limits.start_failure_window_seconds)
 
@@ -150,7 +223,7 @@ def router(rt: Runtime) -> APIRouter:
             if verdict is StartCodeVerdict.REPLAY and record is not None and record.used_session_id is not None:
                 previous = await tx.get_session(record.used_session_id)
                 if previous is not None:
-                    return started_body(previous, await content_for(tx, previous))
+                    return StartReplay(started_body(previous, await content_for(tx, previous)))
         if verdict is not StartCodeVerdict.OK or record is None:
             if verdict is StartCodeVerdict.INVALID:
                 raise await fail(ApiError(422, reason=ProblemReason.START_CODE_INVALID))
@@ -173,45 +246,82 @@ def router(rt: Runtime) -> APIRouter:
         if stored is None:
             raise ApiError(400, errors=[("/questionnaire_id", "활성 문항 세트가 없는 문진표다")])
         content = content_of(stored)
-        first = content.flow.start_item.root
         version = await rt.model.model_io_version()
-        try:
-            async with asyncio.timeout(rt.limits.turn_seconds):
-                greeted = await call_twice(
-                    lambda: rt.model.respond(
-                        turn.start_response_request(content, first, stored.runtime_contract_version)
-                    )
-                )
-        except (ModelCallError, TimeoutError) as error:
-            raise ApiError(
-                503, reason=ProblemReason.DEADLINE_EXCEEDED, retry_after=rt.limits.retry_after_seconds
-            ) from error
+        # 왜 모델을 부르기 전에 따로 커밋하나: 처리 중에 같은 기기가 같은 코드를 다시 보내면(끊긴 뒤의 재전송 등)
+        # 두 번째 첫 문장을 만들지 않고 409 로 기다리게 한다(계약 SESSION_START_IN_PROGRESS).
+        # 마감(turn_seconds)보다 오래 멈춘 표시는 넘겨받는다
         async with rt.store.transaction() as tx:
-            latest = await tx.get_start_code(code, for_update=True)
-            if start_code.evaluate(latest, who.subject, rt.now()) is not StartCodeVerdict.OK:
-                raise ApiError(409, reason=ProblemReason.START_CODE_USED)
-            started = session.start(
-                session_id=rt.new_id(),
-                device_id=who.subject,
-                subject_ref=record.subject_ref,
-                questionnaire_id=stored.questionnaire_id,
-                question_set_version_id=stored.question_set_version_id,
-                runtime_contract_version=stored.runtime_contract_version,
-                first_item_id=first,
-                greeting=greeted.text.root,
-                model_io_version=version,
-                now=rt.now(),
+            stale = rt.now() - timedelta(seconds=rt.limits.turn_seconds)
+            claimed = await tx.begin_start_attempt(who.subject, code, rt.now(), stale)
+        if not claimed:
+            raise ApiError(
+                409, reason=ProblemReason.SESSION_START_IN_PROGRESS, retry_after=rt.limits.retry_after_seconds
             )
-            await tx.create_session(started)
-            await tx.mark_start_code_used(code, who.subject, started.session_id)
-            await tx.log_event("session_started", started.session_id, rt.now(), {"device_id": who.subject})
-        response = started_body(started, content)
-        response.status_code = 201
-        return response
+        return StartReady(code, record.subject_ref, stored, content, content.flow.start_item.root, version)
+
+    async def run_start(ready: StartReady, who: authn.Device, respond: Respond) -> dict[str, object]:
+        """첫 문장을 받아 세션과 함께 저장한다. 저장 전의 어떤 실패도 아무것도 남기지 않는다(처리 중 표시도 지운다)."""
+        try:
+            try:
+                async with asyncio.timeout(rt.limits.turn_seconds):
+                    greeted = await respond(
+                        turn.start_response_request(
+                            ready.content, ready.first_item_id, ready.stored.runtime_contract_version
+                        )
+                    )
+            except (ModelCallError, TimeoutError) as error:
+                raise ApiError(
+                    503, reason=ProblemReason.DEADLINE_EXCEEDED, retry_after=rt.limits.retry_after_seconds
+                ) from error
+            async with rt.store.transaction() as tx:
+                latest = await tx.get_start_code(ready.code, for_update=True)
+                if start_code.evaluate(latest, who.subject, rt.now()) is not StartCodeVerdict.OK:
+                    raise ApiError(409, reason=ProblemReason.START_CODE_USED)
+                started = session.start(
+                    session_id=rt.new_id(),
+                    device_id=who.subject,
+                    subject_ref=ready.subject_ref,
+                    questionnaire_id=ready.stored.questionnaire_id,
+                    question_set_version_id=ready.stored.question_set_version_id,
+                    runtime_contract_version=ready.stored.runtime_contract_version,
+                    first_item_id=ready.first_item_id,
+                    greeting=greeted.text.root,
+                    model_io_version=ready.model_io_version,
+                    now=rt.now(),
+                )
+                await tx.create_session(started)
+                await tx.mark_start_code_used(ready.code, who.subject, started.session_id)
+                await tx.end_start_attempt(who.subject, ready.code)  # 왜 같은 트랜잭션: 세션과 표시 지우기가 함께 선다
+                await tx.log_event("session_started", started.session_id, rt.now(), {"device_id": who.subject})
+        except Exception:
+            # 왜 따로 지우나: 위 트랜잭션이 되돌려졌으므로 표시가 남는다. 못 지워도 마감이 지나면 넘겨받는다
+            with contextlib.suppress(Exception):
+                async with rt.store.transaction() as tx:
+                    await tx.end_start_attempt(who.subject, ready.code)
+            raise
+        return started_body(started, ready.content)
+
+    @api.post("/v1/sessions", tags=["sessions"])
+    async def start_session(body: SessionStartRequest, who: authn.Device) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        prepared = await prepare_start(body, who)
+        if isinstance(prepared, StartReplay):
+            return JSONResponse(prepared.body, status_code=200)
+        return JSONResponse(await run_start(prepared, who, respond_once), status_code=201)
+
+    @api.post("/v1/sessions/stream", tags=["sessions"])
+    async def start_session_stream(body: SessionStartRequest, who: authn.Device, request: Request) -> StreamingResponse:  # pyright: ignore[reportUnusedFunction]
+        prepared = await prepare_start(body, who)  # 받아들이지 않는 실패는 여기서 JSON 으로 끝난다(스트림을 열기 전)
+
+        async def produce(emit: Emit) -> bytes:
+            if isinstance(prepared, StartReplay):
+                return result_frame(prepared.body)  # 재생은 조각이 없다
+            return result_frame(await run_start(prepared, who, lambda r: respond_streamed(r, emit)))
+
+        return event_stream(background, request.url.path, rt.limits.retry_after_seconds, produce)
 
     # ------------------------------------------------------------ 턴
-    @api.post("/v1/sessions/{session_id}/turns", tags=["sessions"])
-    async def submit_turn(session_id: UUID, body: TurnRequest, who: authn.Device) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+    async def prepare_turn(session_id: UUID, body: TurnRequest, who: authn.Device) -> TurnReplay | TurnReady:
+        """턴을 받아들일지 정한다. 받아들이지 않으면 ApiError, 이미 기록한 turn_id 면 재생."""
         began = time.monotonic()
         turn_id = body.turn_id.root
         utterance = body.utterance.root
@@ -228,9 +338,14 @@ def router(rt: Runtime) -> APIRouter:
             existing = await tx.begin_turn(started, stale)
             if existing is not None:
                 if existing.outcome is TurnOutcome.DONE and existing.response is not None:
-                    return JSONResponse(existing.response)
+                    return TurnReplay(existing.response)
                 raise ApiError(409, reason=ProblemReason.TURN_IN_PROGRESS, retry_after=rt.limits.retry_after_seconds)
+        return TurnReady(session_id, who.subject, turn_id, utterance, current, asked_item, content, started, began)
 
+    async def run_turn(ready: TurnReady, respond: Respond) -> dict[str, object]:
+        """모델을 불러 턴을 처리하고 결과를 반영한다(JSON 작업의 본문). 값을 못 만들면 failure_signal 본문이다."""
+        session_id, turn_id, current, content = ready.session_id, ready.turn_id, ready.current, ready.content
+        started, utterance = ready.record, ready.utterance
         extraction: ActionExtraction | None = None
         digest: str | None = None
         signal: TurnFailureReason | None = None
@@ -243,7 +358,7 @@ def router(rt: Runtime) -> APIRouter:
                     lambda: rt.model.extract(turn.extraction_request(current, content, utterance))
                 )
                 extraction, digest = extracted.output, extracted.package_digest.root
-                skip_target = question_bank.next_after(content, asked_item, answers_of(current))
+                skip_target = question_bank.next_after(content, ready.asked_item, answers_of(current))
                 transition = session.apply_extraction(
                     current, extraction, skip_target=skip_target, reask_limit=rt.limits.reask_limit, now=rt.now()
                 )
@@ -258,7 +373,7 @@ def router(rt: Runtime) -> APIRouter:
                         transition=transition,
                         utterance=utterance,
                     )
-                    text = (await call_twice(lambda: rt.model.respond(request))).text.root
+                    text = (await respond(request)).text.root
                 signal = None
         except ModelCallError as error:
             if error.failure is ModelCallFailure.DEADLINE:
@@ -268,7 +383,7 @@ def router(rt: Runtime) -> APIRouter:
 
         ready_alert: UUID | None = None
         async with rt.store.transaction() as tx:
-            latest = await load_owned(tx, session_id, who.subject, lock=True)
+            latest = await load_owned(tx, session_id, ready.device_id, lock=True)
             if latest.status is not SessionStatus.ACTIVE or latest.last_activity_at != current.last_activity_at:
                 # 왜 버리나: 모델을 부르는 동안 세션이 멈추거나 끝났다(위험 신호·직원 개입). 결과를 반영하지 않는다
                 await tx.finish_turn(
@@ -302,8 +417,8 @@ def router(rt: Runtime) -> APIRouter:
                     )
                 )
                 await tx.log_event("turn_failed", session_id, rt.now(), {"signal": failure.value})
-                TURN_SECONDS.observe(time.monotonic() - began)
-                return JSONResponse(failure_body)
+                TURN_SECONDS.observe(time.monotonic() - ready.began)
+                return failure_body
             updated = transition.session.model_copy(update={"last_assistant_text": text})
             response_body: dict[str, object] = {
                 "turn_id": str(turn_id),
@@ -329,8 +444,30 @@ def router(rt: Runtime) -> APIRouter:
                 ready_alert = await raise_result_ready(tx, updated, content.title.root)
         if ready_alert is not None:
             await push(ready_alert, AlertKind.RESULT_READY)
-        TURN_SECONDS.observe(time.monotonic() - began)
-        return JSONResponse(response_body)
+        TURN_SECONDS.observe(time.monotonic() - ready.began)
+        return response_body
+
+    @api.post("/v1/sessions/{session_id}/turns", tags=["sessions"])
+    async def submit_turn(session_id: UUID, body: TurnRequest, who: authn.Device) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        prepared = await prepare_turn(session_id, body, who)
+        if isinstance(prepared, TurnReplay):
+            return JSONResponse(prepared.body)
+        return JSONResponse(await run_turn(prepared, respond_once))
+
+    @api.post("/v1/sessions/{session_id}/turns/stream", tags=["sessions"])
+    async def submit_turn_stream(
+        session_id: UUID, body: TurnRequest, who: authn.Device, request: Request
+    ) -> StreamingResponse:  # pyright: ignore[reportUnusedFunction]
+        prepared = await prepare_turn(
+            session_id, body, who
+        )  # 받아들이지 않는 실패는 여기서 JSON 으로 끝난다(스트림을 열기 전)
+
+        async def produce(emit: Emit) -> bytes:
+            if isinstance(prepared, TurnReplay):
+                return result_frame(prepared.body)  # 재생은 조각이 없다
+            return result_frame(await run_turn(prepared, lambda r: respond_streamed(r, emit)))
+
+        return event_stream(background, request.url.path, rt.limits.retry_after_seconds, produce)
 
     # ------------------------------------------------------------ 종료
     @api.post("/v1/sessions/{session_id}/end", tags=["sessions"])

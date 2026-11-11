@@ -44,7 +44,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "SESSION_START_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -94,7 +94,7 @@ export interface components {
          */
         PageCursor: string;
         /**
-         * @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초)
+         * @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다
          * @constant
          */
         KioskRequestLimitSeconds: 60;
@@ -119,7 +119,7 @@ export interface components {
          */
         GatewayConnectLimitSeconds: 1;
         /**
-         * @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)
+         * @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다
          * @constant
          */
         GatewayPatientRouteLimitSeconds: 55;
@@ -165,7 +165,7 @@ export interface components {
         ModelLoadLimitSeconds: 180;
         /** @description 영역 사이 시간 상한의 표. 바깥이 안쪽보다 길다(키오스크 > 게이트웨이 > survey 턴 > 클라이언트 > 추론 서버, 사람 화면 > 게이트웨이 > 서버, 사람 화면의 활성화 대기 > 모델 적재). 값은 목표(SLO 2초)가 아니라 실패 판정 상한이다. 실제 설정 입력은 이 값 이하로 둔다 */
         TimeBudgetTable: {
-            /** @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초) */
+            /** @description 키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다 */
             kiosk_request: components["schemas"]["KioskRequestLimitSeconds"];
             /** @description 키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초) */
             kiosk_retry_budget: components["schemas"]["KioskRetryBudgetSeconds"];
@@ -175,7 +175,7 @@ export interface components {
             kiosk_progress_notice: components["schemas"]["KioskProgressNoticeSeconds"];
             /** @description 영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초) */
             gateway_connect: components["schemas"]["GatewayConnectLimitSeconds"];
-            /** @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초) */
+            /** @description 환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다 */
             gateway_patient_route: components["schemas"]["GatewayPatientRouteLimitSeconds"];
             /** @description survey-service 가 환자 턴 하나를 마치는 총 마감(초) */
             survey_turn: components["schemas"]["SurveyTurnLimitSeconds"];
@@ -507,7 +507,7 @@ export interface components {
          */
         UtteranceText: string;
         /**
-         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
          * @example 뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다.
          */
         ResponseSentence: string;
@@ -658,6 +658,71 @@ export interface components {
          * @description 알림 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). 끝이 없는 스트림이라 길이 상한이 없다. 이벤트 하나의 data 는 StaffAlertEvent 다
          */
         ServerSentEventStream: string;
+        /**
+         * @description 응답 문장 스트림의 delta 이벤트 이름(SSE event 줄과 같다). 응답 문장의 다음 조각이고 받은 즉시 화면에 이어 붙인다
+         * @constant
+         */
+        StreamEventDelta: "delta";
+        /**
+         * @description 응답 문장 스트림의 result 이벤트 이름(SSE event 줄과 같다). 확정 결과이고 스트림의 마지막 이벤트다. 화면의 문장은 이 결과의 문장으로 바꾼다
+         * @constant
+         */
+        StreamEventResult: "result";
+        /**
+         * @description 응답 문장 스트림의 error 이벤트 이름(SSE event 줄과 같다). 헤더를 이미 보내 상태 코드로 알릴 수 없는 스트림 도중의 실패이고 스트림의 마지막 이벤트다
+         * @constant
+         */
+        StreamEventError: "error";
+        /** @description 응답 문장의 한 조각(추론 엔진이 낸 토큰 하나 이상을 글자로 푼 것). 조각을 차례로 이은 것이 모델이 낸 문장이다 */
+        ResponseDeltaText: string;
+        /**
+         * Format: binary
+         * @description 응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
+         */
+        ResponseEventStream: string;
+        /** @description 응답 문장 스트림의 delta 이벤트 data */
+        ResponseDeltaEvent: {
+            /** @description 응답 문장의 조각 */
+            event: components["schemas"]["StreamEventDelta"];
+            /** @description 다음 조각 */
+            text: components["schemas"]["ResponseDeltaText"];
+        };
+        /** @description 응답 문장 스트림의 error 이벤트 data. 본문은 같은 실패를 JSON 응답으로 알렸을 때의 문제 상세와 같다 */
+        ResponseErrorEvent: {
+            /** @description 스트림 도중의 실패 */
+            event: components["schemas"]["StreamEventError"];
+            /** @description 실패의 문제 상세(status 는 같은 실패를 JSON 작업이 알렸을 때의 상태 코드) */
+            problem: components["schemas"]["ProblemDetails"];
+            /** @description 다시 보내기 전에 기다릴 초(JSON 작업이 Retry-After 머리글을 주었을 실패에만 있다) */
+            retry_after_seconds?: components["schemas"]["RetryAfterSeconds"];
+        };
+        /** @description generateResponse 스트림의 result 이벤트 data */
+        ResponseResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다) */
+            result: components["schemas"]["ResponseResult"];
+        };
+        /** @description startSession 스트림의 result 이벤트 data */
+        SessionStartResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 시작한 세션(JSON 응답의 본문과 같다) */
+            result: components["schemas"]["SessionStarted"];
+        };
+        /** @description submitTurn 스트림의 result 이벤트 data */
+        TurnResultEvent: {
+            /** @description 확정 결과 */
+            event: components["schemas"]["StreamEventResult"];
+            /** @description 턴 결과(JSON 응답의 본문과 같다) */
+            result: components["schemas"]["TurnResponse"];
+        };
+        /** @description generateResponse 스트림의 이벤트 하나의 data 본문 */
+        ResponseStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["ResponseResultEvent"] | components["schemas"]["ResponseErrorEvent"];
+        /** @description startSession 스트림의 이벤트 하나의 data 본문 */
+        SessionStartStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["SessionStartResultEvent"] | components["schemas"]["ResponseErrorEvent"];
+        /** @description submitTurn 스트림의 이벤트 하나의 data 본문 */
+        TurnStreamEvent: components["schemas"]["ResponseDeltaEvent"] | components["schemas"]["TurnResultEvent"] | components["schemas"]["ResponseErrorEvent"];
         /**
          * @description 직원이 알림에 대해 내리는 결정
          * @enum {string}
@@ -2705,6 +2770,8 @@ export interface components {
     };
     requestBodies: never;
     headers: {
+        /** @description 응답 문장 스트림은 캐시에 저장하지 않고(no-store) 중간 장치가 본문을 바꾸거나 압축하지 않게 한다(no-transform). 모으지 않고 바로 넘기는 것(버퍼링 끄기)은 이 머리글이 아니라 게이트웨이·입구 설정이 맡는다(계약 README 응답 문장 스트림 9항) */
+        StreamCacheControl: "no-store, no-transform";
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
         /** @description 인증 방식의 도전(RFC 9110 11.6.1, Bearer 는 RFC 6750 3) */

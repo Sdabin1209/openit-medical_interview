@@ -26,6 +26,7 @@ from .ingress import Ingress
 from .questionnaire import QUESTIONNAIRE_ID, RUNTIME_CONTRACT_VERSION, Questionnaire
 from .report import StepResult
 from .sandbox import ADAPTERS_IN_CONTAINER, DEVICE_ID, HOSPITAL, INPUTS_IN_CONTAINER, OUT_IN_CONTAINER, Sandbox
+from .sse import StreamOutcome, read_stream
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 # 왜 계약에서 읽나: 모델 적재 완료의 상한은 계약 9.1.0 의 TimeBudgetTable.model_load(ModelLoadLimitSeconds)다. 복사하지 않는다
@@ -55,6 +56,7 @@ class Context:
     turn_failures: int = 0
     turn_successes: int = 0
     last_status: str = ""
+    streams: list[StreamOutcome] = field(default_factory=lambda: list[StreamOutcome]())
     result: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
 
     def human(self, user: str) -> httpx.Client:
@@ -225,14 +227,49 @@ def _check_turn(ctx: Context, previous_item: str | None, reply: dict[str, Any], 
     turn_checks[reply["failure_signal"]] = turn_checks.get(reply["failure_signal"], 0) + 1
 
 
+def _stream_result(
+    ctx: Context,
+    client: httpx.Client,
+    operation: str,
+    label: str,
+    checks: list[str],
+    *,
+    path: dict[str, str] | None = None,
+    body: Any = None,
+) -> dict[str, Any]:
+    """스트림 작업 하나를 부르고 result 의 본문(짝인 JSON 작업의 성공 본문, 스키마 검증은 이벤트 점검이 했다)을 돌려준다. error 로 끝나면 JSON 작업의 4xx·5xx 와 같게 단계가 실패한다."""
+    outcome = read_stream(client, ctx.contract, "survey-service", operation, path=path, body=body)
+    ctx.streams.append(outcome)
+    checks.append(f"{operation} {label}: {outcome.describe()}")
+    if outcome.error is not None:
+        problem = outcome.error["problem"]
+        raise StepFailure(f"{operation}: error 이벤트로 끝났다(상태 {problem.get('status')}, {problem.get('title')}). 다시 보내지 않는다")
+    return outcome.result  # type: ignore[no-any-return]
+
+
+def _check_streaming(ctx: Context, checks: list[str]) -> None:
+    """모드별 합격: 공통은 프로토콜 규칙(건마다 점검했다). product 는 더해 delta 가 result 앞에 한 번이라도 와야 한다(실제 토큰 스트리밍). 시간은 보고용이다."""
+    total = sum(outcome.deltas for outcome in ctx.streams)
+    firsts = [outcome.first_delta_seconds for outcome in ctx.streams if outcome.first_delta_seconds is not None]
+    checks.append(
+        f"스트림 {len(ctx.streams)}건 합계: delta {total}개, 첫 delta 가장 빠른 값 {min(firsts):.2f}초"
+        if firsts
+        else f"스트림 {len(ctx.streams)}건 합계: delta 0개"
+    )
+    if ctx.mode == "product" and total == 0:
+        raise StepFailure("product 모드인데 delta 이벤트가 하나도 없었다(토큰 스트리밍이 입구까지 이어지지 않았다)")
+
+
 def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
     kiosk = ctx.kiosk()
-    started = ctx.call(kiosk, "survey-service", "startSession", expect=(201,), body={"start_code": ctx.start_code}).body
+    started = _stream_result(ctx, kiosk, "startSessionStream", "세션 시작", checks, body={"start_code": ctx.start_code})
     ctx.session_id = started["session_id"]
     if started["status"] != "ACTIVE" or started["questionnaire_id"] != QUESTIONNAIRE_ID or not started["response_text"].strip():
         raise StepFailure(f"세션 시작 응답이 기대와 다르다: {json.dumps(started, ensure_ascii=False)[:300]}")
     item = started.get("current_item_id") or ctx.questionnaire.flow["start_item"]
-    checks.append(f"startSession 201(ACTIVE, 모델이 만든 첫 문장 {len(started['response_text'])}자, 지금 문항 {item})")
+    checks.append(
+        f"startSessionStream 200·SSE(결과는 SessionStarted, ACTIVE, 모델이 만든 첫 문장 {len(started['response_text'])}자, 지금 문항 {item})"
+    )
     failures: dict[str, int] = {}
     limit = PIPELINE_TURNS if ctx.mode == "pipeline" else PRODUCT_TURN_GUARD
     sent = 0
@@ -243,14 +280,15 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
             if ctx.mode == "product":
                 raise StepFailure(f"서비스가 알려 준 지금 문항 {item} 의 발화가 대본에 없다")
             turn = script.SCRIPT[sent % len(script.SCRIPT)]
-        reply = ctx.call(
+        reply = _stream_result(
+            ctx,
             kiosk,
-            "survey-service",
-            "submitTurn",
-            expect=(200,),
+            "submitTurnStream",
+            f"{sent + 1}번째 턴",
+            checks,
             path={"session_id": ctx.session_id},
             body={"turn_id": str(uuid.uuid4()), "utterance": turn.utterance},
-        ).body
+        )
         sent += 1
         _check_turn(ctx, item, reply, failures)
         if "failure_signal" in reply and ctx.mode == "product":
@@ -263,7 +301,7 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
         if state["status"] != status:
             raise StepFailure(f"턴 응답의 상태 {status} 와 getSessionState 의 {state['status']} 가 다르다")
     ctx.last_status = status
-    checks.append(f"submitTurn {sent}번 모두 200·계약 일치(성공 {ctx.turn_successes}, 실패 신호 {ctx.turn_failures})")
+    checks.append(f"submitTurnStream {sent}번 모두 200·SSE·계약 일치(성공 {ctx.turn_successes}, 실패 신호 {ctx.turn_failures})")
     if failures:
         checks.append(
             "실패 신호 " + ", ".join(f"{name} {count}" for name, count in sorted(failures.items())) + "건 모두 세션 상태·지금 문항 불변"
@@ -275,6 +313,7 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
         raise StepFailure(f"endSession 의 상태가 끝난 상태가 아니다: {ended['status']}")
     ctx.last_status = ended["status"]
     checks.append(f"endSession 200({ended['status']})")
+    _check_streaming(ctx, checks)
     if ctx.mode == "product" and ended["status"] != "ENDED_COMPLETE":
         raise StepFailure(f"product 모드는 문진이 끝까지 가야 한다(ENDED_COMPLETE). 실제 {ended['status']}")
 

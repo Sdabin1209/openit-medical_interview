@@ -2,9 +2,10 @@
 import { http, HttpResponse } from "msw";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import type { components } from "../../src/contract/survey-service";
 import { createSurveyLink, SurveyError } from "../../src/link/survey";
 import { mswServerFor } from "../fakes/msw";
-import { CODES, createFakeSurveyService, SESSION_ID } from "../fakes/survey-service";
+import { CODES, createFakeSurveyService, SESSION_ID, sse } from "../fakes/survey-service";
 
 const fake = createFakeSurveyService({ questionnaires: [{ questionnaire_id: "a", title: "A 문진표" }] });
 const server = mswServerFor(fake);
@@ -33,6 +34,10 @@ function fakeClock() {
       },
     },
   };
+}
+
+function okStream(result: components["schemas"]["TurnResponse"]) {
+  return new HttpResponse(sse([{ event: "result", result }]), { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
 function link(clock = fakeClock().clock) {
@@ -91,11 +96,11 @@ describe("재시도(계약 kiosk_retry_budget 120초 안에서 같은 요청)", 
     const seen: string[] = [];
     let calls = 0;
     server.use(
-      http.post("*/v1/sessions/:id/turns", async ({ request }) => {
+      http.post("*/v1/sessions/:id/turns/stream", async ({ request }) => {
         seen.push(((await request.json()) as { turn_id: string }).turn_id);
         calls += 1;
         if (calls < 3) return HttpResponse.json({ type: "about:blank", title: "x", status: 503 }, { status: 503, headers: { "retry-after": "4" } });
-        return HttpResponse.json({ turn_id: seen[0], status: "ACTIVE", response_text: "다음 질문" });
+        return okStream({ turn_id: seen[0] ?? "", status: "ACTIVE", response_text: "다음 질문" });
       }),
     );
     const { clock, sleeps } = fakeClock();
@@ -108,10 +113,10 @@ describe("재시도(계약 kiosk_retry_budget 120초 안에서 같은 요청)", 
   it("409 TURN_IN_PROGRESS 도 기다린 뒤 다시 보낸다", async () => {
     let calls = 0;
     server.use(
-      http.post("*/v1/sessions/:id/turns", () => {
+      http.post("*/v1/sessions/:id/turns/stream", () => {
         calls += 1;
         if (calls === 1) return HttpResponse.json({ type: "about:blank", title: "x", status: 409, reason: "TURN_IN_PROGRESS" }, { status: 409, headers: { "retry-after": "1" } });
-        return HttpResponse.json({ turn_id: crypto.randomUUID(), status: "ACTIVE", response_text: "ok" });
+        return okStream({ turn_id: crypto.randomUUID(), status: "ACTIVE", response_text: "ok" });
       }),
     );
     await expect(link().submitTurn(SESSION_ID, crypto.randomUUID(), "네")).resolves.toMatchObject({ response_text: "ok" });
@@ -129,7 +134,7 @@ describe("재시도(계약 kiosk_retry_budget 120초 안에서 같은 요청)", 
     await expect(link().endSession(SESSION_ID)).resolves.toMatchObject({ status: "ENDED_PARTIAL" });
   });
   it("예산(120초)이 끝나면 마지막 오류를 던진다", async () => {
-    server.use(http.post("*/v1/sessions/:id/turns", () => HttpResponse.json({ type: "about:blank", title: "x", status: 503 }, { status: 503, headers: { "retry-after": "50" } })));
+    server.use(http.post("*/v1/sessions/:id/turns/stream", () => HttpResponse.json({ type: "about:blank", title: "x", status: 503 }, { status: 503, headers: { "retry-after": "50" } })));
     const { clock, sleeps } = fakeClock();
     const error = await link(clock).submitTurn(SESSION_ID, crypto.randomUUID(), "네").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SurveyError);

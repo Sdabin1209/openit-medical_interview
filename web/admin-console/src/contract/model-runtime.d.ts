@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/responses/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * LoRA-B 로 응답 문장 만들기(스트림)
+         * @description generateResponse 와 같은 요청·인증·규칙으로 문장을 만들되 추론 엔진이 낸 조각을 바꾸지 않고 Server-Sent Events 의 delta 로 바로 보낸다(사용자 결정 2026-11-11). 공통 규칙은 계약 README 의 "응답 문장 스트림" 절이다. 요청을 받아들일지 정하는 실패(409 QUESTION_BANK_VERSION_MISMATCH, 503 MODEL_NOT_LOADED 등)는 스트림을 열기 전에 generateResponse 와 같은 상태 코드로 답한다. 문장의 합격 조건(ResponseSentence 1~344자)은 이 작업이 지킨다. 이은 글자가 344자를 넘게 되는 조각은 보내지 않고 error(503, OUTPUT_INVALID)로 끝내고, 끝에서 빈 문장이면 error(503, OUTPUT_INVALID)다. 엔진 실패와 시간 상한은 generateResponse 가 503 으로 답했을 문제 상세를 error 로 보낸다. result 의 text 는 보낸 delta 를 이은 것과 같다.
+         */
+        post: operations["generateResponseStream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-status": {
         parameters: {
             query?: never;
@@ -223,7 +243,7 @@ export interface components {
          */
         QuestionItemId: string;
         /**
-         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
          * @example 뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다.
          */
         ResponseSentence: string;
@@ -496,7 +516,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "SESSION_START_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -595,6 +615,11 @@ export interface components {
             /** @description 환자에게 보일 문장 */
             text: components["schemas"]["ResponseSentence"];
         };
+        /**
+         * Format: binary
+         * @description 응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
+         */
+        ResponseEventStream: string;
         /**
          * @description 추론 서버의 모델 적재 상태
          * @enum {string}
@@ -986,6 +1011,8 @@ export interface components {
         WwwAuthenticate: components["schemas"]["AuthenticateChallenge"];
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
+        /** @description 응답 문장 스트림은 캐시에 저장하지 않고(no-store) 중간 장치가 본문을 바꾸거나 압축하지 않게 한다(no-transform). 모으지 않고 바로 넘기는 것(버퍼링 끄기)은 이 머리글이 아니라 게이트웨이·입구 설정이 맡는다(계약 README 응답 문장 스트림 9항) */
+        StreamCacheControl: "no-store, no-transform";
     };
     pathItems: never;
 }
@@ -1040,6 +1067,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResponseResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    generateResponseStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResponseGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description 응답 문장 스트림(delta 0개 이상 뒤 result 나 error 하나) */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StreamCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };
             400: components["responses"]["BadRequest"];

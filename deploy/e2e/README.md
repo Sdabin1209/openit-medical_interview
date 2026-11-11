@@ -27,6 +27,7 @@ cd deploy/e2e && uv run pytest              # 도구 시험(docker 없음)
 | `src/openit_e2e/cli.py` | 인자, 순서(준비 → 설치 → 엔진 → 시나리오 → 정리), 결과 기록 |
 | `sandbox.py` | 사본 만들기, 설치 입력, compose 조각, 엔진·게시 도구 실행, 진단과 정리 |
 | `scenario.py` | 여덟 단계와 판정 |
+| `sse.py` | 응답 문장 스트림 읽기: SSE 파서(WHATWG HTML 9.2), 머리글·이벤트 규칙 점검. 5단계는 `startSessionStream`·`submitTurnStream` 으로 세션을 돌리고 건마다 delta 수·첫 delta·result 까지의 시간(단조 시계, 보고용이며 합격 조건이 아니다)을 기록한다. product 모드는 delta 가 한 번이라도 result 앞에 와야 한다 |
 | `contract.py` | 계약 파일로 요청·응답 검증(format 단언 켬) |
 | `ingress.py` | 입구로 요청하는 클라이언트(기기 인증서, 로그인 쿠키, 기계 토큰) |
 | `questionnaire.py`, `script.py` | `contracts/inputs/SQL.md` 에서 만든 문항 세트, 발화 대본과 기대 값, 평가 집합 |

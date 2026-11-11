@@ -5,9 +5,10 @@
 DB 는 실제 SQLAlchemy 저장소를 임시 SQLite 파일(빠른 시험)이나 PostgreSQL 16 컨테이너(`-m postgres`)에 연다.
 """
 
+import asyncio
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -54,13 +55,27 @@ class Clock:
 
 
 @dataclass
+class StreamPlan:
+    """스트림으로 낼 응답 문장 한 건: 조각들, 그 뒤의 실패(있으면), 첫 조각 뒤에 멈춰 세우는 문(있으면).
+
+    hold 는 시험이 정하는 asyncio.Event 라서 실제 시간을 기다리지 않는다(시험이 풀어 줄 때까지 이벤트만 기다린다)."""
+
+    deltas: list[str]
+    fail: ModelCallError | None = None
+    hold: asyncio.Event | None = None
+    reached: asyncio.Event = field(default_factory=asyncio.Event)  # 첫 조각을 흘린 뒤 선다
+
+
+@dataclass
 class FakeModel:
     """가짜 model-runtime. 정해진 추출 출력과 응답 문장을 차례로 내고, 출력 불가나 시간 초과도 낸다."""
 
     extractions: deque[ActionExtraction | ModelCallError] = field(
         default_factory=lambda: deque[ActionExtraction | ModelCallError]()
     )
-    responses: deque[str | ModelCallError] = field(default_factory=lambda: deque[str | ModelCallError]())
+    responses: deque[str | ModelCallError | StreamPlan] = field(
+        default_factory=lambda: deque[str | ModelCallError | StreamPlan]()
+    )
     extract_requests: list[ExtractionRequest] = field(default_factory=lambda: list[ExtractionRequest]())
     respond_requests: list[ResponseGenerationRequest] = field(default_factory=lambda: list[ResponseGenerationRequest]())
     version: str | None = "model-io-v2"
@@ -68,7 +83,7 @@ class FakeModel:
     def will_extract(self, body: dict[str, Any] | ModelCallError) -> None:
         self.extractions.append(body if isinstance(body, ModelCallError) else ActionExtraction.model_validate(body))
 
-    def will_respond(self, text: str | ModelCallError) -> None:
+    def will_respond(self, text: str | ModelCallError | StreamPlan) -> None:
         self.responses.append(text)
 
     async def extract(self, request: ExtractionRequest) -> ExtractionResult:
@@ -85,7 +100,30 @@ class FakeModel:
         item = self.responses.popleft()
         if isinstance(item, ModelCallError):
             raise item
+        if isinstance(item, StreamPlan):
+            if item.fail is not None:
+                raise item.fail
+            return ResponseResult.model_validate({"package_digest": DIGEST, "text": "".join(item.deltas)})
         return ResponseResult.model_validate({"package_digest": DIGEST, "text": item})
+
+    async def respond_stream(
+        self, request: ResponseGenerationRequest, on_delta: Callable[[str], Awaitable[None]]
+    ) -> ResponseResult:
+        """문장을 2글자씩 조각내 흘린다(StreamPlan 이면 정해진 조각). 계약대로 result.text 는 조각을 이은 것이다."""
+        self.respond_requests.append(request)
+        item = self.responses.popleft()
+        if isinstance(item, ModelCallError):
+            raise item
+        plan = item if isinstance(item, StreamPlan) else StreamPlan([item[i : i + 2] for i in range(0, len(item), 2)])
+        for index, piece in enumerate(plan.deltas):
+            await on_delta(piece)
+            if index == 0:
+                plan.reached.set()
+                if plan.hold is not None:
+                    await plan.hold.wait()
+        if plan.fail is not None:
+            raise plan.fail
+        return ResponseResult.model_validate({"package_digest": DIGEST, "text": "".join(plan.deltas)})
 
     async def model_io_version(self) -> str | None:
         return self.version

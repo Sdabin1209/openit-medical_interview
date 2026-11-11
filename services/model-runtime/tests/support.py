@@ -18,6 +18,7 @@ from model_runtime.link.auth import Authenticator, CallerTable, JwksCache, OidcV
 from model_runtime.link.engine import VllmEngine
 from model_runtime.link.registry import OciPackageSource
 from model_runtime.main import Dependencies, Settings, create_app
+from model_runtime.types import ChatEngine
 
 ISSUER = "https://idp.test/realms/openit"
 NOW = datetime(2026, 11, 10, 9, 0, 0, tzinfo=UTC)  # 시험의 고정 시각. 토큰 발급과 검증이 같은 시계를 쓴다
@@ -148,7 +149,15 @@ def settings_for(tmp: Path, pki: Pki, registry_url: str, **override: Any) -> Set
     return Settings(**values)
 
 
-def make_app(settings: Settings, pki: Pki, identity: Identity, engine: FakeEngine, clock: Any = None) -> FastAPI:  # noqa: ANN401
+def make_app(
+    settings: Settings,
+    pki: Pki,
+    identity: Identity,
+    engine: FakeEngine,
+    clock: Any = None,  # noqa: ANN401
+    chat: ChatEngine | None = None,
+    respond_limit_seconds: float | None = None,
+) -> FastAPI:
     """실제 부품(레지스트리 클라이언트, 엔진 클라이언트, 인증)을 쓰되 엔진과 신원 공급자만 시험용으로 바꿔 조립한다."""
     http = httpx.AsyncClient(transport=httpx.ASGITransport(app=engine.app()), base_url="http://engine")
     vllm = VllmEngine("http://engine", BASE_MODEL, http)
@@ -164,7 +173,7 @@ def make_app(settings: Settings, pki: Pki, identity: Identity, engine: FakeEngin
     )
     deps = Dependencies(
         source=source,
-        chat=vllm,
+        chat=chat or vllm,
         adapters=vllm,
         authenticator=Authenticator(
             CallerTable(settings.machine_tokens_file),
@@ -173,4 +182,9 @@ def make_app(settings: Settings, pki: Pki, identity: Identity, engine: FakeEngin
         engine_ready=vllm.healthy,
         closers=[source.close],
     )
-    return create_app(settings, deps, **({"clock": clock} if clock else {}))
+    options: dict[str, Any] = {}
+    if clock:
+        options["clock"] = clock
+    if respond_limit_seconds is not None:
+        options["respond_limit_seconds"] = respond_limit_seconds  # 시간 상한을 시험이 정한다(실제 대기 없이 넘기려고)
+    return create_app(settings, deps, **options)

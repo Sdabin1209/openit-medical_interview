@@ -22,19 +22,25 @@ async def call_engine(engine: ChatEngine, request: ChatRequest, limit_seconds: i
         async with asyncio.timeout(limit_seconds):
             text = await engine.complete(request)
     except TimeoutError as error:
-        raise ServiceFault(
-            503,
-            "모델 호출이 시간 상한을 넘었다",
-            f"추론 엔진이 {limit_seconds}초 안에 답하지 못했다",
-            reason=_deadline(),
-            retry_after=RETRY_AFTER_SECONDS,
-        ) from error
+        raise deadline_fault(limit_seconds) from error
     except EngineError as error:
-        raise ServiceFault(
-            503, "추론 엔진이 요청을 처리하지 못했다", "추론 엔진 호출이 실패했다", retry_after=RETRY_AFTER_SECONDS
-        ) from error
+        raise engine_fault() from error
     return text, time.monotonic() - started
 
 
-def _deadline() -> ProblemReason:
-    return ProblemReason.DEADLINE_EXCEEDED
+def deadline_fault(limit_seconds: float) -> ServiceFault:
+    """시간 상한을 넘긴 호출의 503. JSON 작업과 스트림 작업이 같은 문제 상세를 내도록 한 곳에 둔다."""
+    return ServiceFault(
+        503,
+        "모델 호출이 시간 상한을 넘었다",
+        f"추론 엔진이 {limit_seconds:g}초 안에 답하지 못했다",
+        reason=ProblemReason.DEADLINE_EXCEEDED,
+        retry_after=RETRY_AFTER_SECONDS,
+    )
+
+
+def engine_fault() -> ServiceFault:
+    """엔진 호출 실패의 503(원인 문구는 싣지 않는다)."""
+    return ServiceFault(
+        503, "추론 엔진이 요청을 처리하지 못했다", "추론 엔진 호출이 실패했다", retry_after=RETRY_AFTER_SECONDS
+    )

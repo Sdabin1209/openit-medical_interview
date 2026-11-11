@@ -13,7 +13,8 @@ async function violations(relative: string): Promise<string[]> {
   return (result?.messages ?? []).filter((m) => m.ruleId === "boundaries/dependencies" || m.ruleId === "no-restricted-globals").map((m) => m.ruleId ?? "");
 }
 
-describe("영역 경계", () => {
+// 왜 timeout: 0: 첫 lint 는 eslint 설정·플러그인을 읽느라 오래 걸린다(콜드 스타트 5초 넘음). 시험이 재는 것은 규칙의 판정이지 시간이 아니라서 시험당 시간 제한(실제 시계와의 경주)을 끈다
+describe("영역 경계", { timeout: 0 }, () => {
   it("컴포넌트는 자기 폴더의 파일을 import 할 수 있다", async () => {
     expect(await violations("components/A/uses-own.ts")).toEqual([]);
   });

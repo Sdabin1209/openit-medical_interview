@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from http import HTTPStatus
 from pathlib import Path
 
@@ -73,6 +74,33 @@ class VllmEngine:
         if not content:
             raise EngineError("추론 엔진이 빈 답을 냈다")
         return content
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[str]:
+        """채팅 완성을 stream=True 로 부르고 엔진이 낸 조각(delta.content)을 바꾸지 않고 차례로 낸다.
+
+        OpenAI 호환 API 의 표준 스트림이다. 요청 조건은 complete 와 같다(비생각 모드, ADR 0010). 제약 디코딩이 없는
+        응답 문장(LoRA-B)만 부르므로 response_format 은 싣지 않는다.
+        """
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": request.system},
+            {"role": "user", "content": request.user},
+        ]
+        try:
+            # 왜 async with: 소비자가 중간에 멈추거나 취소돼도 엔진과의 연결을 닫아 엔진이 생성을 멈추게 한다
+            async with await self._client.chat.completions.create(
+                model=request.adapter,
+                messages=messages,
+                max_tokens=request.max_new_tokens,
+                temperature=request.temperature,
+                extra_body=_NON_THINKING,
+                stream=True,
+            ) as chunks:
+                async for chunk in chunks:
+                    content = chunk.choices[0].delta.content if chunk.choices else None
+                    if content:
+                        yield content
+        except (openai.OpenAIError, httpx.HTTPError) as error:
+            raise EngineError("추론 엔진 호출이 실패했다") from error
 
     async def healthy(self) -> bool:
         """엔진이 살아 있고 프로파일의 기반 모델을 서빙하는가. /readyz 의 engine 점검이 쓴다.

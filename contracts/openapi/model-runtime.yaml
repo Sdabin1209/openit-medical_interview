@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 추론 서버(model-runtime) API
-  version: 9.1.0
+  version: 9.2.1
   description: >-
     레지스트리의 모델 패키지(OCI 아티팩트)를 digest 로 받아 적재한 모델로 LoRA-A 추출과 LoRA-B 응답 생성을 하고, 적재 상태와 모델 패키지 활성화 승인·롤백을 받는다. 승인한 사람의 신원은 OIDC 접근 토큰(RFC 9068)의 sub 클레임에서 얻는다.
   contact: { name: head }
@@ -45,6 +45,24 @@ paths:
         content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseGenerationRequest" } } }
       responses:
         "200": { description: 응답 문장, content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseResult" } } } }
+        "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../components.yaml#/components/responses/Conflict" }
+        "503": { $ref: "../components.yaml#/components/responses/Unavailable" }
+  /v1/responses/stream:
+    post:
+      operationId: generateResponseStream
+      tags: [inference]
+      summary: LoRA-B 로 응답 문장 만들기(스트림)
+      description: generateResponse 와 같은 요청·인증·규칙으로 문장을 만들되 추론 엔진이 낸 조각을 바꾸지 않고 Server-Sent Events 의 delta 로 바로 보낸다(사용자 결정 2026-11-11). 공통 규칙은 계약 README 의 "응답 문장 스트림" 절이다. 요청을 받아들일지 정하는 실패(409 QUESTION_BANK_VERSION_MISMATCH, 503 MODEL_NOT_LOADED 등)는 스트림을 열기 전에 generateResponse 와 같은 상태 코드로 답한다. 문장의 합격 조건(ResponseSentence 1~344자)은 이 작업이 지킨다. 이은 글자가 344자를 넘게 되는 조각은 보내지 않고 error(503, OUTPUT_INVALID)로 끝내고, 끝에서 빈 문장이면 error(503, OUTPUT_INVALID)다. 엔진 실패와 시간 상한은 generateResponse 가 503 으로 답했을 문제 상세를 error 로 보낸다. result 의 text 는 보낸 delta 를 이은 것과 같다.
+      x-owner: model-runtime
+      security: [ { area_mtls: [], machine_token: [inference-caller] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "../components.yaml#/components/schemas/ResponseGenerationRequest" } } }
+      responses:
+        "200": { description: 응답 문장 스트림(delta 0개 이상 뒤 result 나 error 하나), headers: { Cache-Control: { $ref: "../components.yaml#/components/headers/StreamCacheControl" } }, content: { text/event-stream: { schema: { $ref: "../components.yaml#/components/schemas/ResponseEventStream" }, x-event-data-schema: { $ref: "../components.yaml#/components/schemas/ResponseStreamEvent" } } } }
         "400": { $ref: "../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../components.yaml#/components/responses/Forbidden" }

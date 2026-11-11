@@ -1,5 +1,7 @@
 """inference: 엔진 호출 결과와 시간 상한·실패를 계약의 503 으로 바꾼다."""
 
+from collections.abc import AsyncIterator
+
 import pytest
 
 from model_runtime.components.inference import call_engine
@@ -18,6 +20,10 @@ class Engine:
         if isinstance(self.result, BaseException):
             raise self.result
         return self.result
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[str]:  # pragma: no cover
+        raise NotImplementedError
+        yield ""
 
 
 async def test_returns_text_and_elapsed_seconds() -> None:

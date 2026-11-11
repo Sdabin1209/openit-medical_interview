@@ -17,6 +17,7 @@ dependencies = [
   "alembic",  # DB 마이그레이션(ADR 0001)
   "prometheus-client",  # /metrics 의 Prometheus 텍스트 노출 형식(Apache-2.0, D111, ADR 0020)
   "pyjwt[crypto]>=2.15.1",
+  "httpx-sse",  # 모델 응답 문장 스트림(SSE)을 WHATWG 규칙대로 읽는다(MIT, ADR 0018)
 ]
 
 # 버전은 쓰지 않는다. uv 가 uv.lock 에 고정한다(`uv add <패키지>`, 개발 의존은 `uv add --dev <패키지>`).
@@ -38,7 +39,7 @@ openapi = ["survey-service"]  # contracts/openapi/<이름>.yaml
 # 왜 schemas: HTTP 작업이 직접 참조하지 않아도 이 영역이 받거나 내는 값들. 이웃 model-runtime 에 보내는 요청·응답(N03·N04),
 # 환경 입력(D133), 기계 호출자 표, 접근 토큰 검증(RFC 9068 프로파일: 사람·기계), 이미지 선언(잡·노출·입력, 시험이 파일을 검증한다), 웹 푸시 내용(C11), 기능 조건(v3), 시간 상한(D125)
 schemas = [
-  "ExtractionRequest", "ExtractionResult", "ResponseGenerationRequest", "ResponseResult",
+  "ExtractionRequest", "ExtractionResult", "ResponseGenerationRequest", "ResponseResult", "ResponseResultEvent",
   "SurveyServiceEnv", "DevicePlacementTable", "MachineTokenTable", "MachineIdentityClaims", "UserIdentityClaims", "AccessTokenHeader",
   "AccessTokenType", "WebPushPayload", "ModelIoFeatureRequirements", "ModelIoVersion", "TimeBudgetTable",
   "FhirMapping", "ModelStatus", "ReaskLimit", "ExplainStreakLimit", "JobRunInput", "JobRunResult", "JobsDeclaration", "Exposure", "ContainerInputs",

@@ -19,7 +19,7 @@
 | EndView | `src/components/EndView` | `outcome`, `closingText`, `onDone` | 끝 화면 |
 | IdleReset | `src/components/IdleReset` | `active`, `seconds`, `warnSeconds`, `onIdle` | 유휴 초기화와 경고(idle_reset, [ADR 0004](docs/adr/0004-고령자-접근성과-유휴-초기화.md)) |
 | speech | `src/components/speech` | `useSpeechRecognition`, `useSpeechSynthesis` | 기기 안 음성 인식·합성(speech) |
-| link_survey | `src/link/survey.ts` | 주소와 계약의 시간 상한 | survey-service 호출과 재시도([ADR 0003](docs/adr/0003-화면-구성과-재시도.md)) |
+| link_survey | `src/link/survey.ts` | 주소와 계약의 시간 상한 | survey-service 호출과 재시도([ADR 0003](docs/adr/0003-화면-구성과-재시도.md)), 시작·턴은 응답 문장 스트림([ADR 0008](docs/adr/0008-응답-문장-스트림-파서와-그리기-규칙.md)) |
 
 조립은 `src/App.tsx`, 계약 값은 `src/limits.ts`, 세션 모양은 `src/session.ts`. 컴포넌트는 `contract` 와 자기 폴더만 import 하고 서버 호출은 `src/link` 에서만 한다(경계 점검).
 
@@ -40,10 +40,10 @@ tools/smoke web kiosk-frontend        # 이미지 스모크
 가짜 survey-service 는 `tests/fakes/survey-service.ts` 하나이고 단위 시험(MSW)과 브라우저 시험(`page.route`)이 함께 쓴다.
 
 ## 5. 시험 상태
-이 절은 이 영역의 시험 상태만 쓴다. 2026-11-11 기준(계약 9.0.0).
-- 단위·계약·경계·선언(`npm test`): 9 파일 105 시험 통과. `npm run typecheck`, `npm run lint`, `npm run check:contract` 통과.
-- 브라우저(`tools/web-e2e kiosk-frontend` 와 같은 Playwright 이미지·명령, 컨테이너 이름만 지정): 10 시나리오 통과(시작 → 턴 → 종료, 틀린 코드, 실패 신호, 직원 호출·재개, 중간 종료, 크기, 음성 대역 2가지, 보안 헤더, 라우팅). 이 시나리오들은 이번 변경(문진표 선택 요구, 만료 처리)을 직접 건드리지 않는다. 그 부분은 단위 시험(MSW)이 본다.
-- 이미지: 9.0.0 로 바꾼 뒤 이미지 빌드·스모크(`deploy/deploy build web-kiosk-frontend`, `tools/smoke web kiosk-frontend`)는 이 작업에서 돌리지 않았다. Dockerfile 에 라벨 인자(`EXPOSURE`, `INPUTS`)를 더했다(ADR 0006).
+이 절은 이 영역의 시험 상태만 쓴다. 2026-11-11 기준(계약 9.2.0, 응답 문장 스트림 [ADR 0008](docs/adr/0008-응답-문장-스트림-파서와-그리기-규칙.md)).
+- 단위·계약·경계·선언(`npm test`): 10 파일 129 시험 통과. `npm run typecheck`, `npm run lint`, `npm run check:contract` 통과.
+- 브라우저(`tools/web-e2e kiosk-frontend` 와 같은 Playwright 이미지·명령, 컨테이너 이름만 지정): 11 시나리오 통과(시작 → 턴 → 종료, 틀린 코드, 실패 신호, 직원 호출·재개, 중간 종료, 크기, 음성 대역 2가지, 보안 헤더, 라우팅, 스트림 error 뒤 재전송). 조각 단위 전달은 `page.route` 로 시험할 수 없어 단위 시험(MSW 의 `ReadableStream`)이 본다.
+- 이미지: 빌드(`deploy/deploy build web-kiosk-frontend`)와 스모크(`tools/smoke web kiosk-frontend --no-build`) 통과. Dockerfile 에 라벨 인자(`EXPOSURE`, `INPUTS`)를 더했다(ADR 0006).
 - 확인하지 못한 것: 실제 키오스크 Chrome 의 Web Speech API(기기 안 인식 가능 여부, 한국어 목소리). Playwright 이미지의 headless Chromium 은 `SpeechRecognition.available()` 에서 죽어 대역으로 시험했다(ADR 0002). 고령자 사용 시험, 대비 측정 도구 확인, 기기 인증서(mTLS)가 걸린 게이트웨이 뒤의 실제 호출, 실제 survey-service 와의 `QUESTIONNAIRE_REQUIRED`·`EXPIRED` 응답(가짜 서버는 계약 설명대로 만들었다), 읽기 전용 루트에서 nginx 가 `/tmp` 만 써서 기동하는지(`inputs.json`, ADR 0006), nginx 이미지 위에서의 브라우저 시험(브라우저 시험은 같은 보안 헤더를 붙인 `vite preview` 에서 돈다).
 
 ## 6. ADR 목록
@@ -54,3 +54,4 @@ tools/smoke web kiosk-frontend        # 이미지 스모크
 - [0005 문진표 선택은 서버가 요구할 때만 보인다](docs/adr/0005-문진표-선택은-서버가-요구할-때만.md)
 - [0006 이미지 선언(exposure.json, inputs.json)과 라벨](docs/adr/0006-이미지-선언과-라벨.md)
 - [0007 화면은 /kiosk/ 접두어 아래에서 서비스한다](docs/adr/0007-화면은-kiosk-접두어-아래에서-서비스한다.md)
+- [0008 응답 문장 스트림: 파서 선택과 그리기 규칙](docs/adr/0008-응답-문장-스트림-파서와-그리기-규칙.md)

@@ -6,13 +6,13 @@ GPU 가 없는 환경에서 추론 엔진 자리를 채운다. 답은 시험이 
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 
 @dataclass
@@ -24,6 +24,7 @@ class Call:
     temperature: float
     response_format: dict[str, Any] | None
     chat_template_kwargs: dict[str, Any] | None = None
+    stream: bool = False
 
 
 @dataclass
@@ -36,6 +37,9 @@ class FakeEngine:
     healthy: bool = True
     base_model: str = "Qwen/Qwen3-8B"  # 엔진이 서빙하는 기반 모델(vLLM 의 `--model`)
     refuse_load: bool = False
+    split: Callable[[str], list[str]] = lambda text: [
+        text[i : i + 2] for i in range(0, len(text), 2)
+    ]  # stream=True 의 조각
     unloaded: list[str] = field(default_factory=lambda: list[str]())
 
     def app(self) -> FastAPI:
@@ -68,7 +72,7 @@ class FakeEngine:
             return PlainTextResponse("Success")
 
         @app.post("/v1/chat/completions")
-        async def chat(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        async def chat(request: Request) -> Response:  # pyright: ignore[reportUnusedFunction]
             body = await request.json()
             system, user = body["messages"][0]["content"], body["messages"][1]["content"]
             if body["model"] not in self.loaded:
@@ -84,9 +88,12 @@ class FakeEngine:
                     body["temperature"],
                     body.get("response_format"),
                     body.get("chat_template_kwargs"),
+                    bool(body.get("stream")),
                 )
             )
             text = self.answer(body["model"], user)
+            if body.get("stream"):
+                return StreamingResponse(self._chunks(body["model"], text), media_type="text/event-stream")
             return JSONResponse(
                 {
                     "id": "chatcmpl-test",
@@ -101,6 +108,25 @@ class FakeEngine:
             )
 
         return app
+
+    def _chunks(self, model: str, text: str) -> Iterator[str]:
+        """OpenAI 호환 스트림(chat.completion.chunk 들과 [DONE])."""
+
+        def chunk(delta: dict[str, Any], finish: str | None) -> str:
+            body = {
+                "id": "chatcmpl-test",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+            }
+            return f"data: {json.dumps(body, ensure_ascii=False)}\n\n"
+
+        yield chunk({"role": "assistant", "content": ""}, None)
+        for piece in self.split(text):
+            yield chunk({"content": piece}, None)
+        yield chunk({}, "stop")
+        yield "data: [DONE]\n\n"
 
 
 def dump(value: object) -> str:

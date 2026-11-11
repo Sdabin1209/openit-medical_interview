@@ -55,9 +55,29 @@ export interface paths {
         put?: never;
         /**
          * 시작 코드로 세션 시작
-         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것으로 정하고 활성 문진표가 하나뿐이면 그것이다. 모두 없고 활성 문진표가 둘 이상이면 환자가 골라야 하므로 422 QUESTIONNAIRE_REQUIRED 로 답하며, 이 응답은 시작 코드를 쓰지 않은 것으로 한다. 키오스크는 먼저 questionnaire_id 없이 보내고(같은 기기·같은 코드 재전송은 멱등) 이 사유일 때만 선택 화면을 보여 고른 값을 더해 다시 보낸다. 시작은 세션의 첫 활동이다(유휴 만료 기준은 getSessionState).
+         * @description 환자가 키오스크에서 시작 코드를 내고 세션을 시작한다. 서버는 코드에 묶인 대상자 참조값을 세션에 저장하고 키오스크에는 주지 않는다. 시작은 LoRA-B 만 불러 첫 문장을 만든다(N01, D74). 같은 기기가 같은 시작 코드로 다시 시작하면(응답을 못 받고 재전송한 경우) 같은 세션을 200 으로 돌려준다. 발급된 적 없는 코드는 422 START_CODE_INVALID, 만료는 409 START_CODE_EXPIRED, 다른 기기가 이미 쓴 코드는 409 START_CODE_USED 다. 기기별·코드별 실패 시도에는 한도를 두어 넘으면 429 와 Retry-After 로 답한다(NIST SP 800-63B 5.2.2). 문진표는 시작 코드에 묶인 것, 없으면 요청의 것, 없으면 기기 배치표(U86)의 것으로 정하고 활성 문진표가 하나뿐이면 그것이다. 모두 없고 활성 문진표가 둘 이상이면 환자가 골라야 하므로 422 QUESTIONNAIRE_REQUIRED 로 답하며, 이 응답은 시작 코드를 쓰지 않은 것으로 한다. 키오스크는 먼저 questionnaire_id 없이 보내고(같은 기기·같은 코드 재전송은 멱등) 이 사유일 때만 선택 화면을 보여 고른 값을 더해 다시 보낸다. 시작은 세션의 첫 활동이다(유휴 만료 기준은 getSessionState). 같은 기기·같은 코드의 앞선 시작 요청이 아직 처리 중이면 409 SESSION_START_IN_PROGRESS 와 Retry-After 로 답한다.
          */
         post: operations["startSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 시작 코드로 세션 시작(첫 문장을 스트림으로)
+         * @description startSession 과 같은 요청·인증·규칙으로 세션을 시작하되 첫 문장을 LoRA-B 가 토큰을 내는 대로 Server-Sent Events 로 보낸다(사용자 결정 2026-11-11). 공통 규칙은 계약 README 의 "응답 문장 스트림" 절이다. 요청을 받아들일지 정하는 실패는 스트림을 열기 전에 startSession 과 같은 상태 코드로 답하고, 받아들이면 상태 코드는 200 하나다(새 세션과 같은 세션의 재시작은 result 의 본문이 같아 가르지 않는다). 세션과 첫 문장은 result 를 쓰기 직전에 함께 저장하고, 그 전에 실패하면 startSession 의 503 처럼 아무것도 남기지 않고 error 로 끝낸다(같은 코드로 다시 시작하면 처음부터 다시 만든다). 이미 시작한 세션을 같은 기기가 같은 코드로 다시 시작하면 delta 없이 result 하나다. 같은 기기·같은 코드의 앞선 요청이 아직 처리 중이면(끊긴 뒤의 재전송 등) 스트림을 열기 전에 409 SESSION_START_IN_PROGRESS 와 Retry-After 로 답한다.
+         */
+        post: operations["startSessionStream"];
         delete?: never;
         options?: never;
         head?: never;
@@ -81,6 +101,29 @@ export interface paths {
          * @description 환자의 발화를 보내고 다음 문장을 받는다. 성공한 turn_id 를 다시 보내면 같은 결과를 받는다(멱등). 처리 중인 같은 turn_id 는 409 TURN_IN_PROGRESS 와 Retry-After 로 답한다. 값을 만들지 못하면 200 으로 failure_signal 을 주며 세션 상태는 바뀌지 않는다. failure_signal 을 준 turn_id 는 기록하지 않으므로(실패한 턴은 세션 상태를 바꾸지 않는다) 같은 turn_id 를 다시 보내면 다시 처리하고 그 결과가 기록된다(N01, N02, D55, D75(1), D86). 마지막 활동 뒤 KioskIdleResetSeconds 가 지난 ACTIVE 세션은 이 호출이 먼저 EXPIRED 로 판정하고, 없거나 끝난 세션과 같은 오류로 답한다(세션이 없으면 404, 끝나거나 멈추거나 만료된 세션은 409 SESSION_NOT_ACTIVE). 만료 판정을 통과한 호출은 활동이라 마지막 활동 시각을 새로 한다. 세션은 시작한 기기의 ID 로만 접근할 수 있고 다른 기기에는 404 로 존재를 숨긴다(D88 U8). 끝나거나 멈춘 세션에는 409 SESSION_NOT_ACTIVE 로 답한다. 한 문항에서 REASK 와 CONFIRM 이 ReaskLimit 만큼 이어진 뒤에도 정해지지 않으면 서비스가 그 문항을 SKIP 으로 합성해 건너뛰고(빈칸 원인 REASK_LIMIT) 서비스의 고정 안내 문장을 응답에 담는다. 이때 LoRA-B 에는 거짓 사유를 보내지 않는다.
          */
         post: operations["submitTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/turns/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 턴을 보낼 세션 */
+                session_id: components["schemas"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 환자 발화 한 턴 보내기(응답 문장을 스트림으로)
+         * @description submitTurn 과 같은 요청·인증·규칙(멱등, 만료 판정, 409 TURN_IN_PROGRESS)으로 턴을 처리하되 응답 문장을 LoRA-B 가 토큰을 내는 대로 Server-Sent Events 로 보낸다(사용자 결정 2026-11-11). 공통 규칙은 계약 README 의 "응답 문장 스트림" 절이다. 요청을 받아들일지 정하는 실패는 스트림을 열기 전에 submitTurn 과 같은 상태 코드로 답한다. 턴은 submitTurn 과 같은 때(result 를 쓰기 직전) 기록한다. 응답 문장을 끝내 받지 못하면(delta 를 보낸 뒤라도) submitTurn 의 200 과 같이 failure_signal 을 담은 result 로 끝내고 그 턴은 기록하지 않는다(D86). 값을 만들지 못해 LoRA-B 를 부르지 않은 턴과 이미 기록한 turn_id 의 재전송은 delta 없이 result 하나다. error 는 submitTurn 이 4xx·5xx 로 답했을 실패가 스트림을 연 뒤에 생겼을 때만 쓴다.
+         */
+        post: operations["submitTurnStream"];
         delete?: never;
         options?: never;
         head?: never;
@@ -674,7 +717,7 @@ export interface components {
          * @description 오류의 세부 사유. 상태 코드로 나뉘지 않는 경우를 클라이언트가 가르는 값. 각 값에 그 값을 내는 작업을 적었다
          * @enum {string}
          */
-        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
+        ProblemReason: "OUTPUT_INVALID" | "TURN_IN_PROGRESS" | "SESSION_START_IN_PROGRESS" | "START_CODE_INVALID" | "START_CODE_EXPIRED" | "START_CODE_USED" | "SESSION_NOT_ACTIVE" | "MODEL_NOT_LOADED" | "QUESTION_BANK_VERSION_MISMATCH" | "DEADLINE_EXCEEDED" | "CASE_VERSION_MISMATCH" | "PACKAGE_INVALID" | "ROLLBACK_TARGET_INVALID" | "RISK_DETECTION_DISABLED" | "QUESTIONNAIRE_REQUIRED";
         /**
          * Format: json-pointer
          * @description 요청 본문 안에서 잘못된 값의 위치(JSON 포인터)
@@ -771,7 +814,7 @@ export interface components {
          */
         SessionStatus: "ACTIVE" | "PAUSED" | "ENDED_COMPLETE" | "ENDED_PARTIAL" | "EXPIRED";
         /**
-         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+         * @description 환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
          * @example 뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다.
          */
         ResponseSentence: string;
@@ -795,6 +838,11 @@ export interface components {
             /** @description 지금 묻는 문항 */
             current_item_id?: components["schemas"]["QuestionItemId"];
         };
+        /**
+         * Format: binary
+         * @description 응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
+         */
+        ResponseEventStream: string;
         /**
          * Format: uuid
          * @description 환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)
@@ -1728,6 +1776,8 @@ export interface components {
         WwwAuthenticate: components["schemas"]["AuthenticateChallenge"];
         /** @description 같은 요청을 다시 보내기 전에 기다릴 초 */
         RetryAfter: components["schemas"]["RetryAfterSeconds"];
+        /** @description 응답 문장 스트림은 캐시에 저장하지 않고(no-store) 중간 장치가 본문을 바꾸거나 압축하지 않게 한다(no-transform). 모으지 않고 바로 넘기는 것(버퍼링 끄기)은 이 머리글이 아니라 게이트웨이·입구 설정이 맡는다(계약 README 응답 문장 스트림 9항) */
+        StreamCacheControl: "no-store, no-transform";
     };
     pathItems: never;
 }
@@ -1832,6 +1882,40 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    startSessionStream: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
+                "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionStartRequest"];
+            };
+        };
+        responses: {
+            /** @description 응답 문장 스트림(delta 0개 이상 뒤 result 나 error 하나) */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StreamCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     submitTurn: {
         parameters: {
             query?: never;
@@ -1858,6 +1942,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TurnResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    submitTurnStream: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 영역 게이트웨이(Envoy, docs/design.md 2절 platform 의 gateway)가 검증한 기기 인증서의 요약(Envoy 표준 헤더). 기기 인증서(device_mtls)를 요구하는 요청에는 입구가 항상 넣고 영역 게이트웨이(Caddy)는 입구의 인증서로 온 요청에서만 서비스로 넘긴다. 서비스는 게이트웨이만 닿는 영역 네트워크 구성을 근거로 이 값을 믿는다 */
+                "X-Forwarded-Client-Cert"?: components["parameters"]["ForwardedClientCert"];
+            };
+            path: {
+                /** @description 턴을 보낼 세션 */
+                session_id: components["schemas"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TurnRequest"];
+            };
+        };
+        responses: {
+            /** @description 응답 문장 스트림(delta 0개 이상 뒤 result 나 error 하나) */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StreamCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ResponseEventStream"];
                 };
             };
             400: components["responses"]["BadRequest"];

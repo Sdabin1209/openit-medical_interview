@@ -16,7 +16,9 @@ from survey_service.store.models import Base
 
 pytestmark = pytest.mark.anyio
 
-EXPECTED = {"survey_session", "turn_record", "staff_alert", "failure_case", "question_set_version", "start_code"}
+EXPECTED = {
+    "survey_session", "turn_record", "staff_alert", "failure_case", "question_set_version", "start_code", "start_attempt",
+}  # fmt: skip
 
 
 def tables(path: Path) -> set[str]:

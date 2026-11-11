@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.1.0
+  version: 9.2.1
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -21,10 +21,11 @@ components:
     ProblemInstance: { type: string, format: uri-reference, maxLength: 8000, examples: [ "/v1/extractions" ], description: "이번 오류 발생 하나를 가리키는 URI 참조(보통 요청 경로)", x-owner: head, x-basis: "RFC 9457 3.1.5 (instance), 사용자 결정 2026-11-10(UD-19: 최대 8000)" }
     ProblemReason:
       type: string
-      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH, DEADLINE_EXCEEDED, CASE_VERSION_MISMATCH, PACKAGE_INVALID, ROLLBACK_TARGET_INVALID, RISK_DETECTION_DISABLED, QUESTIONNAIRE_REQUIRED]
+      enum: [OUTPUT_INVALID, TURN_IN_PROGRESS, SESSION_START_IN_PROGRESS, START_CODE_INVALID, START_CODE_EXPIRED, START_CODE_USED, SESSION_NOT_ACTIVE, MODEL_NOT_LOADED, QUESTION_BANK_VERSION_MISMATCH, DEADLINE_EXCEEDED, CASE_VERSION_MISMATCH, PACKAGE_INVALID, ROLLBACK_TARGET_INVALID, RISK_DETECTION_DISABLED, QUESTIONNAIRE_REQUIRED]
       x-enum-descriptions:
-        OUTPUT_INVALID: "LoRA-A 출력이 끝내 합격 조건(ActionExtractionRules)을 지키지 못했다. 값을 지어내지 않고 503 으로 낸다(openapi/model-runtime.yaml extractAction. model-runtime 의 output_guard)"
+        OUTPUT_INVALID: "모델 출력이 끝내 합격 조건을 지키지 못했다. LoRA-A 는 ActionExtractionRules, LoRA-B 는 ResponseSentence(1~344자)다. 값이나 문장을 지어내지 않고 503 으로 낸다(openapi/model-runtime.yaml extractAction·generateResponse, 스트림에서는 generateResponseStream 의 error 이벤트. model-runtime 의 output_guard)"
         TURN_IN_PROGRESS: "같은 turn_id 의 앞선 요청이 아직 처리 중이다(openapi/survey-service.yaml submitTurn 409, Retry-After 를 따른다. survey-service 의 turn)"
+        SESSION_START_IN_PROGRESS: "같은 기기가 같은 시작 코드로 낸 앞선 시작 요청이 아직 처리 중이다(세션과 첫 문장은 처리가 끝날 때 함께 저장되므로 그 전에는 코드가 쓰이지 않은 것처럼 보인다). openapi/survey-service.yaml startSession·startSessionStream 409, Retry-After 를 따른다. survey-service 의 session"
         START_CODE_INVALID: "시작 코드가 발급된 적 없는 값이다(openapi/survey-service.yaml startSession 422. start_code)"
         START_CODE_EXPIRED: "시작 코드의 유효 기간이 지났다(openapi/survey-service.yaml startSession 409. start_code)"
         START_CODE_USED: "시작 코드는 일회용이라 다른 기기가 이미 썼다(openapi/survey-service.yaml startSession 409. start_code)"
@@ -72,12 +73,12 @@ components:
     PageCursor: { type: string, maxLength: 96, examples: [ "eyJrIjoiM2YyYjhjMWUiLCJzIjoiYWJjIn0" ], description: "다음 쪽을 가리키는 불투명 값. 서버가 만들고 클라이언트는 해석하지 않는다", x-owner: head, x-basis: "커서는 서버가 만들고 클라이언트는 해석하지 않는 불투명 값이다(Google AIP-158 page_token). 내용은 Timestamp 35자 + UUID 36자 + 구분자 1자 = 72바이트이고 base64url(RFC 4648 5, 패딩 없음)로 쓰면 4 곱하기 올림(72/3) = 96자다" }
 
     # ---- 시간 상한(영역 사이 약속, D125) ----
-    KioskRequestLimitSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)", x-owner: head, x-basis: "D125(키오스크 60초 > 게이트웨이 > survey 턴)" }
+    KioskRequestLimitSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다", x-owner: head, x-basis: "D125(키오스크 60초 > 게이트웨이 > survey 턴)" }
     KioskRetryBudgetSeconds: { type: integer, const: 120, minimum: 120, maximum: 120, description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)", x-owner: head, x-basis: "D125(재시도 예산 120초)" }
     KioskIdleResetSeconds: { type: integer, const: 60, minimum: 60, maximum: 60, description: "유휴 만료의 시간(초). 서버는 ACTIVE 세션의 마지막 활동(startSession, submitTurn, requestStaffCall 호출) 뒤 이만큼 지나면 그 세션을 EXPIRED 로 본다. 키오스크도 입력 없이 이만큼 기다리면 화면을 초기화하며 이는 화면 동작이라 서버에 알리지 않아도 된다(알리려면 endSession). 멈춘(PAUSED) 세션은 만료하지 않는다", x-owner: head, x-basis: "D88 U10(유휴 초기화), 사용자 결정 2026-11-10(UD-17), 헤드 결정 2026-11-10(kiosk-frontend-002: 유휴 만료의 주체는 서버이고 활동은 startSession·submitTurn·requestStaffCall 호출이다)" }
     KioskProgressNoticeSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)", x-owner: head, x-basis: "D125(Nielsen 1초 진행 표시)" }
     GatewayConnectLimitSeconds: { type: integer, const: 1, minimum: 1, maximum: 1, description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
-    GatewayPatientRouteLimitSeconds: { type: integer, const: 55, minimum: 55, maximum: 55, description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)", x-owner: head, x-basis: "D125(gateway 1+55초)" }
+    GatewayPatientRouteLimitSeconds: { type: integer, const: 55, minimum: 55, maximum: 55, description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다", x-owner: head, x-basis: "D125(gateway 1+55초)" }
     SurveyTurnLimitSeconds: { type: integer, const: 50, minimum: 50, maximum: 50, description: "survey-service 가 환자 턴 하나를 마치는 총 마감(초)", x-owner: head, x-basis: "D125(survey 턴 50초)" }
     ExtractClientLimitSeconds: { type: integer, const: 21, minimum: 21, maximum: 21, description: "survey-service 가 추출 요청을 기다리는 상한(초)", x-owner: head, x-basis: "D125(클라이언트 extract 21초)" }
     RespondClientLimitSeconds: { type: integer, const: 26, minimum: 26, maximum: 26, description: "survey-service 가 응답 생성 요청을 기다리는 상한(초)", x-owner: head, x-basis: "D125(클라이언트 respond 26초)" }
@@ -94,12 +95,12 @@ components:
       x-basis: "D125(시간 상한: 목표와 실패 판정을 나눈다, 표준과 계산된 최악값 위의 여유, 측정 아님), D120"
       required: [kiosk_request, kiosk_retry_budget, kiosk_progress_notice, kiosk_idle_reset, gateway_connect, gateway_patient_route, survey_turn, extract_client, respond_client, model_extract, model_respond, alert_stream_heartbeat, session_state_poll]
       properties:
-        kiosk_request: { $ref: "#/components/schemas/KioskRequestLimitSeconds", description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초)" }
+        kiosk_request: { $ref: "#/components/schemas/KioskRequestLimitSeconds", description: "키오스크가 서버 응답을 기다리는 실패 판정 상한(초). 응답 문장 스트림 작업은 마지막 이벤트(result 나 error)까지에 건다" }
         kiosk_retry_budget: { $ref: "#/components/schemas/KioskRetryBudgetSeconds", description: "키오스크가 같은 요청을 다시 보내는 데 쓸 수 있는 총 시간(초)" }
         kiosk_idle_reset: { $ref: "#/components/schemas/KioskIdleResetSeconds", description: "서버가 마지막 활동 뒤 ACTIVE 세션을 만료로 보는 시간(초). 키오스크 화면 초기화도 같은 시간이다" }
         kiosk_progress_notice: { $ref: "#/components/schemas/KioskProgressNoticeSeconds", description: "키오스크가 응답이 늦을 때 진행 표시를 보이기 시작하는 시간(초)" }
         gateway_connect: { $ref: "#/components/schemas/GatewayConnectLimitSeconds", description: "영역 게이트웨이가 상류에 연결하는 데 쓰는 상한(초)" }
-        gateway_patient_route: { $ref: "#/components/schemas/GatewayPatientRouteLimitSeconds", description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초)" }
+        gateway_patient_route: { $ref: "#/components/schemas/GatewayPatientRouteLimitSeconds", description: "환자·직원 경로에서 게이트웨이가 상류의 응답 머리글을 기다리는 상한(초). 응답 문장 스트림 작업(startSessionStream, submitTurnStream)은 머리글이 곧바로 오므로 이 상한을 응답 끝(result 나 error)까지에 건다" }
         survey_turn: { $ref: "#/components/schemas/SurveyTurnLimitSeconds", description: "survey-service 가 환자 턴 하나를 마치는 총 마감(초)" }
         extract_client: { $ref: "#/components/schemas/ExtractClientLimitSeconds", description: "survey-service 가 추출 요청을 기다리는 상한(초)" }
         respond_client: { $ref: "#/components/schemas/RespondClientLimitSeconds", description: "survey-service 가 응답 생성 요청을 기다리는 상한(초)" }
@@ -390,7 +391,7 @@ components:
     SessionId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "문진 세션 하나의 식별자. 서버가 발급한다", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D110(서버 발급 session_id)" }
     TurnId: { type: string, format: uuid, pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", maxLength: 36, examples: [ "3f2b8c1e-5a47-4d0e-9b6a-7c1d2e8f4a90" ], description: "환자 발화 한 턴의 식별자. 클라이언트가 만들고 같은 값을 다시 보내면 같은 결과를 받는다(멱등)", x-owner: survey-service, x-basis: "RFC 9562 (UUID), D55(같은 턴 ID 재전송은 멱등), D66(1)" }
     UtteranceText: { type: string, minLength: 1, maxLength: 300, examples: [ "뇌졸중 진단 받았고 약도 먹고 있어요" ], description: "환자가 한 턴에 한 말(음성은 기기 안에서 글자로 바꾼 값)", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(발화 한 턴 상한 300자: 학습 데이터 36,145행의 발화 길이 중앙 28, 99% 75, 최대 140자의 약 2배, docs/v7-flow-resolutions.md), 학습 서버 final·finaltest 93,429행 실측(2026-11-10)로 A 입력 46655행의 user_utterance 최대 140자 확인, D88 U3(음성은 기기 안 처리)" }
-    ResponseSentence: { type: string, minLength: 1, maxLength: 344, examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 추출 요청(ExtractionRequest.current_question)에도 들어가므로 그 자리의 상한을 겸한다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
+    ResponseSentence: { type: string, minLength: 1, maxLength: 344, pattern: "^[^\\s{\\[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F](?:[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F])?$", examples: [ "뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다." ], description: "환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다", x-owner: survey-service, x-basis: "D117(받아들이는 조건은 스키마에 둔다. 앞뒤 공백·제어 문자·JSON 감싸기 조건은 7.0.0 부터 model-runtime 의 responder 가 코드로 지키던 것을 9.2.1 에서 스키마로 옮겼다), D74(문장은 LoRA-B 가 만든다), IO_SPEC.md 4.2(B 출력은 응답 문장 그대로의 텍스트). 이 문장이 다음 턴의 추출 요청(ExtractionRequest.current_question)에도 들어가므로 그 자리의 상한을 겸한다. 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 응답 문장 최대 134자와 A 입력 current_question 최대 172자 중 큰 값 172 의 2배 344(그 2배 규칙은 docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)" }
     QuestionItemId: { type: string, pattern: "^[A-Za-z0-9_.]+$", maxLength: 12, examples: [ "Q1.D01" ], description: "문항 하나의 식별자(예를 들어 Q8_1, Q1.D01)", x-owner: survey-service, x-basis: "D74(문항 번호로 질문 문장을 찾는다), 실측 문항 31개의 식별자 최대 6자, 상한은 관측 최대의 2배(사용자 결정 2026-11-10 발화 상한과 같은 방식)" }
     SessionStatus:
       type: string
@@ -558,6 +559,86 @@ components:
         sequence: { $ref: "#/components/schemas/EventSequence", description: "이벤트 순번" }
         alert: { $ref: "#/components/schemas/StaffAlert", description: "alert 와 resolved 이벤트가 가리키는 알림" }
     ServerSentEventStream: { type: string, format: binary, contentMediaType: text/event-stream, description: "알림 스트림의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). 끝이 없는 스트림이라 길이 상한이 없다. 이벤트 하나의 data 는 StaffAlertEvent 다", x-owner: survey-service, x-basis: "WHATWG HTML 9.2(Server-sent events), OpenAPI 3.1 4.8(미디어 유형 text/event-stream 의 schema 는 본문 전체), D66(4), D87" }
+    StreamEventDelta: { const: delta, description: "응답 문장 스트림의 delta 이벤트 이름(SSE event 줄과 같다). 응답 문장의 다음 조각이고 받은 즉시 화면에 이어 붙인다", x-owner: head, x-basis: "WHATWG HTML 9.2.6(event 줄로 이벤트 종류를 가른다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    StreamEventResult: { const: result, description: "응답 문장 스트림의 result 이벤트 이름(SSE event 줄과 같다). 확정 결과이고 스트림의 마지막 이벤트다. 화면의 문장은 이 결과의 문장으로 바꾼다", x-owner: head, x-basis: "WHATWG HTML 9.2.6, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    StreamEventError: { const: error, description: "응답 문장 스트림의 error 이벤트 이름(SSE event 줄과 같다). 헤더를 이미 보내 상태 코드로 알릴 수 없는 스트림 도중의 실패이고 스트림의 마지막 이벤트다", x-owner: head, x-basis: "WHATWG HTML 9.2.6, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseDeltaText: { type: string, minLength: 1, maxLength: 344, description: "응답 문장의 한 조각(추론 엔진이 낸 토큰 하나 이상을 글자로 푼 것). 조각을 차례로 이은 것이 모델이 낸 문장이다", x-owner: head, x-basis: "ResponseSentence 의 상한 344(조각 하나는 문장 전체보다 길 수 없다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseEventStream: { type: string, format: binary, contentMediaType: text/event-stream, description: "응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절", x-owner: head, x-basis: "WHATWG HTML 9.2(Server-sent events), OpenAPI 3.1 4.8(text/event-stream 의 schema 는 본문 전체), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)" }
+    ResponseDeltaEvent:
+      type: object
+      additionalProperties: false
+      description: "응답 문장 스트림의 delta 이벤트 data"
+      x-owner: head
+      x-basis: "사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, text]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventDelta", description: "응답 문장의 조각" }
+        text: { $ref: "#/components/schemas/ResponseDeltaText", description: "다음 조각" }
+    ResponseErrorEvent:
+      type: object
+      additionalProperties: false
+      description: "응답 문장 스트림의 error 이벤트 data. 본문은 같은 실패를 JSON 응답으로 알렸을 때의 문제 상세와 같다"
+      x-owner: head
+      x-basis: "RFC 9457(문제 상세), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, problem]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventError", description: "스트림 도중의 실패" }
+        problem: { $ref: "#/components/schemas/ProblemDetails", description: "실패의 문제 상세(status 는 같은 실패를 JSON 작업이 알렸을 때의 상태 코드)" }
+        retry_after_seconds: { $ref: "#/components/schemas/RetryAfterSeconds", description: "다시 보내기 전에 기다릴 초(JSON 작업이 Retry-After 머리글을 주었을 실패에만 있다)" }
+    ResponseResultEvent:
+      type: object
+      additionalProperties: false
+      description: "generateResponse 스트림의 result 이벤트 data"
+      x-owner: head
+      x-basis: "사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/ResponseResult", description: "만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다)" }
+    SessionStartResultEvent:
+      type: object
+      additionalProperties: false
+      description: "startSession 스트림의 result 이벤트 data"
+      x-owner: survey-service
+      x-basis: "N01, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/SessionStarted", description: "시작한 세션(JSON 응답의 본문과 같다)" }
+    TurnResultEvent:
+      type: object
+      additionalProperties: false
+      description: "submitTurn 스트림의 result 이벤트 data"
+      x-owner: survey-service
+      x-basis: "N01, N02, D86, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      required: [event, result]
+      properties:
+        event: { $ref: "#/components/schemas/StreamEventResult", description: "확정 결과" }
+        result: { $ref: "#/components/schemas/TurnResponse", description: "턴 결과(JSON 응답의 본문과 같다)" }
+    ResponseStreamEvent:
+      description: "generateResponse 스트림의 이벤트 하나의 data 본문"
+      x-owner: head
+      x-basis: "D74(문장은 LoRA-B 가 만든다), 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/ResponseResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
+    SessionStartStreamEvent:
+      description: "startSession 스트림의 이벤트 하나의 data 본문"
+      x-owner: survey-service
+      x-basis: "N01, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/SessionStartResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
+    TurnStreamEvent:
+      description: "submitTurn 스트림의 이벤트 하나의 data 본문"
+      x-owner: survey-service
+      x-basis: "N01, N02, D86, 사용자 결정 2026-11-11(LoRA-B 문장을 토큰 단위로 바로 내보낸다)"
+      oneOf:
+        - { $ref: "#/components/schemas/ResponseDeltaEvent" }
+        - { $ref: "#/components/schemas/TurnResultEvent" }
+        - { $ref: "#/components/schemas/ResponseErrorEvent" }
     InterventionAction:
       type: string
       enum: [ACKNOWLEDGE, RESUME]
@@ -2209,7 +2290,7 @@ components:
       x-basis: "C23, D128(허용 목록은 Exposure.egress), D129, D132, 헤드 결정 2026-11-10(platform-003: ExposureRoute 에 roles 를 더하지 않는다. 역할을 두 곳에 쓰면 어긋나고 OpenAPI 3.1 4.8.30 이 필요한 역할 이름을 작업의 security 요구에 두게 한다)"
       required: [routes, egress]
       properties:
-        routes: { type: array, maxItems: 29, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들", x-basis: "이 계약에서 서비스 하나의 작업 수 최대 29(survey-service, 건강 상태와 지표 포함)" }
+        routes: { type: array, maxItems: 31, items: { $ref: "#/components/schemas/ExposureRoute" }, description: "노출 경로들", x-basis: "이 계약에서 서비스 하나의 작업 수 최대 31(survey-service, 건강 상태와 지표, 9.2.0 의 스트림 작업 둘 포함)" }
         egress: { type: array, maxItems: 32, items: { $ref: "#/components/schemas/EgressTarget" }, description: "나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)", x-basis: "사용자 결정 2026-11-10(UD-11)" }
     ContainerPath: { type: string, pattern: "^/", maxLength: 4096, examples: [ "/var/lib/openit/cache" ], description: "컨테이너 안의 절대 경로", x-owner: deploy, x-basis: "D134(쓰는 경로를 선언한다), Linux 의 PATH_MAX 4096(NUL 을 포함한 바이트 수, linux/limits.h. POSIX limits.h 의 PATH_MAX 는 구현마다 다르다). maxLength 는 글자 수라 바이트 수와 다를 수 있으나 경로는 ASCII 로 쓴다" }
     CapabilityName: { type: string, pattern: "^CAP_[A-Z_]+$", maxLength: 40, examples: [ "CAP_NET_BIND_SERVICE" ], description: "컨테이너에 더하는 Linux capability 의 이름(추가 권한). 기본은 모두 뺀 상태에서 더한다", x-owner: deploy, x-basis: "D134(추가 권한), compose 서비스 키 cap_add, capabilities(7)(이름은 CAP_ 로 시작하는 대문자와 밑줄), 최대 길이 40 은 이 계약의 선택이다" }
@@ -2420,6 +2501,10 @@ components:
       description: 같은 요청을 다시 보낼 때 같은 값을 보내는 키. 같은 키의 재전송은 앞선 결과를 그대로 돌려준다
       schema: { $ref: "#/components/schemas/IdempotencyKeyValue" }
   headers:
+    StreamCacheControl:
+      description: 응답 문장 스트림은 캐시에 저장하지 않고(no-store) 중간 장치가 본문을 바꾸거나 압축하지 않게 한다(no-transform). 모으지 않고 바로 넘기는 것(버퍼링 끄기)은 이 머리글이 아니라 게이트웨이·입구 설정이 맡는다(계약 README 응답 문장 스트림 9항)
+      required: true
+      schema: { type: string, const: "no-store, no-transform" }
     RetryAfter:
       description: 같은 요청을 다시 보내기 전에 기다릴 초
       schema: { $ref: "#/components/schemas/RetryAfterSeconds" }

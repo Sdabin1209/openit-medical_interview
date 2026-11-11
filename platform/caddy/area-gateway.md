@@ -39,3 +39,7 @@ TLS 를 이 컨테이너가 끝내므로 서비스 컨테이너는 영역 전용
 ## 서비스가 읽는 인증서
 
 서비스 `OPENIT_TLS_CERTIFICATE_FILE`·`OPENIT_TLS_PRIVATE_KEY_FILE` 은 위 `.crt`·`.key`(`certificate_paths`)를 가리킨다. 이 인증서는 서비스 이름의 서버·클라이언트 인증서이고 사설 CA 가 두 용도(serverAuth, clientAuth)로 발급한다. 갱신되면 같은 경로의 파일이 바뀐다.
+
+## 스트림
+
+`text/event-stream` 응답(알림 스트림, 응답 문장 스트림)은 `reverse_proxy` 의 `flush_interval -1` 로 받는 대로 넘기고 `encode` 는 쓰지 않아 압축하지 않는다. 나가는 호출의 CONNECT 터널은 바이트를 그대로 넘긴다. 근거는 [ADR 0009](../docs/adr/0009-응답-문장-스트림의-시간-상한과-중간-장치.md).

@@ -9,6 +9,6 @@ export async function routeFake(page: Page, fake: FakeSurveyService): Promise<vo
     const url = new URL(request.url());
     const raw = request.postData();
     const result = fake.handle({ method: request.method(), path: url.pathname, ...(raw === null ? {} : { body: JSON.parse(raw) as unknown }) });
-    await route.fulfill({ status: result.status, headers: result.headers ?? {}, body: JSON.stringify(result.body) });
+    await route.fulfill({ status: result.status, headers: result.headers ?? {}, body: result.chunks === undefined ? JSON.stringify(result.body) : result.chunks.join("") });
   });
 }

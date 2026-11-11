@@ -747,6 +747,7 @@ class ProblemReason(StrEnum):
 
     OUTPUT_INVALID = 'OUTPUT_INVALID'
     TURN_IN_PROGRESS = 'TURN_IN_PROGRESS'
+    SESSION_START_IN_PROGRESS = 'SESSION_START_IN_PROGRESS'
     START_CODE_INVALID = 'START_CODE_INVALID'
     START_CODE_EXPIRED = 'START_CODE_EXPIRED'
     START_CODE_USED = 'START_CODE_USED'
@@ -917,6 +918,22 @@ class ResponseAction(StrEnum):
     REDIRECT = 'REDIRECT'
 
 
+class ResponseDeltaText(RootModel[str]):
+    root: Annotated[str, Field(max_length=344, min_length=1)]
+    """
+    응답 문장의 한 조각(추론 엔진이 낸 토큰 하나 이상을 글자로 푼 것). 조각을 차례로 이은 것이 모델이 낸 문장이다
+    """
+
+
+class ResponseEventStream(RootModel[bytes]):
+    root: Annotated[
+        bytes, Field(json_schema_extra={'contentMediaType': 'text/event-stream'})
+    ]
+    """
+    응답 문장 스트림 작업(generateResponseStream, startSessionStream, submitTurnStream)의 응답 본문 전체(Server-Sent Events 형식의 글자 스트림). delta 이벤트 0개 이상 뒤에 result 나 error 하나로 끝나는 유한한 스트림이다. 이벤트 하나의 data 는 작업이 x-event-data-schema 로 가리키는 스키마다. 압축하지 않는다(Content-Encoding 없음). id 와 재개(Last-Event-ID)가 없고, 끊기면 같은 요청을 다시 보낸다(턴은 같은 turn_id). 규칙은 계약 README 의 응답 문장 스트림 절
+    """
+
+
 class ResponseNextType(StrEnum):
     """
     응답 뒤에 가는 자리의 종류
@@ -934,10 +951,11 @@ class ResponseSentence(RootModel[str]):
             examples=['뇌졸중 진단을 받으셨고 약도 드시는군요. 다음 질문입니다.'],
             max_length=344,
             min_length=1,
+            pattern='^[^\\s{\\[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F](?:[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F])?$',
         ),
     ]
     """
-    환자에게 보여 주고 읽어 줄 응답 문장. 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
+    환자에게 보여 주고 읽어 줄 응답 문장. 앞뒤 공백이 없고, 줄바꿈·탭 밖의 제어 문자(유니코드 Cc)가 없으며, { 나 [ 로 시작하지 않는다(모델이 문장을 JSON 으로 감싸 낸 출력을 받지 않는다). 음성으로 읽을 때도 기기 안에서만 처리하고 외부로 보내지 않는다
     """
 
 
@@ -1121,6 +1139,27 @@ class StoredSlotStatus(StrEnum):
     ANSWERED = 'ANSWERED'
     MISSING = 'MISSING'
     UNCLEAR = 'UNCLEAR'
+
+
+class StreamEventDelta(RootModel[Literal['delta']]):
+    root: Literal['delta']
+    """
+    응답 문장 스트림의 delta 이벤트 이름(SSE event 줄과 같다). 응답 문장의 다음 조각이고 받은 즉시 화면에 이어 붙인다
+    """
+
+
+class StreamEventError(RootModel[Literal['error']]):
+    root: Literal['error']
+    """
+    응답 문장 스트림의 error 이벤트 이름(SSE event 줄과 같다). 헤더를 이미 보내 상태 코드로 알릴 수 없는 스트림 도중의 실패이고 스트림의 마지막 이벤트다
+    """
+
+
+class StreamEventResult(RootModel[Literal['result']]):
+    root: Literal['result']
+    """
+    응답 문장 스트림의 result 이벤트 이름(SSE event 줄과 같다). 확정 결과이고 스트림의 마지막 이벤트다. 화면의 문장은 이 결과의 문장으로 바꾼다
+    """
 
 
 class SysctlName(RootModel[str]):
@@ -1842,6 +1881,46 @@ class RealmAccessClaim(BaseModel):
     """
 
 
+class ResponseDeltaEvent(BaseModel):
+    """
+    응답 문장 스트림의 delta 이벤트 data
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    event: StreamEventDelta
+    """
+    응답 문장의 조각
+    """
+    text: ResponseDeltaText
+    """
+    다음 조각
+    """
+
+
+class ResponseErrorEvent(BaseModel):
+    """
+    응답 문장 스트림의 error 이벤트 data. 본문은 같은 실패를 JSON 응답으로 알렸을 때의 문제 상세와 같다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    event: StreamEventError
+    """
+    스트림 도중의 실패
+    """
+    problem: ProblemDetails
+    """
+    실패의 문제 상세(status 는 같은 실패를 JSON 작업이 알렸을 때의 상태 코드)
+    """
+    retry_after_seconds: RetryAfterSeconds | None = None
+    """
+    다시 보내기 전에 기다릴 초(JSON 작업이 Retry-After 머리글을 주었을 실패에만 있다)
+    """
+
+
 class ResponseNext(BaseModel):
     """
     응답 뒤에 가는 자리(종류, 문항, 그 문항의 질문 문장). 질문 문장은 survey-service 가 가진 문항 세트의 문장이다(데이터셋 표가 아니다)
@@ -1879,6 +1958,33 @@ class ResponseResult(BaseModel):
     text: ResponseSentence
     """
     환자에게 보일 문장
+    """
+
+
+class ResponseResultEvent(BaseModel):
+    """
+    generateResponse 스트림의 result 이벤트 data
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    event: StreamEventResult
+    """
+    확정 결과
+    """
+    result: ResponseResult
+    """
+    만든 문장과 처리한 모델 패키지(text 는 보낸 delta 조각을 이은 것과 같다)
+    """
+
+
+class ResponseStreamEvent(
+    RootModel[ResponseDeltaEvent | ResponseResultEvent | ResponseErrorEvent]
+):
+    root: ResponseDeltaEvent | ResponseResultEvent | ResponseErrorEvent
+    """
+    generateResponse 스트림의 이벤트 하나의 data 본문
     """
 
 
@@ -2476,7 +2582,7 @@ class Exposure(BaseModel):
     """
     나가는 호출이 닿을 수 있는 상대들(서비스와 영역 밖 호스트)
     """
-    routes: Annotated[list[ExposureRoute], Field(max_length=29)]
+    routes: Annotated[list[ExposureRoute], Field(max_length=31)]
     """
     노출 경로들
     """

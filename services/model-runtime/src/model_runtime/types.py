@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -126,6 +126,10 @@ class ChatEngine(Protocol):
 
     async def complete(self, request: ChatRequest) -> str:
         """모델이 낸 글자를 돌려준다. 실패하면 EngineError."""
+        ...
+
+    def stream(self, request: ChatRequest) -> AsyncIterator[str]:
+        """같은 호출을 stream=True 로 부르고 엔진이 낸 조각을 바꾸지 않고 차례로 낸다. 실패하면 EngineError."""
         ...
 
 
@@ -254,3 +258,28 @@ class GuardedExtraction:
     output: Mapping[str, object] | None
     violation_codes: Sequence[str]
     rewrites: Sequence[str]
+
+
+@dataclass(frozen=True)
+class StreamDelta:
+    """응답 문장 스트림의 delta 이벤트 재료: 엔진 조각 하나(바꾸지 않은 글자)."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class StreamResult:
+    """응답 문장 스트림의 result 이벤트 재료: 처리한 패키지와 보낸 조각을 이은 문장."""
+
+    package_digest: str
+    text: str
+
+
+@dataclass(frozen=True)
+class StreamFailure:
+    """응답 문장 스트림의 error 이벤트 재료: JSON 작업이 503 으로 답했을 실패."""
+
+    fault: ServiceFault
+
+
+StreamEvent = StreamDelta | StreamResult | StreamFailure

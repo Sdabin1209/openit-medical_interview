@@ -24,6 +24,8 @@ export interface StartViewProps {
   onStart: (input: StartInput) => Promise<StartViewError | null>;
   /** 입력 중인 내용이 있는지 바뀔 때 알린다(유휴 초기화의 경고를 입력 중일 때만 보이려고) */
   onDirtyChange?: (dirty: boolean) => void;
+  /** 시작 요청이 스트림으로 받는 중인 첫 문장(받는 대로 보인다, 계약 README 응답 문장 스트림 7항). 없으면 빈 글 */
+  preview?: string;
 }
 
 const MESSAGES: Record<StartViewError, string> = {
@@ -41,7 +43,7 @@ const CLEARS_CODE: ReadonlySet<StartViewError> = new Set(["INVALID", "EXPIRED", 
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
-export function StartView({ codeLength, questionnaires, onStart, onDirtyChange }: StartViewProps) {
+export function StartView({ codeLength, questionnaires, onStart, onDirtyChange, preview = "" }: StartViewProps) {
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"code" | "choose">("code");
   const [error, setError] = useState<StartViewError | null>(null);
@@ -160,6 +162,11 @@ export function StartView({ codeLength, questionnaires, onStart, onDirtyChange }
           지움
         </button>
       </div>
+      {preview !== "" && (
+        <p className="sentence" aria-busy="true" data-testid="start-preview">
+          {preview}
+        </p>
+      )}
       <button type="button" className="big-button primary" disabled={busy || code.length !== codeLength} onClick={submit}>
         {busy ? "확인하고 있습니다…" : "시작하기"}
       </button>

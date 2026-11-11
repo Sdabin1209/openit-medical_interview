@@ -75,6 +75,8 @@ export function App({ link: injected }: AppProps) {
   const [draft, setDraft] = useState("");
   const [failure, setFailure] = useState<ConversationFailure | null>(null);
   const [callFailed, setCallFailed] = useState(false);
+  // 스트림으로 받아 그리는 중인 응답 문장(계약 README 응답 문장 스트림 7항). 빈 글이면 그린 조각이 없다(ADR 0008)
+  const [streamed, setStreamed] = useState("");
 
   // 처음 화면으로 돌아간다: 이 기기 화면의 모든 입력과 세션을 지운다(다음 사람에게 남기지 않는다)
   function reset() {
@@ -83,6 +85,7 @@ export function App({ link: injected }: AppProps) {
     setDraft("");
     setFailure(null);
     setCallFailed(false);
+    setStreamed("");
     setStartDirty(false);
     setStartKey((key) => key + 1);
     void navigate("/");
@@ -104,11 +107,11 @@ export function App({ link: injected }: AppProps) {
 
   const questionnaires = useQuery({ queryKey: ["questionnaires", startKey], queryFn: ({ signal }) => link.listActiveQuestionnaires(signal) });
 
-  const start = useMutation({ mutationFn: (input: StartInput) => link.startSession({ start_code: input.startCode, ...(input.questionnaireId === undefined ? {} : { questionnaire_id: input.questionnaireId }) }) });
+  const start = useMutation({ mutationFn: (input: StartInput) => link.startSession({ start_code: input.startCode, ...(input.questionnaireId === undefined ? {} : { questionnaire_id: input.questionnaireId }) }, undefined, setStreamed) });
   const turn = useMutation({
     mutationFn: ({ current, utterance }: { current: ActiveSession; utterance: string }) =>
       // 왜 턴마다 새 UUID: 같은 turn_id 의 재전송(연결 실패)은 link 가 한다. 실패 신호 뒤 다시 보내는 것은 새 턴이다
-      link.submitTurn(current.sessionId, crypto.randomUUID(), utterance),
+      link.submitTurn(current.sessionId, crypto.randomUUID(), utterance, undefined, setStreamed),
   });
   const staffCall = useMutation({ mutationFn: (id: string) => link.requestStaffCall(id) });
   const endMutation = useMutation({ mutationFn: (id: string) => link.endSession(id) });
@@ -151,12 +154,14 @@ export function App({ link: injected }: AppProps) {
   async function onStart(input: StartInput): Promise<StartViewError | null> {
     try {
       const started = await start.mutateAsync(input);
+      setStreamed("");
       setSession(fromStarted(started));
       setDraft("");
       setFailure(null);
       void navigate("/talk");
       return null;
     } catch (error) {
+      setStreamed("");
       return startErrorOf(error);
     }
   }
@@ -169,6 +174,8 @@ export function App({ link: injected }: AppProps) {
       { current: session, utterance },
       {
         onSuccess: (response) => {
+          // 왜 먼저 비운다: 화면의 문장은 아래 apply 가 정한 세션 문장이다(result 의 문장과 같다)
+          setStreamed("");
           if (response.failure_signal !== undefined) {
             setFailure("TURN_FAILED");
             return;
@@ -177,6 +184,7 @@ export function App({ link: injected }: AppProps) {
           apply(session, { status: response.status, pause_reason: response.pause_reason, text: response.response_text, staffHelpNotice: response.staff_help_notice });
         },
         onError: (error) => {
+          setStreamed("");
           if (error instanceof SurveyError && error.reason === "SESSION_NOT_ACTIVE") {
             // 끝났거나 멈춘 세션이다. 서버의 지금 상태를 읽어 맞춘다
             void link
@@ -252,6 +260,7 @@ export function App({ link: injected }: AppProps) {
                 questionnaires={questionnaires.data?.questionnaires ?? []}
                 onStart={onStart}
                 onDirtyChange={setStartDirty}
+                preview={streamed}
               />
               <IdleReset active={startDirty} seconds={KIOSK_IDLE_RESET_SECONDS} warnSeconds={IDLE_WARNING_SECONDS} onIdle={reset} />
             </>
@@ -269,7 +278,8 @@ export function App({ link: injected }: AppProps) {
               <>
                 <ConversationView
                   title={session.title}
-                  sentence={session.sentence}
+                  sentence={streamed === "" ? session.sentence : streamed}
+                  streaming={streamed !== "" && waiting}
                   staffHelpNotice={session.staffHelpNotice}
                   draft={draft}
                   onDraftChange={setDraft}

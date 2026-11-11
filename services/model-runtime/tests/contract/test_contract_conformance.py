@@ -72,7 +72,7 @@ def _loaded(w: World, cache: Path, digest: str) -> FastAPI:
 
 def _auth(path: str, method: str) -> dict[str, str]:
     """작업이 계약의 security 로 요구하는 신원."""
-    if path in ("/v1/extractions", "/v1/responses", "/v1/model-status"):
+    if path in ("/v1/extractions", "/v1/responses", "/v1/responses/stream", "/v1/model-status"):
         return {"Authorization": f"Bearer {IDENTITY.machine_token()}"}
     if path == "/v1/model-activations":
         return {"Authorization": f"Bearer {IDENTITY.token(['release-approver'])}"}
@@ -88,7 +88,7 @@ def test_app_conforms_to_contract(apps: dict[str, FastAPI], openapi: str, state:
     schema = schemathesis.openapi.from_path(CONTRACTS / "openapi" / f"{openapi}.yaml")
     schema.app = apps[state]
     operations = [result.ok() for result in schema.get_all_operations()]  # pyright: ignore[reportAttributeAccessIssue]
-    assert len(operations) == 10, "계약의 작업이 일곱 개와 건강 확인 셋이다"
+    assert len(operations) == 11, "계약의 작업이 여덟 개와 건강 확인 셋이다"
     for operation in operations:
         # 왜 deadline=None, database=None: 시간 상한은 라이브러리 타이머라 시험하지 않는다.
         # 저장소에 상태 파일도 남기지 않는다

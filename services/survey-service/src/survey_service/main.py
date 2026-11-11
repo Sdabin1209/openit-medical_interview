@@ -23,6 +23,7 @@ from survey_service.link.health import ReadinessCheck, health_router
 from survey_service.link.machine_token import MachineTokenSource
 from survey_service.link.model_client import HttpModelClient
 from survey_service.link.push import WebPushNotifier
+from survey_service.link.stream import Background
 from survey_service.link.tls import ClientTls
 from survey_service.settings import SERVICE, limits_of, load_env, read_secret
 from survey_service.store.engine import database_url, make_engine, migrate
@@ -40,9 +41,11 @@ def create_app(
     """앱 팩토리. 의존은 모두 밖에서 넣는다(시험은 가짜 이웃과 임시 DB 를 넣는다)."""
     app = FastAPI(title=SERVICE.value, lifespan=lifespan)
     app.state.authenticator = authenticator
+    background = Background()  # 왜 앱이 쥐나: 스트림 작업의 처리는 요청이 끝나도 끝까지 돈다(ADR 0018)
+    app.state.background = background
     problem.install(app)
     app.include_router(health_router(SERVICE, readiness or {}))
-    app.include_router(kiosk_api.router(runtime))
+    app.include_router(kiosk_api.router(runtime, background))
     app.include_router(admin_api.router(runtime))
     app.include_router(hospital_api.router(runtime))
     app.include_router(risk_in.router(runtime))
@@ -119,6 +122,7 @@ def build(environ: Mapping[str, str] | None = None) -> FastAPI:
             engine
         )  # 왜 시작 때: 영역 DB 의 스키마는 이 영역이 소유하고 head 가 아니면 /readyz 가 준비되지 않는다
         yield
+        await _app.state.background.drain()  # 왜 먼저: 받아들인 스트림 요청의 처리를 마친 뒤에 DB·이웃 연결을 닫는다
         await model.close()
         await notifier.close()
         await idp.aclose()
