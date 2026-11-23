@@ -29,7 +29,9 @@ PAYLOAD: dict[str, Any] = {
 
 
 def test_extraction_request_text_is_the_training_serialization() -> None:
-    request = extraction_request(ExtractionTurn(PAYLOAD, ["Q9_2.duration_minutes", "Q9_1.days"]), adapter())
+    request = extraction_request(
+        ExtractionTurn(PAYLOAD, ["Q9_2.duration_minutes", "Q9_1.days"]), adapter(), "model-io-v2"
+    )
     assert request.user == serialize_extraction_input(PAYLOAD, ["Q9_2.duration_minutes", "Q9_1.days"])
     assert '"value": 15, "status"' in request.user and '"value": 3, "status"' in request.user  # 3.0 이 아니라 3
     assert (request.adapter, request.system, request.max_new_tokens, request.temperature) == (
@@ -41,8 +43,20 @@ def test_extraction_request_text_is_the_training_serialization() -> None:
     assert request.json_schema is None
 
 
+def test_v3_package_sorts_every_level_of_the_extraction_input() -> None:
+    """모델 입출력 v3(계약 ModelInputSerializationV3): state 의 칸과 항목 안 키까지 정렬한다.
+
+    dataset1118 A 입력 68,817행이 이 모양이다.
+    """
+    request = extraction_request(
+        ExtractionTurn(PAYLOAD, ["Q9_2.duration_minutes", "Q9_1.days"]), adapter(), "model-io-v3"
+    )
+    assert request.user.index('"Q9_1.days"') < request.user.index('"Q9_2.duration_minutes"')
+    assert '"Q9_1.days": {"status": "ANSWERED", "value": 3}' in request.user
+
+
 def test_constrained_decoding_sends_the_contract_output_schema() -> None:
-    request = extraction_request(ExtractionTurn(PAYLOAD, []), adapter(constrained=True))
+    request = extraction_request(ExtractionTurn(PAYLOAD, []), adapter(constrained=True), "model-io-v2")
     assert request.json_schema is not None
     assert {"action", "next_item", "values"} <= set(request.json_schema["required"])  # type: ignore[arg-type]
 

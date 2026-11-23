@@ -152,7 +152,7 @@ async def test_publish_load_activate_extract_respond_rollback(tmp_path: Path) ->
             # 추출(정상): 모델 입력 글자는 학습 데이터와 같은 직렬화다. 시스템 프롬프트는 패키지의 것이다
             ok = await client.post("/v1/extractions", json=extraction_body(A_NEXT), headers=machine(identity))
             assert ok.status_code == 200
-            assert ok.json() == {"package_digest": first, "output": A_NEXT_GOLD}
+            assert ok.json() == {"package_digest": first, "output": A_NEXT_GOLD, "model_io_version": "model-io-v2"}
             call = w.engine.calls[-1]
             assert call.user == serialize_extraction_input(A_NEXT, list(A_NEXT["state"])) and call.system == SYSTEM_A
             assert call.temperature == 0.0 and call.response_format is None

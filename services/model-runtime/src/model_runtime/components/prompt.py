@@ -35,6 +35,7 @@ def extraction_input(question: ExtractionQuestion) -> ExtractionTurn:
         question.user_utterance,
         question.slots,
         question.previous_question_id,
+        previous_screen_action=question.previous_screen_action,
     )
     return ExtractionTurn(payload, order)
 
@@ -45,15 +46,18 @@ def response_input(request: Mapping[str, object]) -> dict[str, object]:
     try:
         return compose_response_from_request(request)
     except ModelInputError as error:
-        raise ServiceFault(400, "요청이 계약을 어겼다", "문항·칸·값이 모델 입출력 v2 의 표에 없다") from error
+        raise ServiceFault(400, "요청이 계약을 어겼다", "문항·칸·값이 모델 입출력의 표에 없다") from error
 
 
-def extraction_request(turn: ExtractionTurn, adapter: LoadedAdapter) -> ChatRequest:
-    """LoRA-A 요청. 제약 디코딩은 어댑터의 서빙 설정이 켠 경우에만 출력 스키마를 싣는다."""
+def extraction_request(turn: ExtractionTurn, adapter: LoadedAdapter, model_io_version: str) -> ChatRequest:
+    """LoRA-A 요청. 제약 디코딩은 어댑터의 서빙 설정이 켠 경우에만 출력 스키마를 싣는다.
+
+    입력 글자는 패키지의 모델 입출력 버전대로 쓴다(v3 는 모든 수준 정렬, 계약 ModelInputSerializationV3).
+    """
     return ChatRequest(
         adapter=adapter.name,
         system=adapter.system_prompt,
-        user=serialize_extraction_input(turn.input, turn.state_key_order),
+        user=serialize_extraction_input(turn.input, turn.state_key_order, model_io_version=model_io_version),
         max_new_tokens=adapter.serving.max_new_tokens.root,
         temperature=adapter.serving.temperature.root,
         json_schema=_extraction_output_schema() if adapter.serving.constrained_decoding.root else None,

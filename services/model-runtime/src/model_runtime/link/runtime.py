@@ -183,8 +183,11 @@ class Runtime:
             )
         return serving
 
-    async def extract(self, request: Mapping[str, Any]) -> tuple[str, Mapping[str, object]]:
-        """LoRA-A 추출. (처리한 패키지 digest, 검증을 마친 출력). 검증은 이 호출이 한 번 한다(R7)."""
+    async def extract(self, request: Mapping[str, Any]) -> tuple[str, Mapping[str, object], str]:
+        """LoRA-A 추출. (처리한 패키지 digest, 검증을 마친 출력, 패키지의 모델 입출력 버전).
+
+        검증은 이 호출이 한 번 한다(R7).
+        """
         serving = self._serving_for(int(request["runtime_contract_version"]))
         adapter = serving.adapters[AdapterRole.LORA_A]
         turn = extraction_input(
@@ -194,9 +197,13 @@ class Runtime:
                 request["current_question"],
                 request["user_utterance"],
                 request["slots"],
+                request.get("previous_screen_action"),
             )
         )
-        text, seconds = await call_engine(self._chat, extraction_request(turn, adapter), EXTRACT_LIMIT_SECONDS)
+        io_version = serving.model_io_version.value
+        text, seconds = await call_engine(
+            self._chat, extraction_request(turn, adapter, io_version), EXTRACT_LIMIT_SECONDS
+        )
         self._call_seconds.labels("extract").observe(seconds)
         guarded = guard(
             GuardRequest(
@@ -205,6 +212,7 @@ class Runtime:
                 request["flow"],
                 request["fields"],
                 cast("Mapping[str, object]", turn.input["state"]),
+                io_version,
             )
         )
         for code in guarded.violation_codes:
@@ -220,7 +228,7 @@ class Runtime:
                 reason=ProblemReason.OUTPUT_INVALID,
                 retry_after=5,
             )
-        return serving.digest, guarded.output
+        return serving.digest, guarded.output, io_version
 
     async def respond(self, request: Mapping[str, Any]) -> tuple[str, str]:
         """LoRA-B 응답 문장. (처리한 패키지 digest, 문장)."""

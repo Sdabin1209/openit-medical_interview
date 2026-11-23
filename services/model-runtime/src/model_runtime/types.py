@@ -230,6 +230,7 @@ class ExtractionQuestion:
     current_question: str  # 상담원이 방금 한 말
     user_utterance: str  # 환자의 이번 말
     slots: Sequence[Mapping[str, object]]  # 이번 턴 전에 저장된 칸 값들(순서가 있다)
+    previous_screen_action: str | None = None  # 환자가 답한 화면의 절차(계약 9.4.0, CONFIRM 이면 확인 문항의 값만)
 
 
 @dataclass(frozen=True)
@@ -249,6 +250,7 @@ class GuardRequest:
     flow: Mapping[str, object]  # QuestionFlowTable
     fields: Sequence[Mapping[str, object]]  # QuestionFieldSpecs
     state: Mapping[str, object]
+    model_io_version: str = "model-io-v2"  # 활성 패키지의 모델 입출력 버전(v2 어댑터의 v3 사유는 출력 불가)
 
 
 @dataclass(frozen=True)

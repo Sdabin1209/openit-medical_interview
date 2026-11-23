@@ -35,9 +35,9 @@ from model_runtime.types import (
     PackageSource,
 )
 
-# 왜 하나: 계약 ModelIoVersion 의 값이 model-io-v2 하나이고, 이 영역이 아는 모델 통신(prompt·output_guard)이 v2 뿐이다.
+# 왜 둘: 계약 ModelIoVersion 의 값(9.4.0 에서 v3 를 더함)이고, 이 영역의 모델 통신(prompt·output_guard)이 둘 다 안다.
 # 아는 통신이 없는 버전의 패키지는 적재하지 않는다(계약 README 모델 입출력의 버전)
-SUPPORTED_MODEL_IO = frozenset({ModelIoVersion.model_io_v2})
+SUPPORTED_MODEL_IO = frozenset({ModelIoVersion.model_io_v2, ModelIoVersion.model_io_v3})
 _CHUNK = 1024 * 1024  # 왜: 큰 가중치 파일을 메모리에 다 올리지 않고 1 MiB 씩 해시한다. 값은 측정으로 정한 것이 아니다
 _ADAPTER_MARKER = "adapter_config.json"  # 왜: PEFT 어댑터 폴더의 표준 설정 파일. vLLM 이 이 파일로 어댑터를 읽는다
 

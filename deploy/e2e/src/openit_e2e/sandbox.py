@@ -328,6 +328,13 @@ class Sandbox:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         (self.log_dir / "ps.txt").write_text(self.compose("ps", "--all", check=False).stdout, encoding="utf-8")
         (self.log_dir / "compose.log").write_text(self.compose("logs", "--no-color", "--timestamps", check=False).stdout, encoding="utf-8")
+        # 왜 턴 기록: 모델 관찰(확인 반복 등)의 까닭은 턴마다의 A 출력과 화면 문장을 봐야 안다. 시험용 대본의 비식별 발화다(2026-11-23 product 실행에서 정리 뒤 볼 수 없었다)
+        turns = self.exec(
+            "survey-db", "psql", "-U", "survey", "-d", "survey", "-AtF", "\t", "-c",
+            "select started_at, item_id, outcome, utterance, extract_output::text, response_text, failure_signal from turn_record order by started_at",
+            check=False,
+        )  # fmt: skip
+        (self.log_dir / "turns.tsv").write_text(turns.stdout if turns.returncode == 0 else turns.stderr, encoding="utf-8")
         return self.log_dir
 
     def teardown(self) -> list[str]:

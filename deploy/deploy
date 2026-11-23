@@ -3105,6 +3105,7 @@ def e2e(
     adapters_a: Annotated[Path | None, typer.Option("--adapters-a", help="product: LoRA-A 어댑터 폴더(PEFT 어댑터와 system_prompt.txt)")] = None,
     adapters_b: Annotated[Path | None, typer.Option("--adapters-b", help="product: LoRA-B 어댑터 폴더")] = None,
     profile: Annotated[str | None, typer.Option("--profile", help="product: 모델 프로파일(예: rtx4090-24g)")] = None,
+    model_io_version: Annotated[str | None, typer.Option("--model-io-version", help="product: 어댑터의 모델 입출력 버전(기본 model-io-v2, 1118 어댑터는 model-io-v3)")] = None,
     note: Annotated[str, typer.Option("--note", help="기록에 남길 한 줄 비고")] = "",
 ) -> None:
     """전체 시험 1회(샌드박스, 제품 구성은 건드리지 않는다). 결과는 deploy/docs/E2E_RESULTS.md 에 남는다(ADR 0025).
@@ -3120,6 +3121,8 @@ def e2e(
             command += [flag, str(value.resolve())]
     if profile:
         command += ["--profile", profile]
+    if model_io_version:
+        command += ["--model-io-version", model_io_version]
     if note:
         command += ["--note", note]
     try:

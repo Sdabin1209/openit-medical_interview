@@ -72,6 +72,7 @@ class Context:
     streams: list[StreamOutcome] = field(default_factory=lambda: list[StreamOutcome]())
     result: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
     model_notes: list[str] = field(default_factory=lambda: list[str]())  # 모델 관찰(판정 밖, product)
+    model_io_version: str = "model-io-v2"  # 게시할 패키지의 모델 입출력 버전(계약 9.4.0)
 
     def human(self, user: str) -> httpx.Client:
         if user not in self.clients:
@@ -121,6 +122,7 @@ def publish(ctx: Context, checks: list[str], findings: list[str]) -> None:
         "--dataset-version-id", str(uuid.uuid5(NAMESPACE, "openit-e2e-dataset")),
         "--training-run-a", str(uuid.uuid5(NAMESPACE, "openit-e2e-run-a")), "--training-run-b", str(uuid.uuid5(NAMESPACE, "openit-e2e-run-b")),
         "--runtime-contract-version", str(RUNTIME_CONTRACT_VERSION),
+        "--model-io-version", ctx.model_io_version,
         "--workdir", "/work", "--report-out", f"{OUT_IN_CONTAINER}/report.json",
         # 왜 pipeline 만 제약 디코딩: 학습하지 않은 기반 모델의 추출 출력도 계약 스키마(ActionExtraction)를 따르게 해 엔진의 response_format(json_schema) 경로까지 지나가게 한다.
         # product 는 학습된 어댑터가 낸 출력을 그대로 본다(게시 도구의 기본값)
@@ -154,6 +156,8 @@ def activate(ctx: Context, checks: list[str], findings: list[str]) -> None:
     roles = sorted(entry["role"] for entry in manifest["adapters"])
     if roles != ["LORA_A", "LORA_B"] or manifest["runtime_contract_version"] != RUNTIME_CONTRACT_VERSION:
         raise StepFailure(f"패키지 목록표가 기대와 다르다: 역할 {roles}, 문항 은행 버전 {manifest['runtime_contract_version']}")
+    if manifest["model_io_version"] != ctx.model_io_version:
+        raise StepFailure(f"패키지의 모델 입출력 {manifest['model_io_version']} 이 게시한 {ctx.model_io_version} 과 다르다")
     checks.append(
         f"getModelPackage 200(기반 모델 {manifest['base_model']}, 어댑터 {len(roles)}개, 모델 입출력 {manifest['model_io_version']})"
     )

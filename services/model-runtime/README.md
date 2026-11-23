@@ -39,7 +39,7 @@ package-publish publish --adapter-a <LoRA-A 폴더> --adapter-b <LoRA-B 폴더> 
   --question-bank bank.json --eval-a <finaltest/lora_a_test.jsonl> --eval-b <finaltest/lora_b_test.jsonl> \
   --engine-url <vLLM 주소> --registry-url https://<레지스트리> --repository <저장소> --credentials-file <사용자:비밀번호 파일> \
   --root-certificate-file <사설 루트> --base-model Qwen/Qwen3-8B --dataset-version-id <UUID> --training-run-a <UUID> --training-run-b <UUID> \
-  --runtime-contract-version 1 --workdir <작업 폴더> --report-out report.json
+  --runtime-contract-version 1 --model-io-version model-io-v3 --workdir <작업 폴더> --report-out report.json   # v2 어댑터면 --model-io-version 을 빼거나 model-io-v2
 ```
 성공하면 표준 출력 마지막 줄이 패키지 digest 다. 패키지마다 태그 `sha256-<16진수>` 도 달아 목록(`listModelPackages`)에 나오게 한다. 평가는 엔진이 어댑터 폴더 경로를 같은 경로로 읽을 수 있어야 하고 GPU 에서 돈다.
 

@@ -135,8 +135,10 @@ def api_router(runtime: Runtime, auth: Authenticator) -> APIRouter:
         await auth.require(authorization, machine_roles=["inference-caller"])
         raw = await _json_body(request)
         _validated(ExtractionRequest, raw)
-        digest, output = await runtime.extract(raw)
-        return JSONResponse({"package_digest": digest, "output": output})
+        digest, output, io_version = await runtime.extract(raw)
+        # 왜 버전을 싣나: 서비스가 v3 의존 기능(한도 문장 등)을 켤지 정한다
+        # (계약 9.4.0 ExtractionResult.model_io_version)
+        return JSONResponse({"package_digest": digest, "output": output, "model_io_version": io_version})
 
     @router.post("/v1/responses", tags=["inference"])
     async def generate_response(request: Request, authorization: Annotated[str | None, Header()] = None) -> Response:  # pyright: ignore[reportUnusedFunction]

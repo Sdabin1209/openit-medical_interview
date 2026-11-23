@@ -36,11 +36,19 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--adapters-a", type=Path, help="product: LoRA-A 어댑터 폴더(PEFT 어댑터와 system_prompt.txt)")
     parser.add_argument("--adapters-b", type=Path, help="product: LoRA-B 어댑터 폴더")
     parser.add_argument("--profile", help="product: 모델 프로파일(예: rtx4090-24g). pipeline 은 gpu-12g 로 정해져 있다")
+    parser.add_argument(
+        "--model-io-version",
+        choices=["model-io-v2", "model-io-v3"],
+        default="model-io-v2",
+        help="product: 어댑터가 학습한 모델 입출력 버전(1118 어댑터는 model-io-v3). 게시하는 패키지에 실린다",
+    )
     parser.add_argument("--note", default="", help="기록에 남길 한 줄 비고")
     args = parser.parse_args(argv)
     if args.mode == "pipeline":
         if args.adapters_a or args.adapters_b or (args.profile and args.profile != adapter_module.PIPELINE_PROFILE):
             parser.error(f"pipeline 모드는 어댑터 폴더를 받지 않고 프로파일은 {adapter_module.PIPELINE_PROFILE} 로 정해져 있다")
+        if args.model_io_version != "model-io-v2":
+            parser.error("pipeline 모드의 중립 어댑터는 model-io-v2 다")
         args.profile = adapter_module.PIPELINE_PROFILE
     elif not (args.adapters_a and args.adapters_b and args.profile):
         parser.error("product 모드는 --adapters-a, --adapters-b, --profile 이 모두 필요하다")
@@ -113,7 +121,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         env_info = environment(sandbox, args.mode, cache, adapters.description)
         print("[5/6] 시나리오")
         ingress = Ingress(sandbox.published_port("ingress-acme", 8443), sandbox.deploy_dir / "pki" / "trust-bundle.pem")
-        context = Context(sandbox, ingress, contract, bank, args.mode, adapters.base_model, (adapters.prompt_a, adapters.prompt_b))
+        context = Context(
+            sandbox,
+            ingress,
+            contract,
+            bank,
+            args.mode,
+            adapters.base_model,
+            (adapters.prompt_a, adapters.prompt_b),
+            model_io_version=args.model_io_version,
+        )
         try:
             steps = run(context, lambda line: print(f"      {line}"))
         finally:

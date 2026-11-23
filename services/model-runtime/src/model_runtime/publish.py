@@ -123,6 +123,7 @@ async def evaluate(
     rows_a: Sequence[tuple[dict[str, Any], str]],
     rows_b: Sequence[tuple[dict[str, Any], str]],
     concurrency: int,
+    model_io_version: str = "model-io-v2",
 ) -> list[dict[str, object]]:
     """평가 집합을 엔진으로 추론해 계약 필수 지표를 센다. 호출이 실패한 표본은 출력 없음으로 센다."""
     gate = asyncio.Semaphore(concurrency)
@@ -132,10 +133,14 @@ async def evaluate(
         turn = ExtractionTurn(payload, list(payload["state"]))
         async with gate:
             try:
-                raw, seconds = await call_engine(engine, extraction_request(turn, adapter_a), _EXTRACT_LIMIT)
+                raw, seconds = await call_engine(
+                    engine, extraction_request(turn, adapter_a, model_io_version), _EXTRACT_LIMIT
+                )
             except ServiceFault:
                 raw, seconds = None, float(_EXTRACT_LIMIT)
-        context = GuardContext(payload["question_id"], flow, fields, payload["state"])
+        context = GuardContext(
+            payload["question_id"], flow, fields, payload["state"], model_io_version=model_io_version
+        )
         return ExtractionSample(context, json.loads(gold), raw, seconds)
 
     async def one_b(payload: dict[str, Any], _gold: str) -> ResponseSample:
@@ -185,6 +190,7 @@ async def run_publish(args: argparse.Namespace) -> str:
             read_rows(Path(args.eval_a), args.limit),
             read_rows(Path(args.eval_b), args.limit),
             args.concurrency,
+            args.model_io_version,
         )
     finally:
         for name in names.values():
@@ -203,7 +209,7 @@ async def run_publish(args: argparse.Namespace) -> str:
         adapters=adapters,
         base_model=args.base_model,
         runtime_contract_version=args.runtime_contract_version,
-        model_io_version="model-io-v2",
+        model_io_version=args.model_io_version,
         model_runtime_version=version("openit-model_runtime"),
         dataset_version_id=args.dataset_version_id,
         training_run_ids=[args.training_run_a, args.training_run_b],
@@ -246,6 +252,9 @@ def _parser() -> argparse.ArgumentParser:
     pub.add_argument("--temperature", type=float, default=0.0)
     pub.add_argument("--constrained-decoding", action="store_true")
     pub.add_argument("--concurrency", type=int, default=_DEFAULT_CONCURRENCY)
+    # 왜 기본 v2: 이 인자가 생기기 전의 호출자(E2E pipeline, 운영 안내서)는 v2 어댑터만 올렸다.
+    # v3 어댑터(1118)는 반드시 밝힌다
+    pub.add_argument("--model-io-version", choices=["model-io-v2", "model-io-v3"], default="model-io-v2")
     pub.add_argument(
         "--limit", type=int, default=None, help="평가 집합의 앞 N 행만 쓴다(점검용. 보고서의 표본 수에 그대로 드러난다)"
     )

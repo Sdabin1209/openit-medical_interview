@@ -14,7 +14,11 @@ from model_runtime.types import GuardedExtraction, GuardRequest
 def guard(request: GuardRequest) -> GuardedExtraction:
     """모델 출력 글자를 검증한다. 출력 불가이면 output 이 None 이다. 위반 코드는 고쳐 쓰기 전 출력으로 센 것이다."""
     context = GuardContext(
-        request.asked_item, build_flow_index(request.flow), build_field_index(request.fields), request.state
+        request.asked_item,
+        build_flow_index(request.flow),
+        build_field_index(request.fields),
+        request.state,
+        model_io_version=request.model_io_version,
     )
     outcome = check_extraction_output(request.raw, context)
     return GuardedExtraction(
