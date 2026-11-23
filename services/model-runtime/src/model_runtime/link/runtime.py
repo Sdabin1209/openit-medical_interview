@@ -190,6 +190,7 @@ class Runtime:
         """
         serving = self._serving_for(int(request["runtime_contract_version"]))
         adapter = serving.adapters[AdapterRole.LORA_A]
+        io_version = serving.model_io_version.value
         turn = extraction_input(
             ExtractionQuestion(
                 request["question_id"],
@@ -197,10 +198,9 @@ class Runtime:
                 request["current_question"],
                 request["user_utterance"],
                 request["slots"],
-                request.get("previous_screen_action"),
+                _v3_only(io_version, request.get("previous_screen_action")),
             )
         )
-        io_version = serving.model_io_version.value
         text, seconds = await call_engine(
             self._chat, extraction_request(turn, adapter, io_version), EXTRACT_LIMIT_SECONDS
         )
@@ -235,7 +235,7 @@ class Runtime:
         serving = self._serving_for(int(request["runtime_contract_version"]))
         adapter = serving.adapters[AdapterRole.LORA_B]
         text, seconds = await call_engine(
-            self._chat, response_request(response_input(request), adapter), RESPOND_LIMIT_SECONDS
+            self._chat, response_request(response_input(_for_version(serving, request)), adapter), RESPOND_LIMIT_SECONDS
         )
         self._call_seconds.labels("respond").observe(seconds)
         return serving.digest, validate_sentence(text)
@@ -247,7 +247,9 @@ class Runtime:
         읽다 멈춰도 끝까지 한다(계약 README 응답 문장 스트림 3항).
         """
         serving = self._serving_for(int(request["runtime_contract_version"]))
-        chat_request = response_request(response_input(request), serving.adapters[AdapterRole.LORA_B])
+        chat_request = response_request(
+            response_input(_for_version(serving, request)), serving.adapters[AdapterRole.LORA_B]
+        )
         # 왜 큐와 별도 작업: 시간 상한(asyncio.timeout)은 한 작업 안에서 걸어야 하고, 비동기 제너레이터는 yield 를
         # 가로질러 걸 수 없다. 작업이 큐에 쓰고 호출자가 읽으면 호출자가 끊어도 처리는 끝난다
         queue: asyncio.Queue[StreamEvent] = asyncio.Queue()
@@ -403,3 +405,19 @@ class Runtime:
 def view_state(status: ModelStatus) -> ModelLoadState:
     """ModelStatus 의 상태 값."""
     return status.state
+
+
+def _v3_only(io_version: str, value: object) -> str | None:
+    """v3 에서만 쓰는 요청 칸. 확인 다음 턴의 state 규칙(계약 9.4.0 previous_screen_action)은 v3 데이터의 규칙이다.
+
+    왜: 서비스는 추출을 부를 때 활성 패키지의 버전을 모르고 이 칸을 늘 싣는다. v2 어댑터에 v3 의 state 를 주면 학습 때와
+    다른 입력이 된다.
+    """
+    return value if io_version == "model-io-v3" and isinstance(value, str) else None
+
+
+def _for_version(serving: LoadedPackage, request: Mapping[str, Any]) -> Mapping[str, Any]:
+    """응답 생성 요청에서 활성 패키지의 버전이 쓰지 않는 칸을 뺀다(v2 는 previous_screen_action 을 쓰지 않는다)."""
+    if serving.model_io_version.value == "model-io-v3" or "previous_screen_action" not in request:
+        return request
+    return {key: value for key, value in request.items() if key != "previous_screen_action"}
