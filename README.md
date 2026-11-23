@@ -73,3 +73,4 @@ openit-v7/
 - [0028 잡 스케줄러: 관리 노드의 systemd 타이머를 deploy 가 만들고, 잡 결과는 Pushgateway 로 감시에 올린다](docs/adr/0028-잡-스케줄러는-systemd-타이머.md)
 - [0029 여러 서버 배치에서 영역 게이트웨이는 가장자리의 80 번이 열린 뒤 Caddy 를 시작한다](docs/adr/0029-게이트웨이는-가장자리가-열린-뒤-시작한다.md)
 - [0030 E2E product 판정은 프레임워크 기준: 모델 결과는 기록하고 시스템 규칙만 판정한다](docs/adr/0030-E2E-product-판정은-프레임워크-기준.md)
+- [0031 화면 웹 서버 기반 이미지는 nginx mainline 갈래로 한다(보안 수정이 먼저 나온다)](docs/adr/0031-화면-웹-서버는-nginx-mainline.md)

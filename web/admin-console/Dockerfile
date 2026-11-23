@@ -1,7 +1,7 @@
 # 화면 이미지(ADR 0004, 0010): 빌드한 정적 파일을 비root 웹 서버가 서빙한다. 빌드 컨텍스트는 이 폴더다.
 # 기반 이미지는 digest 로 고정하고, 값은 모든 Dockerfile 이 같아야 한다(tools/checks image-pins).
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
-ARG WEB_SERVER_IMAGE=nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+ARG WEB_SERVER_IMAGE=nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 
 FROM ${NODE_IMAGE} AS build
 WORKDIR /src
