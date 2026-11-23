@@ -20,6 +20,7 @@ from survey_service.components import alert, question_bank, session, start_code,
 from survey_service.contract.models import (
     ActionExtraction,
     AlertKind,
+    ModelIoFeature,
     PauseReason,
     ProblemReason,
     QuestionSetContent,
@@ -45,6 +46,7 @@ from survey_service.types import (
     TurnOutcome,
     TurnRecordData,
     Tx,
+    model_io_features,
 )
 
 # 왜 이 지표: 계약 RequiredPrometheusMetric(turn_duration_seconds). 환자 턴 처리 시간 히스토그램(초, 목표
@@ -390,6 +392,7 @@ def router(rt: Runtime, background: Background) -> APIRouter:
         signal: TurnFailureReason | None = None
         text = ""
         transition = None
+        request: ResponseGenerationRequest | None = None  # 화면을 만든 LoRA-B 요청(고정 문장이면 없다)
         try:
             async with asyncio.timeout(rt.limits.turn_seconds):
                 signal = TurnFailureReason.EXTRACTION_UNAVAILABLE
@@ -397,22 +400,42 @@ def router(rt: Runtime, background: Background) -> APIRouter:
                     lambda: rt.model.extract(turn.extraction_request(current, content, utterance))
                 )
                 extraction, digest = extracted.output, extracted.package_digest.root
+                # 왜 추출 응답의 버전: 이 출력을 만든 패키지의 버전이다(계약 9.4.0 ExtractionResult, 없으면 v2)
+                features = model_io_features(extracted.model_io_version)
                 skip_target = question_bank.next_after(content, ready.asked_item, answers_of(current))
                 transition = session.apply_extraction(
-                    current, extraction, skip_target=skip_target, reask_limit=rt.limits.reask_limit, now=rt.now()
+                    current,
+                    extraction,
+                    skip_target=skip_target,
+                    reask_limit=rt.limits.reask_limit,
+                    now=rt.now(),
+                    explain_streak_limit=rt.limits.explain_streak_limit
+                    if ModelIoFeature.STAFF_HELP_AFTER_EXPLAIN in features
+                    else None,
                 )
-                if transition.limit_skip:
+                limit_sentence = (
+                    ModelIoFeature.LIMIT_REACHED_SENTENCE in features and transition.next_item_id != turn.END
+                )
+                if transition.limit_skip and not limit_sentence:
+                    # v2 이거나 끝으로 넘기면 서비스의 고정 문장(계약 ReaskLimit, P22 에 END 행이 없다)
                     text = turn.limit_skip_text(content, transition.next_item_id)
                 else:
                     signal = TurnFailureReason.RESPONSE_UNAVAILABLE
-                    request = turn.response_request(
-                        session=current,
-                        content=content,
-                        extraction=extraction,
-                        transition=transition,
-                        utterance=utterance,
-                    )
+                    if transition.limit_skip:
+                        request = turn.limit_reached_request(
+                            session=current, content=content, utterance=utterance, next_item_id=transition.next_item_id
+                        )
+                    else:
+                        request = turn.response_request(
+                            session=current,
+                            content=content,
+                            extraction=extraction,
+                            transition=transition,
+                            utterance=utterance,
+                        )
                     text = (await respond(request)).text.root
+                    if transition.staff_help_notice:
+                        text = turn.with_staff_help(text, content, transition.next_item_id)
                 signal = None
         except ModelCallError as error:
             if error.failure is ModelCallFailure.DEADLINE:
@@ -466,7 +489,10 @@ def router(rt: Runtime, background: Background) -> APIRouter:
                     return failure_body
                 response_body, ready_alert = await skip_on_failure_limit(tx, ready, latest, failure, extraction, digest)
             else:
-                updated = transition.session.model_copy(update={"last_assistant_text": text})
+                # 왜 세션에 두나: 설명 요청이 이어 받을 원본은 재시작·재전송 뒤에도 같아야 한다(DB, 마이그레이션 0004)
+                updated = transition.session.model_copy(
+                    update={"last_assistant_text": text, "ask_back_source": turn.ask_back_source_after(request)}
+                )
                 response_body: dict[str, object] = {
                     "turn_id": str(turn_id),
                     "status": updated.status.value,
@@ -474,6 +500,8 @@ def router(rt: Runtime, background: Background) -> APIRouter:
                 }
                 if updated.current_item_id is not None:
                     response_body["current_item_id"] = updated.current_item_id
+                if transition.staff_help_notice:
+                    response_body["staff_help_notice"] = True
                 await tx.save_session(updated)
                 await tx.finish_turn(
                     trace.done(

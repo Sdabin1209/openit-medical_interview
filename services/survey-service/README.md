@@ -10,6 +10,7 @@
 - 이미지 선언: [`jobs.json`](jobs.json)(JobsDeclaration), [`exposure.json`](exposure.json)(Exposure), [`inputs.json`](inputs.json)(ContainerInputs)가 라벨 `io.openit.jobs`·`exposure`·`inputs` 의 원본이다(ADR 0016).
 - 타입은 `src/survey_service/contract/models.py` 로 생성한다(손으로 고치지 않는다). 생성 대상은 `pyproject.toml` 의 `[tool.openit.contract]` 가 정한다.
 - 연속 턴 실패 한도(계약 9.3.0 `TurnFailureLimit` 3): 세션마다 실패한 서로 다른 turn_id 를 세어 3 번째 실패 턴이 지금 문항을 건너뛴 결과(`submitTurn`·`submitTurnStream` 모두)를 준다. 빈칸 원인 `FAILURE_LIMIT`, FHIR 빈칸 사유 `error`. 값은 설정으로 받지 않는 상수다(ADR 0019).
+- 모델 입출력 v3(계약 9.4.0, ADR 0020): 두 모델 요청에 환자가 답한 화면의 절차(`previous_screen_action`)를 싣고, 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)에는 직전 되묻기·확인 턴의 요청(반영 전 값, `ask_back_source`)을 싣는다. 설명 요청이 한 문항에서 3번(`ExplainStreakLimit`) 이상 이어지면 LoRA-B 문장 뒤에 직원 도움 안내 고정 문장을 붙이고 `staff_help_notice` 를 참으로 준다. 되묻기 한도로 넘길 때 v3 이고 다음 자리가 END 가 아니면 LoRA-B 에 SKIP/LIMIT_REACHED 를 보내 문장을 받는다(v2 나 END 는 고정 문장). v3 기능은 그 턴의 추출 응답 `model_io_version`(없으면 v2)으로 켠다.
 - 이 영역이 낸 변경 요청: [`docs/change-requests/survey-service-001~007`](../../docs/change-requests/)(계약 9.0.0 이 004~007 을 반영했다. 처리 표시는 헤드가 한다).
 
 ## 3. 컴포넌트
@@ -24,8 +25,8 @@
 | link_push | `src/survey_service/link/push.py` | 알림, 구독 | 푸시 전송 | Web Push(RFC 8030·8291·8292) |
 | link_risk_in | `src/survey_service/link/risk_in.py` | 위험 신호 | 정지된 세션, 알림 | 위험 감지가 켜졌을 때만 받는다 |
 | start_code | `src/survey_service/components/start_code.py` | 발급 요청 | 시작 코드, 판정 | 6자리 코드 발급, 한 번 쓰면 폐기 |
-| session | `src/survey_service/components/session.py` | 세션 명령, 추출 결과 | 세션 상태 | 다음 문항, 되묻기 한도, 유휴 만료, 정지·재개·종료 |
-| turn | `src/survey_service/components/turn.py` | 발화, 세션, 문항 세트 | 추출 요청, 응답 요청, 고정 문장 | 모델 요청 만들기 |
+| session | `src/survey_service/components/session.py` | 세션 명령, 추출 결과 | 세션 상태 | 다음 문항, 되묻기 한도, 설명 요청 연속 수, 화면 절차, 유휴 만료, 정지·재개·종료 |
+| turn | `src/survey_service/components/turn.py` | 발화, 세션, 문항 세트 | 추출 요청, 응답 요청, 고정 문장 | 모델 요청 만들기(한도 문장 요청, 설명 요청 원본 포함) |
 | question_bank | `src/survey_service/components/question_bank.py` | 올린 문항 세트 | 검증 결과, 해시, 다음 문항 | 문항 세트 검증과 순서표 계산 |
 | result | `src/survey_service/components/result.py` | 세션 상태 | 결과, FHIR 결과 | 결과 조립과 FHIR 변환 |
 | alert | `src/survey_service/components/alert.py` | 세션 사건 | 알림, 푸시 내용 | 위험·직원 호출·결과 도착 알림 |
@@ -54,20 +55,19 @@ tools/smoke service survey-service   # 이미지 스모크(/healthz, /readyz, �
 pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytest-tmp`)로 준다: `TMPDIR=$PWD/.pytest-tmp uv run pytest`.
 
 ## 5. 시험 상태
-(2026-11-11, 영역 작업자가 연속 턴 실패 한도(계약 9.3.0 `TurnFailureLimit`, ADR 0019)를 더한 작업에서 실행한 결과. 작업 트리 `openit-v7-f-ss`, 계약 9.3.0)
+(2026-11-23, 영역 작업자가 모델 입출력 v3(계약 9.4.0, ADR 0020)를 더한 작업에서 실행한 결과. 기준 커밋 `959b30d`(태그 contracts-v9.4.0), 작업 트리 `openit-v7`)
 
 | 명령 | 결과 |
 |---|---|
-| `uv run pytest`(SQLite) | 통과 — 158개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
-| `uv run pytest -m postgres`(PostgreSQL 16 컨테이너) | 통과 — 86개 |
+| `uv run pytest`(SQLite) | 통과 — 176개 통과, 1개 건너뜀(경로 의존이 없는 영역의 `test_libs`) |
+| `uv run pytest -m postgres`(PostgreSQL 16 컨테이너, `DOCKER_CONFIG=<리포>/.docker-config`) | 통과 — 95개 |
 | `uv run lint-imports` | 통과 — 계약 5개 |
 | `uv run pyright`(strict) | 오류 0 |
 | `uv run ruff check`, `ruff format --check` | 통과 |
 | `uv run --project tools/checks openit-check all` | 통과(위반 0) |
-| `./deploy/deploy build survey-service`(Trivy 포함) | 통과 |
-| `tools/smoke service survey-service --no-build` | 통과 — 6개 |
+| `./deploy/deploy build survey-service`(Trivy 포함), `tools/smoke service survey-service` | 이 작업에서 돌리지 않았다(마지막 통과는 2026-11-11, 계약 9.3.0 의 6개) |
 
-이 작업의 마이그레이션 0003(`survey_session.failed_turn_ids`)은 SQLite 와 PostgreSQL 에서 올림·내림과 기존 행의 빈 목록 채움을 확인했다. 같은 세션에서 실패하는 두 턴이 겹쳐도 문항을 한 번만 건너뛰는 시험도 두 DB 에서 통과했다.
+이 작업의 마이그레이션 0004(`survey_session.screen_action`·`explain_streak`·`ask_back_source`)는 SQLite 와 PostgreSQL 에서 올림·내림, 기존 행의 채움(절차·원본 없음, 연속 수 0), 저장소로 다시 읽기를 확인했다(`tests/unit/test_migrations.py`). v3 의 턴 시험(`tests/api/test_v3_turns.py`: 확인의 다음 자리, 화면 절차, 원본의 저장·이어 받기·지움과 실패 재전송·앱 재시작, 설명 요청 셋째의 안내와 스트림, 한도 문장과 그 실패, v2·END 의 고정 문장)은 두 DB 에서 통과했다. 0003(`failed_turn_ids`)과 겹친 실패 턴 시험도 그대로 통과한다.
 
 확인하지 못한 것: 실제 Keycloak·model-runtime·영역 게이트웨이·인증서 에이전트·브라우저 푸시 서비스와의 연동(시험은 서명한 시험 토큰, 가짜 발급자, 가짜 model-runtime, 로컬 TLS 서버, RFC 8291 시험 벡터), platform 의 실제 라우트 생성과 `exposure.json` 의 일치(영역 시험은 같은 규칙의 요약 구현), 운영 부하와 응답 시간(측정하지 않았다), 한도 값(시작 코드 실패 10회·5분, 알림 폴링 1초, 토큰 갱신 여유 30초 등)의 적정성.
 
@@ -91,3 +91,4 @@ pytest 는 임시 폴더를 `TMPDIR`(작업 트리 안 git 제외 폴더 `.pytes
 - [0017 유휴 만료는 서버가 판정한다, 문진표 선택은 422, 실패한 턴은 기록하지 않는다, 활성 표시](docs/adr/0017-유휴-만료는-서버가-판정하고-문진표-선택은-422.md)
 - [0018 응답 문장 스트림: SSE 서버·클라이언트의 선택과 끊김 처리](docs/adr/0018-응답-문장-스트림-SSE-서버와-클라이언트와-끊김-처리.md)
 - [0019 연속 턴 실패 수의 저장과 원자적 더함](docs/adr/0019-연속-턴-실패-수의-저장과-원자적-더함.md)
+- [0020 모델 입출력 v3 의 화면 절차·설명 요청 원본·설명 요청 연속 수는 세션 행에 두고, v3 기능은 추출 응답의 버전으로 켠다](docs/adr/0020-모델-입출력-v3-의-세션-상태와-턴.md)

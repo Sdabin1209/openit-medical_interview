@@ -12,12 +12,14 @@ from survey_service.contract.models import ServiceName, SurveyServiceEnv
 from survey_service.types import Limits
 
 SERVICE = ServiceName.survey_service
-# 왜 이 값들: 한도는 계약이 값을 const 로 못박은 것(ReaskLimit 2, KioskIdleResetSeconds 60, SurveyTurnLimitSeconds 50,
+# 왜 이 값들: 한도는 계약이 값을 const 로 못박은 것(ReaskLimit 2, ExplainStreakLimit 3, KioskIdleResetSeconds 60,
+# SurveyTurnLimitSeconds 50,
 # ExtractClientLimitSeconds 21, RespondClientLimitSeconds 26, AlertStreamHeartbeatSeconds 15,
 # RawUtteranceRetentionDays 180)을 따른다.
 # 계약과 어긋나지 않는지는 tests/unit/test_limits.py 가 계약 파일과 견준다
 CONTRACT_LIMITS = {
     "reask_limit": 2,
+    "explain_streak_limit": 3,
     "idle_seconds": 60,
     "turn_seconds": 50,
     "extract_seconds": 21,

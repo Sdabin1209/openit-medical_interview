@@ -9,9 +9,11 @@ from uuid import UUID
 
 from survey_service.contract.models import (
     ActionExtraction,
+    ActionReason,
     BlankReason,
     ExtractionAction,
     PauseReason,
+    ResponseAction,
     SessionStatus,
     ValueStatus,
 )
@@ -22,6 +24,8 @@ END = "END"
 # 환경 변수·설정으로 받지 않는다(시험이 계약의 const 와 같은지 본다)
 TURN_FAILURE_LIMIT = 3
 ENDED = frozenset({SessionStatus.ENDED_COMPLETE, SessionStatus.ENDED_PARTIAL, SessionStatus.EXPIRED})
+# 설명 요청(계약 ExplainStreakLimit, 모델 입출력 v3): 되묻기 한도에 세지 않고 따로 이어진 수를 센다
+EXPLAIN_REASONS = frozenset({ActionReason.ASK_MEANING, ActionReason.ASK_HOW})
 
 
 def start(
@@ -52,6 +56,7 @@ def start(
         started_at=now,
         last_activity_at=now,
         model_io_version=model_io_version,
+        screen_action=ResponseAction.START,
     )
 
 
@@ -98,11 +103,14 @@ def apply_extraction(
     skip_target: str,
     reask_limit: int,
     now: datetime,
+    explain_streak_limit: int | None = None,
 ) -> SessionTransition:
     """검증된 추출 결과를 세션에 반영한다.
 
     REASK 와 CONFIRM 이 한 문항에서 reask_limit 번을 넘어 이어지면 서비스가 그 문항을 건너뛴다(빈칸 원인 REASK_LIMIT).
     건너뛰어 갈 자리(skip_target)는 호출한 쪽이 순서표로 계산해 넘긴다.
+    설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)은 되묻기 수에 세지 않고 같은 문항에서 이어진 수를 따로 센다. 그 수가
+    explain_streak_limit 에 닿으면 직원 도움 안내를 붙이라고 알린다(없으면 기능이 꺼진 것, 모델 입출력 v2).
     """
     action = extraction.action
     current = session.current_item_id
@@ -131,7 +139,9 @@ def apply_extraction(
         blanks += _target_blanks(current, targets, BlankReason.UNKNOWN)
     elif action is ExtractionAction.SKIP:
         blanks += _target_blanks(current, targets, BlankReason.REJECTED)
-    # 왜 REDIRECT 는 세지 않나: 문진과 상관없는 말은 되묻기가 아니다(행동별 규칙은 데이터셋 정본, IO_SPEC 1장)
+    # 왜 REDIRECT 는 세지 않나: 문진과 상관없는 말은 되묻기가 아니다(행동별 규칙은 데이터셋 정본, IO_SPEC 1장).
+    # 설명 요청(ASK_MEANING·ASK_HOW)도 REDIRECT 라 세지 않는다(계약 ReaskLimit, ModelIoFeature MEANING_ASKED_EXEMPTION).
+    # UNCLEAR_TARGET 은 REASK 라 위에서 센다
     if limit_skip or action in (
         ExtractionAction.NEXT,
         ExtractionAction.CORRECT,
@@ -139,15 +149,25 @@ def apply_extraction(
         ExtractionAction.SKIP,
     ):
         reask_count = 0
+    explaining = action is ExtractionAction.REDIRECT and extraction.reason in EXPLAIN_REASONS and next_item == current
+    # 왜 이렇게 끊나: 다른 절차가 끼거나 문항이 바뀌면 '이어진' 설명 요청이 아니다(계약 ExplainStreakLimit)
+    explain_streak = session.explain_streak + 1 if explaining else 0
     update: dict[str, object] = {
         "answers": answers,
         "blanks": tuple(blanks),
         "reask_count": reask_count,
+        "explain_streak": explain_streak,
+        # 다음 화면을 만드는 LoRA-B 요청의 절차. 한도로 건너뛰면 서비스가 SKIP 화면을 만든다
+        # (고정 문장이든 LIMIT_REACHED 든)
+        "screen_action": ResponseAction.SKIP if limit_skip else ResponseAction(action.value),
         "last_activity_at": now,
         "resume_pending": False,
         "failed_turn_ids": (),  # 왜 비우나: 턴이 기록되면 연속 실패 수는 0 이다(TurnFailureLimit 2항)
     }
-    return _moved(session, update, current=current, next_item=next_item, now=now, limit_skip=limit_skip)
+    # 왜 한도 이상마다: 셋째 뒤에도 설명 요청이 이어지면 환자는 아직 도움이 필요하다. 안내를 한 번만 하고 거두지 않는다
+    notice = explaining and explain_streak_limit is not None and explain_streak >= explain_streak_limit
+    moved = _moved(session, update, current=current, next_item=next_item, now=now, limit_skip=limit_skip)
+    return moved.model_copy(update={"staff_help_notice": notice}) if notice else moved
 
 
 def _moved(
@@ -161,12 +181,15 @@ def _moved(
 ) -> SessionTransition:
     """다음 자리로 옮긴 세션. 되묻기 한도 건너뛰기와 연속 실패 한도 건너뛰기가 같은 규칙을 쓴다."""
     if next_item == END:
-        update.update(status=SessionStatus.ENDED_COMPLETE, current_item_id=None, ended_at=now, reask_count=0)
+        update.update(
+            status=SessionStatus.ENDED_COMPLETE, current_item_id=None, ended_at=now, reask_count=0, explain_streak=0
+        )
     else:
         update["current_item_id"] = next_item
         if next_item != current:
             update["previous_item_id"] = current
             update["reask_count"] = 0
+            update["explain_streak"] = 0
             if next_item not in session.asked_items:
                 update["asked_items"] = (*session.asked_items, next_item)
     return SessionTransition(
@@ -199,6 +222,9 @@ def skip_for_failure_limit(session: SessionRecord, *, skip_target: str, now: dat
     update: dict[str, object] = {
         "blanks": blanks,
         "reask_count": 0,
+        "explain_streak": 0,
+        "screen_action": ResponseAction.SKIP,  # 서비스의 고정 문장으로 건너뛴 화면
+        "ask_back_source": None,  # 되묻기·확인 화면이 아니다(fix3.md 1장(2))
         "last_activity_at": now,
         "resume_pending": False,
         "failed_turn_ids": (),

@@ -47,14 +47,14 @@ def test_limits_come_from_env_and_contract() -> None:
     limits = limits_of(load_env(REQUIRED))
     assert limits.start_code_ttl_seconds == DEFAULT_START_CODE_TTL == 300
     assert limits_of(load_env({**REQUIRED, "SURVEY_START_CODE_TTL_SECONDS": "120"})).start_code_ttl_seconds == 120
-    assert limits.reask_limit == 2 and limits.idle_seconds == 60
+    assert limits.reask_limit == 2 and limits.idle_seconds == 60 and limits.explain_streak_limit == 3
 
 
 def test_hardcoded_limits_equal_the_contract_constants() -> None:
     """계약이 const 로 못박은 값과 코드의 상수가 어긋나지 않는다."""
     schemas = yaml.safe_load(CONTRACT.read_text(encoding="utf-8"))["components"]["schemas"]
     expected = {
-        "reask_limit": "ReaskLimit", "idle_seconds": "KioskIdleResetSeconds", "turn_seconds": "SurveyTurnLimitSeconds",
+        "reask_limit": "ReaskLimit", "explain_streak_limit": "ExplainStreakLimit", "idle_seconds": "KioskIdleResetSeconds", "turn_seconds": "SurveyTurnLimitSeconds",
         "extract_seconds": "ExtractClientLimitSeconds", "respond_seconds": "RespondClientLimitSeconds",
         "heartbeat_seconds": "AlertStreamHeartbeatSeconds", "retention_days": "RawUtteranceRetentionDays",
     }  # fmt: skip

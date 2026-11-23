@@ -146,6 +146,10 @@ class SessionRow(Base):
     ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime())
     model_io_version: Mapped[str | None] = mapped_column(String(32))
     start_code: Mapped[str | None] = mapped_column(String(6))
+    # 모델 입출력 v3(계약 9.4.0, 마이그레이션 0004): 지금 화면의 절차, 설명 요청 연속 수, 설명 요청이 이어 받을 원본
+    screen_action: Mapped[str | None] = mapped_column(String(16))
+    explain_streak: Mapped[int] = mapped_column(Integer(), default=0)
+    ask_back_source: Mapped[dict[str, object] | None] = mapped_column(Json)
 
 
 class TurnRow(Base):

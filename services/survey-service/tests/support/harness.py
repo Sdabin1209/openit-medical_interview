@@ -91,9 +91,10 @@ class FakeModel:
         item = self.extractions.popleft()
         if isinstance(item, ModelCallError):
             raise item
-        return ExtractionResult.model_validate(
-            {"package_digest": DIGEST, "output": item.model_dump(mode="json", exclude_none=True)}
-        )
+        body: dict[str, Any] = {"package_digest": DIGEST, "output": item.model_dump(mode="json", exclude_none=True)}
+        if self.version is not None:
+            body["model_io_version"] = self.version  # 계약 9.4.0: 서비스가 v3 의존 기능을 이 값으로 켠다
+        return ExtractionResult.model_validate(body)
 
     async def respond(self, request: ResponseGenerationRequest) -> ResponseResult:
         self.respond_requests.append(request)

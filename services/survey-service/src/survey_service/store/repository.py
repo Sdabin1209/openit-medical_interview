@@ -19,10 +19,12 @@ from survey_service.contract.models import (
     ActionExtraction,
     ActiveQuestionSet,
     AlertKind,
+    AskBackSource,
     CaseReview,
     FailureKind,
     PauseReason,
     PushSubscription,
+    ResponseAction,
     ReviewStatus,
     SessionStatus,
     TurnFailureReason,
@@ -319,6 +321,9 @@ class SqlTx:
             resume_pending=row.resume_pending, failed_turn_ids=tuple(UUID(str(i)) for i in row.failed_turn_ids),
             started_at=row.started_at, last_activity_at=row.last_activity_at,
             ended_at=row.ended_at, model_io_version=row.model_io_version,
+            screen_action=ResponseAction(row.screen_action) if row.screen_action else None,
+            explain_streak=row.explain_streak,
+            ask_back_source=AskBackSource.model_validate(row.ask_back_source) if row.ask_back_source else None,
         )  # fmt: skip
 
     @staticmethod
@@ -338,6 +343,11 @@ class SqlTx:
         row.failed_turn_ids = [str(i) for i in v.failed_turn_ids]
         row.started_at, row.last_activity_at, row.ended_at = v.started_at, v.last_activity_at, v.ended_at
         row.model_io_version = v.model_io_version
+        row.screen_action = v.screen_action.value if v.screen_action else None
+        row.explain_streak = v.explain_streak
+        row.ask_back_source = (
+            v.ask_back_source.model_dump(mode="json", exclude_none=True) if v.ask_back_source else None
+        )
 
     async def create_session(self, value: SessionRecord) -> None:
         row = m.SessionRow(session_id=value.session_id)

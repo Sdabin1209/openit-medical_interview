@@ -19,13 +19,17 @@ from survey_service.contract.models import (
     ActionExtraction,
     ActiveQuestionSet,
     AlertKind,
+    AskBackSource,
     BlankReason,
     CaseReview,
     ExtractionRequest,
     ExtractionResult,
     FailureKind,
+    ModelIoFeature,
+    ModelIoVersion,
     PauseReason,
     PushSubscription,
+    ResponseAction,
     ResponseGenerationRequest,
     ResponseResult,
     ReviewStatus,
@@ -54,6 +58,17 @@ def split_slot(ref: str) -> tuple[str, str | None, str] | None:
     if match is None:
         return None
     return match["item"], match["repeat"], match["field"]
+
+
+def model_io_features(version: ModelIoVersion | None) -> frozenset[ModelIoFeature]:
+    """모델 입출력 버전에서 켜지는 v3 의존 기능(계약 ModelIoFeatureRequirements: 셋 모두 최소 model-io-v3).
+
+    버전을 모르면(9.4.0 전의 model-runtime) v2 로 본다(계약 ExtractionResult.model_io_version).
+    """
+    order = list(ModelIoVersion)
+    if version is None or order.index(version) < order.index(ModelIoVersion.model_io_v3):
+        return frozenset()
+    return frozenset(ModelIoFeature)
 
 
 class _Value(BaseModel):
@@ -181,6 +196,20 @@ class SessionRecord(_Value):
     model_io_version: str | None = Field(
         default=None, description="시작할 때 활성이던 모델 입출력 버전(알 수 없으면 없다)"
     )
+    screen_action: ResponseAction | None = Field(
+        default=None,
+        description="환자가 지금 답할 화면을 만든 절차(직전 턴 LoRA-B 요청의 action, 첫 화면은 START,"
+        " 서비스의 고정 문장으로 문항을 건너뛴 화면은 SKIP). 요청의 previous_screen_action 으로 싣는다."
+        " 0004 전의 세션은 알 수 없어 없다",
+    )
+    explain_streak: int = Field(
+        default=0, ge=0, description="지금 문항에서 이어진 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW) 횟수"
+    )
+    ask_back_source: AskBackSource | None = Field(
+        default=None,
+        description="지금 화면이 되묻기·확인(또는 그것을 이어 받은 설명 요청)이면 그 되묻기·확인 턴의"
+        " 응답 생성 요청(반영 전 값). 다음 턴이 설명 요청이면 ask_back_source 로 싣는다. 다른 화면이면 없다",
+    )
 
 
 class SessionTransition(_Value):
@@ -189,7 +218,11 @@ class SessionTransition(_Value):
     session: SessionRecord = Field(description="반영한 뒤의 세션")
     next_item_id: str = Field(description="다음 자리(문항 식별자 또는 END)")
     limit_skip: bool = Field(
-        description="되묻기 한도에 닿아 서비스가 문항을 건너뛰었는지(이때 모델 응답을 쓰지 않는다)"
+        description="되묻기 한도에 닿아 서비스가 문항을 건너뛰었는지(이때 A 출력의 응답 요청은 쓰지 않는다."
+        " 문장은 v2 면 고정 문장, v3 면 SKIP/LIMIT_REACHED 요청)"
+    )
+    staff_help_notice: bool = Field(
+        default=False, description="설명 요청이 연속 한도에 닿아 응답에 직원 도움 안내 고정 문장을 붙이는지"
     )
 
 
@@ -315,6 +348,9 @@ class StaffHelpText(StrEnum):
     REASK_LIMIT_SKIP = "정확히 알아듣지 못해서 이 질문은 건너뛸게요."
     FINISHED = "문진이 모두 끝났어요. 답해 주셔서 감사합니다."
     RESUMED = "문진을 이어서 할게요."
+    # 왜 버튼 안내: 설명 요청 한도는 직원을 부르는 사건이 아니라 안내다(계약 StaffHelpNotice, ExplainStreakLimit).
+    # 부르는 일은 환자가 키오스크의 '직원 부르기'(requestStaffCall, kiosk-frontend ConversationView 의 버튼 이름)로 한다
+    EXPLAIN_STAFF_HELP = "설명이 더 필요하시면 화면 아래 '직원 부르기'를 눌러 주세요. 직원이 도와드릴게요."
 
 
 # ---------------------------------------------------------------- 저장소 약속(store 가 구현, link 가 쓴다)
@@ -437,6 +473,7 @@ class Limits:
     """영역이 쓰는 한도와 시간 상한. 값의 근거는 칸마다 적는다."""
 
     reask_limit: int  # 계약 ReaskLimit(처음 질문 1회에 되묻기 2회, 사용자 결정 2026-11-10)
+    explain_streak_limit: int  # 계약 ExplainStreakLimit(3, 사용자 결정 2026-11-10, 모델 입출력 v3 부터)
     start_code_ttl_seconds: int  # 계약 StartCodeTtlSeconds(기본 300, 최대 600, UD-04)
     idle_seconds: int  # 계약 KioskIdleResetSeconds(60, UD-17)
     turn_seconds: int  # 계약 SurveyTurnLimitSeconds(환자 턴 하나의 총 마감)
