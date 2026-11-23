@@ -36,6 +36,8 @@ class GuardContext:
     fields: FieldIndex
     state: Mapping[str, object] = field(default_factory=lambda: dict[str, object]())
     rules: ActionExtractionRules = field(default_factory=lambda: DEFAULT_RULES)
+    # 왜 기본 v2: 버전을 모르는 기존 호출자는 v2 어댑터만 썼다. v2 어댑터가 v3 의 사유를 내면 학습하지 않은 출력이다
+    model_io_version: str = "model-io-v2"
 
 
 @dataclass(frozen=True)

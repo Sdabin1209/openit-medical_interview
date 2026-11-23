@@ -28,6 +28,12 @@ v3 의 A·B 입력은 `json.dumps(값, ensure_ascii=False, sort_keys=True)` 와 
 - 위 세 모양은 v2 의 같은 action 규칙(REASK 는 대상 칸이 values 에 있고 저장 안 함, REDIRECT 는 values 없음·같은 문항)을 그대로 지킨다. 새 값은 reason 의 값 목록뿐이다.
 - v2 의 `ASK_PURPOSE`(왜 묻는지)와 `ASK_MEANING`·`ASK_HOW` 는 다른 사유로 남는다.
 
+- 모양 규칙(계약 9.4.0 `ActionExtraction`, model-io 출력 검증): `UNCLEAR_TARGET` 은 REASK 이고 지금 문항의 **모든** 칸을 MISSING·저장 안 함으로 values·targets 에 둔다. `ASK_MEANING`·`ASK_HOW` 는 values 가 빈 REDIRECT 다. 어기면 출력 불가다(설명해 달라는 말로 답이 저장되지 않게). 활성 패키지가 v2 인데 v3 의 사유가 나오면 출력 불가다.
+
+## 2a. LoRA-A 입력: 확인 다음 턴의 state
+
+환자가 확인(CONFIRM) 화면에 답하는 턴의 `state` 는 **확인하는 문항의 저장 값만** 담는다(`fixaug.py` `confirm_state`, 실측 P17 4,050/4,050행). v2 의 규칙(지금·직전·참조 원천 문항)과 다르다. 서비스가 직전 화면의 절차를 `previous_screen_action` 으로 알려 주고 model-runtime 이 CONFIRM 이면 지금 문항의 칸만 고른다(계약 9.4.0 `ExtractionRequest`·`ResponseGenerationRequest`).
+
 ## 3. LoRA-A 출력: 값 없는 NEXT 의 다음 문항
 
 확인(CONFIRM)에 "아까 값이 맞다"고 답한 턴의 정답은 `{"action": "NEXT", "values": []}` 이다(v3 772행, v2 0행; 유형 P17). 이때 `next_item` 은 **`state` 에 저장된 그 문항의 값**으로 건너뛰기를 계산한다(`fixaug_rules.keep_and_next`: `labels.next_after(문항, state 의 그 문항 ANSWERED 값)`).
@@ -56,6 +62,17 @@ v2 의 B 입력 만들기(`compose_response_input`, `compose_start_input`)는 v3
 | 설명 요청 연속 한도(`ExplainStreakLimit`) | `ASK_MEANING`·`ASK_HOW` 가 한 문항에서 3번 이어지면 서비스의 고정 문장으로 직원 도움을 안내한다(`StaffHelpNotice`) | 사용자 결정 2026-11-10 |
 | 되묻기 한도에 닿을 때의 문장 | v2 는 서비스 고정 문장. v3 는 LoRA-B 에 SKIP/`LIMIT_REACHED` 를 보내 문장을 만든다. 결과의 빈칸 원인은 그대로 `REASK_LIMIT` | v3 데이터 P22(827행). v2 에서 고정 문장을 쓴 이유("모델에 거짓 사유를 보내지 않는다")는 학습된 사유가 생겨 없어진다 |
 | 연속 실패 한도(`TurnFailureLimit`, 계약 9.3.0) | 바꾸지 않는다(모델 출력 불가에 대한 서비스의 고정 문장) | `LIMIT_REACHED` 는 되묻기 한도용이다 |
+
+## 5a. 서비스가 새로 들고 있어야 할 것(독립 검토 2026-11-23)
+
+- 직전 턴의 응답 생성 요청(되묻기·확인)을 반영 **전** 값으로 보존해 설명 요청 때 `ask_back_source` 로 싣는다. 설명 요청이 이어지면 처음 원본을 그대로 싣고, 다른 화면으로 넘어가면 지운다.
+- 직전 화면의 절차(`previous_screen_action`).
+- 한 문항의 설명 요청 연속 횟수(ASK_MEANING·ASK_HOW 합산, `ExplainStreakLimit`).
+- 확인(CONFIRM)이 지금 문항이 아닌 문항을 가리키면 B 요청의 `next`(SAME)는 확인하는 문항(A 출력의 next_item)과 그 질문 문장이어야 한다(정본 `labels.py` b_input 은 next_item 으로 만든다, v3 실측 2,754행이 이 경우). v2 에도 해당한다.
+
+## 5b. 이 비교가 증명하지 않는 것
+
+B 입력의 바이트 비교는 학습 데이터의 질문 문장(`next.text`)을 넣어 한 것이다. 학습 데이터는 한 문항에 여러 질문 문장을 쓰고(31개 문항 모두), 서비스는 문항 세트의 문장 하나를 쓴다. 그래서 운영의 B 입력은 질문 문장만큼 학습 행과 다를 수 있고, 그것은 정상 입력이다(독립 검토 8번).
 
 ## 6. 이전 v3 후보에서 바뀐 것
 

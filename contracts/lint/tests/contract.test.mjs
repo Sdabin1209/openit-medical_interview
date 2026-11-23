@@ -143,7 +143,8 @@ test('모델 패키지: LORA_A 와 LORA_B 가 하나씩이 아니면 거부한�
   const m = (adapters) => ({ base_model: 'Qwen/Qwen3-8B', runtime_contract_version: 1, model_io_version: 'model-io-v2', model_runtime_version: '0.11.10', adapters, lineage: { dataset_version_id: U, base_model: 'Qwen/Qwen3-8B', training_run_ids: [U] }, evaluation: { dataset_version_id: U, metrics: [], created_at: '2026-11-10T09:30:00+09:00' }, created_at: '2026-11-10T09:30:00+09:00' });
   ok('ModelPackageManifest', m([ad('LORA_A'), ad('LORA_B')]));
   no('ModelPackageManifest', m([ad('LORA_A'), ad('LORA_A')]), 'A 둘'); no('ModelPackageManifest', m([]), '빈 배열'); no('ModelPackageManifest', m([ad('LORA_A')]), 'A 하나');
-  no('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_io_version: 'model-io-v3' }, 'v3 는 활성이 아니다');
+  ok('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_io_version: 'model-io-v3' }); // 9.4.0: v3 를 받는다
+  no('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_io_version: 'model-io-v4' }, '없는 버전');
   no('ModelPackageManifest', { ...m([ad('LORA_A'), ad('LORA_B')]), model_package_id: U }, '패키지 식별자는 OCI digest 다');
 });
 test('모델 패키지 OCI 매니페스트: artifactType 과 미디어 유형과 digest 형식을 어기면 거부한다(OCI Image Spec 1.1)', () => {
@@ -221,8 +222,8 @@ test('작업: 멱등 키는 필요한 작업에만 있고 위험 신호는 자�
   assert.ok(!has('receiveRiskSignal')); assert.ok(!has('activateModelPackage'), '활성화는 digest 가 자연 키다');
 });
 test('모델 입출력 v3 의존 기능은 v3 이상에서만 켜진다고 표로 정의한다', () => {
-  ok('ModelIoFeatureRequirements', [{ feature: 'CONFIRMING_STATE', minimum_model_io_version: 'model-io-v3' }, { feature: 'MEANING_ASKED_EXEMPTION', minimum_model_io_version: 'model-io-v3' }, { feature: 'STAFF_HELP_AFTER_EXPLAIN', minimum_model_io_version: 'model-io-v3' }]);
-  no('ModelIoFeatureRequirement', { feature: 'CONFIRMING_STATE', minimum_model_io_version: 'model-io-v2' });
+  ok('ModelIoFeatureRequirements', [{ feature: 'LIMIT_REACHED_SENTENCE', minimum_model_io_version: 'model-io-v3' }, { feature: 'MEANING_ASKED_EXEMPTION', minimum_model_io_version: 'model-io-v3' }, { feature: 'STAFF_HELP_AFTER_EXPLAIN', minimum_model_io_version: 'model-io-v3' }]);
+  no('ModelIoFeatureRequirement', { feature: 'LIMIT_REACHED_SENTENCE', minimum_model_io_version: 'model-io-v2' });
 });
 
 test('시각: 소수 초는 9자리까지이고 오프셋이 있어야 한다(10자리 거부)', () => {
@@ -231,15 +232,38 @@ test('시각: 소수 초는 9자리까지이고 오프셋이 있어야 한다(10
 });
 test('v3 의존 기능 표: 기능마다 정확히 하나이고 중복과 누락을 거부한다', () => {
   const f = (feature) => ({ feature, minimum_model_io_version: 'model-io-v3' });
-  ok('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION'), f('STAFF_HELP_AFTER_EXPLAIN')]);
-  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('CONFIRMING_STATE'), f('STAFF_HELP_AFTER_EXPLAIN')], '중복');
-  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION')], '누락(길이 2)');
-  no('ModelIoFeatureRequirements', [f('CONFIRMING_STATE'), f('MEANING_ASKED_EXEMPTION'), f('MEANING_ASKED_EXEMPTION')], '하나 누락과 중복');
+  ok('ModelIoFeatureRequirements', [f('LIMIT_REACHED_SENTENCE'), f('MEANING_ASKED_EXEMPTION'), f('STAFF_HELP_AFTER_EXPLAIN')]);
+  no('ModelIoFeatureRequirements', [f('LIMIT_REACHED_SENTENCE'), f('LIMIT_REACHED_SENTENCE'), f('STAFF_HELP_AFTER_EXPLAIN')], '중복');
+  no('ModelIoFeatureRequirements', [f('LIMIT_REACHED_SENTENCE'), f('MEANING_ASKED_EXEMPTION')], '누락(길이 2)');
+  no('ModelIoFeatureRequirements', [f('LIMIT_REACHED_SENTENCE'), f('MEANING_ASKED_EXEMPTION'), f('MEANING_ASKED_EXEMPTION')], '하나 누락과 중복');
 });
 test('지표 slice 는 기준=값 표기만 받고 위반 코드는 계약의 합격 조건에서 나온 것만 받는다', () => {
   ok('MetricSlice', 'action=REASK'); ok('MetricSlice', 'violation_code=OUT_OF_CURRENT_ITEM'); ok('MetricSlice', 'constrained_decoding=on');
   no('MetricSlice', 'Q8_1.days'); no('MetricSlice', 'color=red'); no('MetricSlice', 'action=');
   ok('ViolationCode', 'UNKNOWN_ITEM'); ok('ViolationCode', 'VALUE_NOT_IN_OPTIONS'); no('ViolationCode', 'MADE_UP_CODE'); no('ViolationCode', 'VALUE_INVALID', '옛 코드');
+});
+test('모델 입출력 v3(9.4.0): 새 사유, A 출력의 LIMIT_REACHED 금지, 설명 요청의 이어 받기, 한도 문장 요청', () => {
+  for (const r of ['UNCLEAR_TARGET', 'ASK_MEANING', 'ASK_HOW', 'LIMIT_REACHED']) ok('ActionReason', r);
+  const keys = ['Q1.D03.diagnosed', 'Q1.D03.on_medication'];
+  const miss = (k) => ({ key: k, value: null, precision: 'unspecified', status: 'MISSING', save: false });
+  ok('ActionExtraction', { action: 'REASK', reason: 'UNCLEAR_TARGET', targets: keys, values: keys.map(miss), next_item: 'Q1.D03' });
+  ok('ActionExtraction', { action: 'REDIRECT', reason: 'ASK_MEANING', values: [], next_item: 'Q1.D03' });
+  no('ActionExtraction', { action: 'SKIP', reason: 'LIMIT_REACHED', targets: [], values: [], next_item: 'Q1.D04' }, 'LIMIT_REACHED 는 A 출력에 없다');
+  no('ActionExtraction', { action: 'REDIRECT', reason: 'ASK_HOW', values: [{ key: 'Q1.D03.diagnosed', value: true, precision: 'exact', status: 'ANSWERED', save: true }], next_item: 'Q1.D03' }, '설명 요청에 저장 값');
+  no('ActionExtraction', { action: 'REASK', reason: 'ASK_MEANING', targets: keys, values: keys.map(miss), next_item: 'Q1.D03' }, '설명 요청은 REDIRECT');
+  no('ActionExtraction', { action: 'REASK', reason: 'UNCLEAR_TARGET', targets: keys, values: [{ ...miss(keys[0]), status: 'UNCLEAR' }, miss(keys[1])], next_item: 'Q1.D03' }, 'UNCLEAR_TARGET 의 값은 MISSING');
+  ok('ExtractionRequest', { runtime_contract_version: 1, question_id: 'Q1.D04', current_question: '당뇨병 약을 드시는 게 맞을까요?', user_utterance: '네', slots: [], flow: { start_item: 'Q1.D04', rules: [{ item_id: 'Q1.D04', branches: [] }] }, fields: [], previous_screen_action: 'CONFIRM' });
+  const next = { type: 'SAME', question_id: 'Q1.D03', text: '고혈압 진단을 받으셨나요?' };
+  const base = { runtime_contract_version: 1, question_id: 'Q1.D03', user_utterance: '뭐라고요?', slots: [], values: [], next };
+  const source = { action: 'REASK', reason: 'UNCLEAR_TARGET', question_id: 'Q1.D03', user_utterance: '약 먹어요', slots: [], values: keys.map(miss), targets: keys, next };
+  ok('ResponseGenerationRequest', { ...base, action: 'REDIRECT', reason: 'ASK_MEANING', ask_back_source: source });
+  no('ResponseGenerationRequest', { ...base, action: 'REDIRECT', reason: 'OFF_TOPIC', ask_back_source: source }, 'OFF_TOPIC 은 이어 받지 않는다');
+  no('ResponseGenerationRequest', { ...base, action: 'REDIRECT', reason: 'ASK_MEANING', ask_back_source: { ...source, action: 'NEXT' } }, '이어 받는 것은 REASK·CONFIRM 뿐');
+  const limit = { ...base, action: 'SKIP', reason: 'LIMIT_REACHED', user_utterance: '있죠', next: { type: 'NEXT', question_id: 'Q1.D04', text: '당뇨병은 어떠세요?' } };
+  ok('ResponseGenerationRequest', limit);
+  no('ResponseGenerationRequest', { ...limit, values: keys.map(miss) }, 'LIMIT_REACHED 는 values 가 빈다');
+  no('ResponseGenerationRequest', { ...limit, reason: 'REFUSED' }, '다른 SKIP 은 targets 가 필요하다');
+  no('ResponseGenerationRequest', { ...limit, next: { type: 'END' } }, 'LIMIT_REACHED 의 다음 자리는 끝이 아니다');
 });
 test('예시가 스키마를 어기면 린트가 실패하고 위치(경로)를 알린다', () => {
   const dir = path.join(root, 'build/contract-tests'); mkdirSync(dir, { recursive: true });

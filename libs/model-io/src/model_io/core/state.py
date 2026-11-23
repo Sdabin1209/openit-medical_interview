@@ -24,7 +24,11 @@ def reference_item(question_id: str) -> str | None:
 
 
 def select_state(
-    slots: Sequence[Mapping[str, object]], question_id: str, previous_question_id: str | None
+    slots: Sequence[Mapping[str, object]],
+    question_id: str,
+    previous_question_id: str | None,
+    *,
+    previous_screen_action: str | None = None,
 ) -> dict[str, dict[str, object]]:
     """저장된 칸들에서 모델 입력 state 를 고른다. 키 순서가 그대로 모델 입력의 칸 순서다.
 
@@ -32,6 +36,7 @@ def select_state(
     칸의 순서(묶음 순서): 지금 문항의 확정 값, 직전 문항의 확정 값, 참조 원천 문항의 확정 값, 그리고 다시 묻는 칸들.
     학습 파일 A 입력 state 의 묶음 순서와 98.48% 일치한다(나머지는 학습 데이터가 시나리오 정보로 정한 순서, OPEN_GAPS
     G13).
+    환자가 답한 화면이 확인(CONFIRM)이면 지금 문항(확인하는 문항)의 칸만 고른다(계약 9.4.0 previous_screen_action).
     """
     merged: dict[str, tuple[object, str]] = {}
     for raw in slots:
@@ -39,6 +44,10 @@ def select_state(
         if key is not None and status is not None:
             merged[key] = (raw.get("value"), status)
     wanted = [question_id, previous_question_id, reference_item(question_id)]
+    if previous_screen_action == "CONFIRM":
+        # 왜 확인하는 문항만: dataset1118 fixaug.py confirm_state 가 확인 다음 턴의 state 를 그 문항의 칸으로만 만든다
+        # (실측 P17 4,050/4,050행). v2 데이터에는 확인 다음 턴의 행이 따로 없다
+        wanted = [question_id]
 
     def keys(item: str | None, answered: bool) -> list[str]:
         found = [
@@ -63,10 +72,12 @@ def compose_extraction_input(
     user_utterance: str,
     slots: Sequence[Mapping[str, object]],
     previous_question_id: str | None,
+    *,
+    previous_screen_action: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """LoRA-A 모델 입력의 객체(`ActionExtractionInput` 모양)와 state 의 칸 순서. 직렬화는
     `serialize_extraction_input` 이 한다."""
-    state = select_state(slots, question_id, previous_question_id)
+    state = select_state(slots, question_id, previous_question_id, previous_screen_action=previous_screen_action)
     payload: dict[str, Any] = {
         "question_id": question_id,
         "current_question": current_question,

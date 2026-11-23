@@ -33,6 +33,7 @@ uv run lint-imports           # 경계 점검
 uv run pyright                # 타입 검사(strict)
 uv run ruff check             # 린트
 MODEL_IO_DATASET_DIR=<폴더> uv run pytest -m dataset -s   # 학습 파일 시험. <폴더>/final/, <폴더>/finaltest/ 에 lora_a_*.jsonl, lora_b_*.jsonl
+MODEL_IO_DATASET_DIR_V3=<폴더> uv run pytest -m dataset -s tests/dataset/test_training_files_v3.py   # 모델 입출력 v3 학습 파일(dataset1118) 시험. <폴더>/lora_{a,b}_{train,val,test}.jsonl
 uv run --project ../../tools/checks openit-gen-contract .   # 계약 타입 다시 만들기(`schemas` 를 바꾼 뒤)
 ```
 학습 파일은 학습 서버에서 `ssh openit "cat ~/dataset/final/lora_a_train.jsonl"` 처럼 읽어 와 리포 밖(또는 git 제외 폴더)에 둔다. 서버에는 아무것도 만들지 않는다.

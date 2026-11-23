@@ -143,7 +143,7 @@ prompt 와 output_guard 의 규칙은 `libs/model-io`(라이브러리)에 두고
 | JobName | IMPORT_DATASET, PREPARE, TRAIN, EVALUATE, PUBLISH(model-lab 단계), DETECT_FAILURES, PURGE_EXPIRED(survey-service), BACKUP, RESTORE, OFFSITE_SYNC, RESTORE_TEST(deploy) | 2절 컴포넌트 중 잡으로 도는 것과 배포 도구의 백업·복구 잡 |
 | DatasetOrigin | IMPORTED(데이터셋 담당이 확정한 데이터), SYNTHETIC(학습 파이프라인이 만든 데이터) | model-lab 은 데이터셋 담당의 작업(합성 포함)을 따라 한다(ADR 0019) |
 | NextItemRuleKind | TARGET_ITEM(targets 의 첫 문항, 없으면 입력 question_id), ASKED_ITEM(입력 question_id), SEQUENCE_AFTER_SAVED(기준 문항 다음. 기준은 values 의 첫 값의 문항, 없으면 targets 의 첫 문항, 없으면 입력 question_id. 이번 턴 저장 값으로 조건이 맞은 건너뛰기와 칸이 모두 저장된 문항은 건너뜀) | 행동별 next_item 규칙의 종류. 정본은 labels.py a_target·next_after 이고 행동과의 짝은 IO_SPEC.md 를 따른다 |
-| ModelIoFeature | CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN | 모델 입출력 v3 에 의존하는 세 기능(v7-flow-resolutions 51행) |
+| ModelIoFeature | LIMIT_REACHED_SENTENCE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN | 모델 입출력 v3 에 의존하는 세 기능(v7-flow-resolutions 51행, 계약 9.4.0 에서 CONFIRMING_STATE 를 한도 문장으로 바꿈) |
 | 현재 문항의 계열 | 문항 식별자에서 첫 `_` 또는 `.` 앞 부분이 같은 문항들(Q7_1·Q7_2 → Q7, Q1.D01 → Q1) | 한 질문이 하위 문항으로 나뉜 데이터셋 문항 식별자 구조(labels.py, SQL.md) |
 | RiskCategory | SELF_HARM, CHEST_PAIN, DYSPNEA, ALTERED_CONSCIOUSNESS, SEVERE_BLEEDING, PARALYSIS | D88 U2 의 임상 검토 전 임시 기본 목록. 위험 감지는 기본 꺼짐(L11)이고 켤 때 임상 검토로 확정한다(UD-18) |
 | 환경 입력(*Env) | 각 영역 컴포넌트가 필요로 하는 설정만 둔다. 비밀은 `_FILE` 경로(ADR 0005) | 설정의 주인은 영역이고 이름 목록은 2절 컴포넌트에서 나온다 |

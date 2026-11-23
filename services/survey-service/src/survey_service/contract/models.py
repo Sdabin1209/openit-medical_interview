@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum
 from ipaddress import IPv4Address, IPv6Address
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -22,7 +22,7 @@ class AccessTokenType(StrEnum):
 
 class ActionReason(StrEnum):
     """
-    절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다
+    절차의 사유. NEXT 와 CORRECT 에는 붙지 않는다. UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED 는 모델 입출력 v3 에서 더해졌다. 활성 패키지가 v2 인데 LoRA-A 가 v3 의 사유를 내면 model-runtime 의 출력 검증이 출력 불가(OUTPUT_SCHEMA)로 다룬다(그 어댑터는 그 사유를 학습하지 않았다)
     """
 
     CONFLICT_WITH_PREVIOUS = 'CONFLICT_WITH_PREVIOUS'
@@ -45,6 +45,10 @@ class ActionReason(StrEnum):
     INVALID_OPTION = 'INVALID_OPTION'
     COUNT_EXCEEDS_DAYS = 'COUNT_EXCEEDS_DAYS'
     UNPARSED_VALUE = 'UNPARSED_VALUE'
+    UNCLEAR_TARGET = 'UNCLEAR_TARGET'
+    ASK_MEANING = 'ASK_MEANING'
+    ASK_HOW = 'ASK_HOW'
+    LIMIT_REACHED = 'LIMIT_REACHED'
 
 
 class AlertEventName(StrEnum):
@@ -87,6 +91,11 @@ class ArgvElement(RootModel[str]):
     """
     시작 프로세스 명령줄의 요소 하나
     """
+
+
+class Action(Enum):
+    REASK = 'REASK'
+    CONFIRM = 'CONFIRM'
 
 
 class AuthenticateChallenge(RootModel[str]):
@@ -236,7 +245,7 @@ class EventSequence(RootModel[int]):
 class ExplainStreakLimit(RootModel[int]):
     root: Annotated[int, Field(examples=[3], ge=3, le=3)]
     """
-    한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
+    한 문항에서 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
     """
 
 
@@ -691,7 +700,7 @@ class ModelIoFeature(StrEnum):
     모델 입출력 v3 에 의존해 v3 가 활성이기 전까지 꺼져 있는 기능
     """
 
-    CONFIRMING_STATE = 'CONFIRMING_STATE'
+    LIMIT_REACHED_SENTENCE = 'LIMIT_REACHED_SENTENCE'
     MEANING_ASKED_EXEMPTION = 'MEANING_ASKED_EXEMPTION'
     STAFF_HELP_AFTER_EXPLAIN = 'STAFF_HELP_AFTER_EXPLAIN'
 
@@ -738,10 +747,11 @@ class ModelIoFeatureRequirements(
 
 class ModelIoVersion(StrEnum):
     """
-    모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다
+    모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. v2 와 v3 의 차이는 contracts/model-io-v3-proposal.md 에 행 수 근거와 함께 있다
     """
 
     model_io_v2 = 'model-io-v2'
+    model_io_v3 = 'model-io-v3'
 
 
 class ModelLoadLimitSeconds(RootModel[Literal[180]]):
@@ -1187,7 +1197,7 @@ class RawUtteranceRetentionDays(RootModel[int]):
 class ReaskLimit(RootModel[int]):
     root: Annotated[int, Field(examples=[2], ge=2, le=2)]
     """
-    한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다
+    한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게 보이는 문장은 모델 입출력 v2 에서는 서비스의 고정 안내 문장이고(LoRA-B 에 학습되지 않은 사유를 보내지 않는다), v3 에서는 LoRA-B 에 SKIP/LIMIT_REACHED 를 보내 만든다(ModelIoFeature LIMIT_REACHED_SENTENCE). 설명 요청(ASK_MEANING, ASK_HOW)은 v3 에서 이 횟수에 세지 않는다
     """
 
 
@@ -3603,60 +3613,6 @@ class QuestionSetVersionPage(BaseModel):
     """
 
 
-class ResponseGenerationRequest(BaseModel):
-    """
-    추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다. 다음 문항의 질문 문장(next.text)은 문항 세트의 문장이라 서비스가 보낸다
-    """
-
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    action: ResponseAction
-    """
-    문장을 만들 절차(A 출력의 action, 시작이면 START)
-    """
-    next: ResponseNext
-    """
-    응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항)
-    """
-    note: OutOfSchemaNote | None = None
-    """
-    A 출력의 note 그대로(REDIRECT 의 OUT_OF_SCHEMA)
-    """
-    previous_question_id: QuestionItemId | None = None
-    """
-    대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다
-    """
-    question_id: QuestionItemId | None = None
-    """
-    A 를 부를 때 지금 묻고 있던 문항(START 에는 없다). 값이 없는 보류·거절에서 비우는 부분을 가리킬 때 쓴다
-    """
-    reason: ActionReason | None = None
-    """
-    그 절차의 사유(A 출력의 reason)
-    """
-    runtime_contract_version: RuntimeContractVersion
-    """
-    요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다
-    """
-    slots: StoredSlots | None = None
-    """
-    이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다)
-    """
-    targets: SlotRefStrings | None = None
-    """
-    A 출력의 targets 그대로(REASK, CONFIRM, HOLD, SKIP)
-    """
-    user_utterance: UtteranceText | None = None
-    """
-    환자의 이번 말(START 에는 없다)
-    """
-    values: ExtractedValues | None = None
-    """
-    A 출력의 values 그대로(START 에는 없다). 이번 턴에 정해진 값과 충돌한 값의 원재료다
-    """
-
-
 class ResultAnswer(BaseModel):
     """
     결과에 저장된 답 하나(칸, 값, 정확도)
@@ -3820,6 +3776,49 @@ class ActionExtraction(BaseModel):
     """
 
 
+class AskBackSource(BaseModel):
+    """
+    설명 요청 REDIRECT 가 이어 받는 직전 턴의 응답 생성 요청(되묻기 REASK 나 확인 CONFIRM). 직전 화면도 설명 요청이었으면 그 요청이 이어 받은 것을 그대로 싣는다(연달아 되물은 경우). 필드의 뜻은 ResponseGenerationRequest 의 같은 이름 필드와 같다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    action: Action | None = None
+    next: ResponseNext
+    """
+    직전 턴의 다음 자리(같은 문항)
+    """
+    previous_question_id: QuestionItemId | None = None
+    """
+    직전 턴의 직전에 물은 문항(첫 문항이면 없다)
+    """
+    question_id: QuestionItemId
+    """
+    직전 턴에 묻던 문항
+    """
+    reason: ActionReason
+    """
+    직전 턴의 사유
+    """
+    slots: StoredSlots
+    """
+    직전 턴을 반영하기 전에 저장된 칸 값들
+    """
+    targets: SlotRefStrings
+    """
+    직전 턴 A 출력의 targets
+    """
+    user_utterance: UtteranceText
+    """
+    직전 턴의 환자 말
+    """
+    values: ExtractedValues
+    """
+    직전 턴 A 출력의 values
+    """
+
+
 class CaseReview(BaseModel):
     """
     검토자가 사례에 게시하는 검토 결과
@@ -3929,6 +3928,10 @@ class ExtractionRequest(BaseModel):
     """
     대화에서 직전에 물은 문항(건너뛰기를 반영한 것, IO_SPEC.md 2.1 의 state 규칙). 첫 문항이면 없다. 세션의 진행을 아는 쪽만 알 수 있어 서비스가 보낸다(ADR 0019 의 책임선)
     """
+    previous_screen_action: ResponseAction | None = None
+    """
+    환자가 이번에 답한 화면을 만든 절차(직전 턴 LoRA-B 요청의 action, 첫 턴이면 START). CONFIRM 이면 model-runtime 은 state 를 지금 문항(확인하는 문항)의 저장 값으로만 고른다(모델 입출력 v3). 없으면 v2 의 규칙대로 고른다
+    """
     question_id: QuestionItemId
     """
     지금 묻고 있는 문항(모델 입력의 question_id)
@@ -3955,6 +3958,10 @@ class ExtractionResult(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
+    model_io_version: ModelIoVersion | None = None
+    """
+    이 출력을 만든 모델 패키지의 모델 입출력 버전. 서비스가 v3 의존 기능(ModelIoFeature)을 켤지 이 값으로 정한다(9.4.0 에서 더함, 없으면 model-io-v2 로 본다)
+    """
     output: ActionExtraction
     """
     보증을 마친 LoRA-A 출력
@@ -4106,4 +4113,66 @@ class FailureCasePage(BaseModel):
     next_cursor: PageCursor | None = None
     """
     다음 쪽 커서
+    """
+
+
+class ResponseGenerationRequest(BaseModel):
+    """
+    추론 서버에 LoRA-B 응답 문장 생성을 요청하는 본문. 행동과 사유, A 출력의 값·칸·노트, 환자의 말, 저장된 칸 값, 다음 자리의 구조화된 값만 싣는다. 모델 입력에 들어가는 글(topic, known, ask, previous, current, hold)은 model-runtime 이 데이터셋 정본의 표와 규칙(labels.py)으로 만든다. 다음 문항의 질문 문장(next.text)은 문항 세트의 문장이라 서비스가 보낸다
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    action: ResponseAction
+    """
+    문장을 만들 절차(A 출력의 action, 시작이면 START)
+    """
+    ask_back_source: AskBackSource | None = None
+    """
+    설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)일 때 직전 화면이 되묻기·확인이었으면 그 턴의 응답 생성 요청. model-runtime 이 그 요청으로 만든 B 입력의 ask(·previous·current)를 이번 B 입력에 그대로 넣는다(모델 입출력 v3)
+    """
+    next: ResponseNext
+    """
+    응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항)
+    """
+    note: OutOfSchemaNote | None = None
+    """
+    A 출력의 note 그대로(REDIRECT 의 OUT_OF_SCHEMA)
+    """
+    previous_question_id: QuestionItemId | None = None
+    """
+    대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다
+    """
+    previous_screen_action: ResponseAction | None = None
+    """
+    환자가 이번에 답한 화면을 만든 절차(A 를 부를 때 보낸 값과 같다). CONFIRM 이면 state 를 지금 문항의 저장 값으로만 고른다
+    """
+    question_id: QuestionItemId | None = None
+    """
+    A 를 부를 때 지금 묻고 있던 문항(START 에는 없다). 값이 없는 보류·거절에서 비우는 부분을 가리킬 때 쓴다
+    """
+    reason: ActionReason | None = None
+    """
+    그 절차의 사유(A 출력의 reason)
+    """
+    runtime_contract_version: RuntimeContractVersion
+    """
+    요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다
+    """
+    slots: StoredSlots | None = None
+    """
+    이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다)
+    """
+    targets: SlotRefStrings | None = None
+    """
+    A 출력의 targets 그대로(REASK, CONFIRM, HOLD, SKIP)
+    """
+    user_utterance: UtteranceText | None = None
+    """
+    환자의 이번 말(START 에는 없다)
+    """
+    values: ExtractedValues | None = None
+    """
+    A 출력의 values 그대로(START 에는 없다). 이번 턴에 정해진 값과 충돌한 값의 원재료다
     """

@@ -89,7 +89,7 @@ LoRA-A 출력의 합격 조건은 조건 하나에 위반 코드 하나다(`Viol
 
 ## 모델 입출력의 버전
 
-LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본이다. 계약에 있는 사본은 LoRA-A 의 출력(`ActionExtraction`과 그 조각)과 모델 입력의 글자 규칙(`ModelInputSerialization`)이고 정본과 글자까지 같다. 모델 입력 객체와 그 글 조각은 계약에 없다(다음 절). 지금의 사본은 **모델 입출력 v2**(`ModelIoVersion` 의 `model-io-v2`, 데이터셋 `dataset_10_29` 와 `labels.py`)다. 모델 패키지(`ModelPackageManifest`)가 이 버전을 싣는다. 확인 중 상태(`confirming`), 질문의 뜻을 묻는 분류(`MEANING_ASKED`) 같은 v2 에 없는 것은 v2 에 넣지 않고 `model-io-v3-proposal.md`(활성이 아님)와 `dataset-change-requests.md` 에만 둔다.
+LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본이다. 계약에 있는 사본은 LoRA-A 의 출력(`ActionExtraction`과 그 조각)과 모델 입력의 글자 규칙(`ModelInputSerialization`, v3 는 `ModelInputSerializationV3`)이고 정본과 글자까지 같다. 모델 입력 객체와 그 글 조각은 계약에 없다(다음 절). 버전은 둘이다: **모델 입출력 v2**(`model-io-v2`, 데이터셋 `dataset_10_29`·`dataset/final` 과 `labels.py`, 어댑터 a_8b_1029·b_8b_1103)와 **v3**(`model-io-v3`, 데이터셋 `dataset1118`, 어댑터 a_8b_1118·b_8b_1118, 9.4.0). 모델 패키지(`ModelPackageManifest`)가 버전을 싣는다. v2 와 v3 의 차이(사유 4개, 모든 수준 키 정렬, 값 없는 NEXT 의 건너뛰기, 설명 요청의 이어 받기 `AskBackSource`, 한도 문장)는 행 수 근거와 함께 `model-io-v3-proposal.md` 에 있다.
 
 서비스는 적재한 모델 패키지의 모델 입출력 버전에 맞는 모델 통신 컴포넌트로만 모델과 이야기하고, 나머지 컴포넌트는 서비스 내부 타입만 안다. 그 버전을 아는 통신 컴포넌트가 없는 패키지는 적재하지 않는다.
 
@@ -112,7 +112,7 @@ LoRA-A·LoRA-B 의 입력과 출력은 학습 데이터셋 정의(D74)가 정본
 
 ## 모델 입출력 v3 에 의존하는 기능
 
-확인 중 상태의 전달, 질문의 뜻·대상을 묻는 말의 되묻기 한도 면제, 설명 요청이 한 문항에서 3번 이어진 뒤의 직원 도움 안내는 모델 입출력 v3(데이터셋 반영과 재학습)에 의존한다. 모델 입출력 v2 모델로는 서비스가 뜻 묻기를 구분할 수 없으므로 **데이터셋 v3 를 반영하기 전까지 비활성**이다. 활성 조건은 적재한 모델 패키지의 `model_io_version` 이 `model-io-v3` 이상인 것이며 `ModelIoFeatureRequirements` 가 기능마다 정의한다. v3 가 활성이 되기 전의 동작은 되묻기 한도(처음 질문 1회와 되묻기 2회)를 REASK 와 CONFIRM 의 연속으로 세어 서비스가 건너뛰는 것이다.
+설명 요청(REDIRECT 의 `ASK_MEANING`·`ASK_HOW`)의 되묻기 한도 면제, 설명 요청이 한 문항에서 3번 이어진 뒤의 직원 도움 안내, 되묻기 한도로 넘길 때 LoRA-B 가 만드는 문장(`LIMIT_REACHED`)은 모델 입출력 v3 에서만 켠다(`ModelIoFeature`). 활성 조건은 적재한 모델 패키지의 `model_io_version` 이 `model-io-v3` 이상인 것이다. v2 모델로는 서비스가 뜻 묻기를 구분할 수 없으므로 v2 패키지가 활성이면 되묻기 한도(처음 질문 1회와 되묻기 2회)를 REASK 와 CONFIRM 의 연속으로 세어 서비스가 고정 문장으로 건너뛴다. 이전 후보였던 확인 중 상태(`confirming`)는 v3 데이터에 없어 버렸다.
 
 ## 범위의 근거
 
@@ -237,3 +237,19 @@ node --test lint/tests/*.test.mjs                                              #
 린트는 오류 0, 경고 0 이다. `lint/ruleset.yaml` 의 `overrides` 가 두 곳에서 표준 규칙을 끈다(사유는 규칙 파일 주석). `components.yaml` 에는 `oas3-unused-component` 와 `oas3-api-servers` 를 끈다. 이 파일은 서비스 문서가 아니라 공유 값 라이브러리라서 같은 문서 안의 참조 수와 서버 주소가 없기 때문이다. `openapi/*.yaml` 에는 `oas3-operation-security-defined` 를 끈다. 이 규칙은 보안 요구의 값을 oauth2 의 scope 로만 읽는데 OpenAPI 3.1.0 4.8.30 은 그 밖의 체계에서 필요한 역할 이름 목록으로 쓰도록 허용하기 때문이다.
 
 코드 타입은 표준 생성기로 만든다: Python `datamodel-code-generator`, TypeScript `openapi-typescript`. 생성물은 고치지 않는다.
+
+### 9.4.0 (2026-11-23, 하위 호환 추가)
+
+모델 입출력 v3(데이터셋 dataset1118, 어댑터 a_8b_1118·b_8b_1118)를 더했다. 근거는 dataset1118 과 dataset/final 을 행 단위로 비교한 `model-io-v3-proposal.md`(b48a1d1). v2 의 값과 규칙은 바뀌지 않는다.
+
+- `ModelIoVersion` 에 `model-io-v3`.
+- `ActionReason` 에 `UNCLEAR_TARGET`(REASK), `ASK_MEANING`·`ASK_HOW`(REDIRECT), `LIMIT_REACHED`(SKIP, LoRA-B 요청에만). `ActionExtraction` 은 `LIMIT_REACHED` 를 받지 않는다. 응답에 실리는 열거가 늘어난 것이라 MINOR 다(9.3.0 의 규칙).
+- `ModelInputSerializationV3`: v3 의 A·B 입력은 모든 수준 키 정렬.
+- `NextItemRuleKind` `SEQUENCE_AFTER_SAVED` 에 (c): 값 없는 NEXT 는 state 의 그 문항 저장 값으로 건너뛰기(v2 데이터에는 이 모양이 없어 v2 에 영향 없음).
+- `ResponseGenerationRequest` 에 선택 칸 `ask_back_source`(`AskBackSource`, 설명 요청 REDIRECT 가 이어 받는 직전 되묻기·확인 요청). SKIP/`LIMIT_REACHED` 는 values 가 비고 targets 가 없고 다음 자리는 NEXT 다(끝이면 서비스의 고정 문장).
+- `ExtractionRequest`·`ResponseGenerationRequest` 에 선택 칸 `previous_screen_action`: 환자가 답한 화면이 확인(CONFIRM)이면 state 를 확인하는 문항의 값으로만 고른다(dataset1118 confirm_state, P17 4,050/4,050행).
+- `ActionExtraction`: `UNCLEAR_TARGET` 은 REASK 이고 값이 모두 MISSING·저장 안 함, `ASK_MEANING`·`ASK_HOW` 는 REDIRECT 이고 값이 없다. v2 패키지가 v3 사유를 내면 출력 불가.
+- `ExtractionResult` 에 선택 칸 `model_io_version`: 서비스가 v3 의존 기능을 켤지 정한다(없으면 v2).
+- 독립 검토(codex, 2026-11-23)의 4·7·9번을 반영했다. 검토 보고서는 리포 밖(`e2e-prep/review/codex-v3-review.md`)에 있고 2·3·5·6번은 survey-service 의 일이다.
+- `ModelIoFeature`: `CONFIRMING_STATE`(v3 데이터에 없음)를 빼고 `LIMIT_REACHED_SENTENCE` 를 더했다. 이 열거는 API 에 실리지 않는 헤드의 표다. `ReaskLimit`·`ExplainStreakLimit` 설명을 v3 에 맞췄다.
+

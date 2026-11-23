@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 영역 사이 공유 값
-  version: 9.3.1
+  version: 9.4.0
   description: >-
     영역 사이를 오가는 모든 값의 정본이다(JSON Schema 2020-12). HTTP 요청·응답뿐 아니라 HTTP 밖의 교환
     (배포가 영역에 주는 환경 입력과 비밀 파일 경로, 잡 입력·결과, 턴 기록)도 여기 한 번만 정의한다.
@@ -947,12 +947,12 @@ components:
     StoredSlots: { type: array, maxItems: 136, items: { $ref: "#/components/schemas/StoredSlot" }, description: "이번 턴을 반영하기 전에 세션에 저장된 모든 칸 값과 다시 묻는 중인 칸의 목록. 배열의 순서가 모델 입력 state 에서 칸을 놓을 순서다. 같은 칸이 다시 나오면 값은 나중 것을 쓰고 자리는 처음 나온 자리를 쓴다(a_state 가 dict 에 쓰는 규칙). 이 중 어느 문항의 칸을 모델 입력에 넣을지는 model-runtime 이 정한다", x-owner: survey-service, x-basis: "IO_SPEC.md 2.1(state 는 지금 문항·직전에 물은 문항·참조 원천 문항(REF_SOURCE)의 저장 값이고, 참조 원천 문항의 표 taxonomy.REF_SOURCE 는 데이터셋 정본이라 서비스는 모른다), SQL.md 7.1, D77(state 안은 삽입 순서 보존), RFC 8259 5(배열은 순서가 있는 값의 나열), ADR 0019(모델 입력 글과 문항 고르기는 model-runtime). 상한 136: 문항 은행의 칸(키) 수는 SQL.md 5.2 의 칸 52개 중 반복 키가 있는 4개(Q7_1.amount, Q7_1.unit, Q7_2.amount, Q7_2.unit)가 각각 술 5종이라 52−4+4×5 = 68이고, 상한은 같은 문항 은행의 칸 규격(QuestionFieldSpecs 52개의 2배 104)과 같은 방식으로 관측 최대의 2배(docs/v7-flow-resolutions.md 사용자 결정 2026-11-10)다. 요청 전체의 크기는 측정하지 않았다" }
     ModelIoFeature:
       type: string
-      enum: [CONFIRMING_STATE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN]
-      x-enum-descriptions: { CONFIRMING_STATE: "확인 중 상태를 LoRA-A 입력에 전달한다", MEANING_ASKED_EXEMPTION: "질문의 뜻·대상을 묻는 말을 되묻기 한도에 세지 않는다", STAFF_HELP_AFTER_EXPLAIN: "설명 요청이 한 문항에서 3번 이어지면 서비스가 고정 문장으로 직원 도움을 안내한다" }
+      enum: [LIMIT_REACHED_SENTENCE, MEANING_ASKED_EXEMPTION, STAFF_HELP_AFTER_EXPLAIN]
+      x-enum-descriptions: { LIMIT_REACHED_SENTENCE: "되묻기 한도에 닿아 문항을 넘길 때 서비스의 고정 문장 대신 LoRA-B 에 SKIP/LIMIT_REACHED 를 보내 문장을 만든다", MEANING_ASKED_EXEMPTION: "설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)을 되묻기 한도에 세지 않는다", STAFF_HELP_AFTER_EXPLAIN: "설명 요청이 한 문항에서 3번 이어지면 서비스가 고정 문장으로 직원 도움을 안내한다" }
       description: "모델 입출력 v3 에 의존해 v3 가 활성이기 전까지 꺼져 있는 기능"
       x-owner: head
-      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내)"
-    MinimumModelIoVersion: { type: string, const: model-io-v3, description: "기능이 켜지는 모델 입출력의 최소 버전(model-io-v3)", x-owner: head, x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내), D74(입출력은 데이터셋 정의가 정본). 활성 조건은 적재한 모델 패키지의 model_io_version 이 v3 이상" }
+      x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 확인 중 상태 전달은 v3 데이터에 없어 버렸고 한도 문장이 더해졌다, contracts/model-io-v3-proposal.md 6장)"
+    MinimumModelIoVersion: { type: string, const: model-io-v3, description: "기능이 켜지는 모델 입출력의 최소 버전(model-io-v3)", x-owner: head, x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 확인 중 상태 전달은 v3 데이터에 없어 버렸고 한도 문장이 더해졌다, contracts/model-io-v3-proposal.md 6장), D74(입출력은 데이터셋 정의가 정본). 활성 조건은 적재한 모델 패키지의 model_io_version 이 v3 이상" }
     ModelIoFeatureRequirement:
       type: object
       additionalProperties: false
@@ -969,24 +969,24 @@ components:
       maxItems: 3
       items: { $ref: "#/components/schemas/ModelIoFeatureRequirement" }
       allOf:
-        - { contains: { properties: { feature: { const: CONFIRMING_STATE } }, required: [feature], x-basis: "docs/v7-flow-resolutions.md: 확인 중 상태 전달은 v3 에 의존한다" }, minContains: 1, maxContains: 1 }
+        - { contains: { properties: { feature: { const: LIMIT_REACHED_SENTENCE } }, required: [feature], x-basis: "dataset1118 P22: 한도로 넘길 때의 문장을 LoRA-B 가 학습했다(v3)" }, minContains: 1, maxContains: 1 }
         - { contains: { properties: { feature: { const: MEANING_ASKED_EXEMPTION } }, required: [feature], x-basis: "docs/v7-flow-resolutions.md: 질문의 뜻 묻기의 되묻기 한도 면제는 v3 에 의존한다" }, minContains: 1, maxContains: 1 }
         - { contains: { properties: { feature: { const: STAFF_HELP_AFTER_EXPLAIN } }, required: [feature], x-basis: "docs/v7-flow-resolutions.md: 설명 요청 3번 뒤 직원 도움 안내는 v3 에 의존한다" }, minContains: 1, maxContains: 1 }
         # 위 셋: 기능마다 하나씩이고 중복과 누락을 거부한다
       description: "v3 의존 기능 셋과 켜지는 조건의 표(ModelIoFeature 값마다 정확히 하나)"
       x-owner: head
-      x-basis: "ModelIoFeature 값의 수 3(기능마다 정확히 하나), docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 확인 중 상태 전달, 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내)"
+      x-basis: "ModelIoFeature 값의 수 3(기능마다 정확히 하나), docs/design.md 4절(헤드 결정 2026-11-10), docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(모델 입출력 v3 의존: 질문의 뜻 묻기의 한도 면제, 설명 요청 3번 뒤 직원 도움 안내. 확인 중 상태 전달은 v3 데이터에 없어 버렸고 한도 문장이 더해졌다, contracts/model-io-v3-proposal.md 6장)"
     ModelIoVersion:
       type: string
-      enum: [model-io-v2]
-      x-enum-descriptions: { model-io-v2: "모델 입출력 v2. 학습 데이터셋 dataset_10_29(학습 서버 ~/dataset/docs/labels.py 와 학습 파일)가 정의한 LoRA-A·LoRA-B 의 입력과 출력. 지금 학습된 어댑터가 쓰는 형식이다" }
-      description: "모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다"
+      enum: [model-io-v2, model-io-v3]
+      x-enum-descriptions: { model-io-v2: "모델 입출력 v2. 학습 데이터셋 dataset_10_29·dataset/final(학습 서버 ~/dataset/docs/labels.py 와 학습 파일)이 정의한 LoRA-A·LoRA-B 의 입력과 출력(어댑터 a_8b_1029, b_8b_1103)", model-io-v3: "모델 입출력 v3. 학습 데이터셋 dataset1118(2026-11-17)이 정의한 입출력(어댑터 a_8b_1118, b_8b_1118). v2 에 사유 4개(UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED), 모든 수준 키 정렬 직렬화(ModelInputSerializationV3), 값 없는 NEXT 의 건너뛰기, 설명 요청 REDIRECT 의 B 입력 이어 받기(AskBackSource)가 더해졌다" }
+      description: "모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. v2 와 v3 의 차이는 contracts/model-io-v3-proposal.md 에 행 수 근거와 함께 있다"
       x-owner: head
-      x-basis: "IO_SPEC.md 머리말(LoRA-A·B 입력·출력 형식 v2 확정, 2026-10-13), D74(입출력은 데이터셋 정의가 정본이고 바꿀 수 없다), D75(2)(모델 패키지가 학습한 버전), D77, docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(v3 는 데이터셋 반영과 재학습 뒤). model-io-v2·model-io-v3 의 글자 표기는 이 계약의 정의다"
+      x-basis: "IO_SPEC.md 머리말(LoRA-A·B 입력·출력 형식 v2 확정, 2026-10-13), D74(입출력은 데이터셋 정의가 정본이고 바꿀 수 없다), D75(2)(모델 패키지가 학습한 버전), D77, docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(v3 는 데이터셋 반영과 재학습 뒤), contracts/model-io-v3-proposal.md(dataset1118 실측 2026-11-23). model-io-v2·model-io-v3 의 글자 표기는 이 계약의 정의다"
     NextItemRuleKind:
       type: string
       enum: [TARGET_ITEM, ASKED_ITEM, SEQUENCE_AFTER_SAVED]
-      x-enum-descriptions: { TARGET_ITEM: "targets 의 첫 문항(targets 가 없으면 입력의 question_id)", ASKED_ITEM: "입력의 question_id(지금 묻던 문항)", SEQUENCE_AFTER_SAVED: "기준 문항의 다음 문항. 기준 문항은 values 의 첫 값의 문항이고, values 가 없으면 targets 의 첫 문항, 그것도 없으면 입력의 question_id 다. 순서표에서 기준 문항 다음 문항으로 가되 (a) 이번 턴에 저장하는 값(save 참)으로 조건이 맞은 건너뛰기 분기가 뛰어넘는 문항과 (b) 이번 턴에 그 문항의 칸이 모두 저장된 문항은 건너뛴다. 칸 일부만 저장된 문항은 남은 칸을 물어야 하므로 건너뛰지 않는다. 끝이면 END" }
+      x-enum-descriptions: { TARGET_ITEM: "targets 의 첫 문항(targets 가 없으면 입력의 question_id)", ASKED_ITEM: "입력의 question_id(지금 묻던 문항)", SEQUENCE_AFTER_SAVED: "기준 문항의 다음 문항. 기준 문항은 values 의 첫 값의 문항이고, values 가 없으면 targets 의 첫 문항, 그것도 없으면 입력의 question_id 다. 순서표에서 기준 문항 다음 문항으로 가되 (a) 이번 턴에 저장하는 값(save 참)으로 조건이 맞은 건너뛰기 분기가 뛰어넘는 문항과 (b) 이번 턴에 그 문항의 칸이 모두 저장된 문항은 건너뛴다. 칸 일부만 저장된 문항은 남은 칸을 물어야 하므로 건너뛰지 않는다. 끝이면 END (c) values 가 비어 있는 NEXT(확인 질문에 '아까 값이 맞다'고 답함)는 기준 문항이 입력의 question_id 이고 건너뛰기는 이번 턴 저장 값 대신 state 에 ANSWERED 로 저장된 그 문항의 값으로 정한다(dataset1118 fixaug_rules.keep_and_next, 실측 v3 772행 중 v2 규칙과 다른 41행. v2 데이터에는 이 모양이 없다)" }
       description: "행동마다 next_item 을 정하는 규칙의 종류. 행동과의 짝은 REASK·CONFIRM 이 TARGET_ITEM, REDIRECT 가 ASKED_ITEM, 그 밖(NEXT·CORRECT·HOLD·SKIP)이 SEQUENCE_AFTER_SAVED 다"
       x-owner: head
       x-basis: "docs/design.md 4절(헤드 결정 2026-11-10), 데이터셋 정본 labels.py a_target(315~346행: REASK·CONFIRM 은 target_items[0] 329~330행, REDIRECT 는 asked_item 331~332행, 그 밖은 base = (value_items or target_items or [asked_item])[0] 334행을 next_after 336행에 넣는다)와 next_after(42~67행: 이번 턴 저장 값 vals 46행과 건너뛰기 분기 47~56행, 칸이 모두 저장된 뒤 문항 건너뛰기 59~62행, 끝이면 END 67행), IO_SPEC.md 2.2(행동과의 짝은 NextItemRule 이 정본을 따른다), D74, U74. 학습 서버 final·finaltest A 정답 46655건 측정(변경 요청 model-runtime-001 1절): 이 규칙은 불일치 0건이고 저장한 칸 중 가장 뒤 문항을 기준으로 한 이전 문구는 168건이 달랐다"
@@ -1051,6 +1051,17 @@ components:
         a_nested_key_order: { $ref: "#/components/schemas/InsertionOrder", description: "LoRA-A 입력의 state 안의 칸 키 순서(요청 slots 배열의 순서)" }
         a_state_entry_key_order: { $ref: "#/components/schemas/StateEntryKeyOrder", description: "LoRA-A 입력의 state 항목 하나 안의 키 순서(value, status)" }
         b_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-B 입력의 모든 수준의 키 순서" }
+    ModelInputSerializationV3:
+      type: object
+      additionalProperties: false
+      description: "모델 입출력 v3 의 모델 입력 글자 직렬화 규칙(데이터). LoRA-A·LoRA-B 입력 모두 json.dumps(obj, ensure_ascii=False, sort_keys=True) 와 같은 글자다(모든 수준의 키를 문자 순으로). 그래서 v2 의 state 칸 순서(요청 slots 순서)와 항목 안 키 순서(value, status) 규칙은 v3 에 없다. model-io-v2 는 ModelInputSerialization 을 쓴다"
+      x-owner: head
+      x-basis: "dataset1118 실측(2026-11-23): A 입력 68,817행과 B 입력 66,763행이 모두 sort_keys 직렬화와 바이트까지 같다, contracts/model-io-v3-proposal.md(dataset1118 실측 2026-11-23), D77"
+      required: [ensure_ascii, a_key_order, b_key_order]
+      properties:
+        ensure_ascii: { $ref: "#/components/schemas/EnsureAscii", description: "비 ASCII 글자를 이스케이프할지(항상 거짓)" }
+        a_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-A 입력의 모든 수준의 키 순서(state 의 칸 키와 항목 안 키 포함)" }
+        b_key_order: { $ref: "#/components/schemas/AlphabeticalOrder", description: "LoRA-B 입력의 모든 수준의 키 순서" }
     ExtractionAction:
       type: string
       enum: [NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT]
@@ -1067,7 +1078,7 @@ components:
       x-basis: "데이터셋 A 시스템 프롬프트의 action 정의와 labels.py ACTION, 실측 학습 데이터 action 7종"
     ActionReason:
       type: string
-      enum: [CONFLICT_WITH_PREVIOUS, CONFLICT_MAX_BELOW_USUAL, CONFLICT_DOES_NOT_DRINK, REQUEST_SKIP, REFUSED, OUT_OF_SCHEMA, ASK_PURPOSE, OFF_TOPIC, UNCERTAIN, MISSING, OUT_OF_RANGE, UNKNOWN_UNIT, VAGUE_QUANTITY, OTHER_BEVERAGE, BEVERAGE_MISSING, MISSING_NUMBER, RANGE_SPANS_OPTIONS, INVALID_OPTION, COUNT_EXCEEDS_DAYS, UNPARSED_VALUE]
+      enum: [CONFLICT_WITH_PREVIOUS, CONFLICT_MAX_BELOW_USUAL, CONFLICT_DOES_NOT_DRINK, REQUEST_SKIP, REFUSED, OUT_OF_SCHEMA, ASK_PURPOSE, OFF_TOPIC, UNCERTAIN, MISSING, OUT_OF_RANGE, UNKNOWN_UNIT, VAGUE_QUANTITY, OTHER_BEVERAGE, BEVERAGE_MISSING, MISSING_NUMBER, RANGE_SPANS_OPTIONS, INVALID_OPTION, COUNT_EXCEEDS_DAYS, UNPARSED_VALUE, UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED]
       x-enum-descriptions:
         CONFLICT_WITH_PREVIOUS: "이번에 말한 값이 저장된 값과 다르다(CONFIRM)"
         CONFLICT_MAX_BELOW_USUAL: "가장 많이 마신 날의 양이 평소 양보다 적게 나왔다(CONFIRM). model-runtime 의 출력 검증은 이 사유를 규칙으로 만들지 않는다(R3 비활성, ActionExtractionRules)"
@@ -1089,9 +1100,13 @@ components:
         INVALID_OPTION: "선택지에 없는 답이다(REASK)"
         COUNT_EXCEEDS_DAYS: "횟수가 날수보다 크다(REASK)"
         UNPARSED_VALUE: "값을 읽어 내지 못했다(REASK)"
-      description: "절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다"
+        UNCLEAR_TARGET: "말이 어느 문항을 가리키는지 모호하거나 지금 문항이 아닌 문항을 가리킨다. 지금 문항의 칸을 모두 저장 없이 다시 묻는다(REASK, 모델 입출력 v3)"
+        ASK_MEANING: "무엇을 묻는 질문인지 되물었다. 저장 없이 뜻을 풀어 주고 같은 질문으로 돌아온다(REDIRECT, 모델 입출력 v3)"
+        ASK_HOW: "어떻게 답하면 되는지 되물었다. 저장 없이 방법을 알려 주고 같은 질문으로 돌아온다(REDIRECT, 모델 입출력 v3)"
+        LIMIT_REACHED: "되묻기 한도(ReaskLimit)에 닿아 서비스가 문항을 넘긴다. LoRA-B 요청에만 쓰고 LoRA-A 출력에는 없다(SKIP, 모델 입출력 v3)"
+      description: "절차의 사유. NEXT 와 CORRECT 에는 붙지 않는다. UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED 는 모델 입출력 v3 에서 더해졌다. 활성 패키지가 v2 인데 LoRA-A 가 v3 의 사유를 내면 model-runtime 의 출력 검증이 출력 불가(OUTPUT_SCHEMA)로 다룬다(그 어댑터는 그 사유를 학습하지 않았다)"
       x-owner: head
-      x-basis: "IO_SPEC.md 1장(action 별 reason 표), 데이터셋 labels.py reason_of 와 ask_text, 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 reason 20종이 이 열거와 같다"
+      x-basis: "IO_SPEC.md 1장(action 별 reason 표), 데이터셋 labels.py reason_of 와 ask_text, 학습 서버 final·finaltest 93,429행 실측(2026-11-10): A 출력 reason 20종이 v2 의 열거와 같다. v3 의 넷은 dataset1118 README 4장과 fixaug_rules.py(NEW_REASONS), 실측 UNCLEAR_TARGET 7491·ASK_MEANING 3036·ASK_HOW 1571(A), LIMIT_REACHED 827(B 만), contracts/model-io-v3-proposal.md(dataset1118 실측 2026-11-23)"
     ValueStatus:
       type: string
       enum: [ANSWERED, CORRECTION, MISSING, UNCLEAR, CONFLICT, UNKNOWN, REJECTED]
@@ -1151,6 +1166,12 @@ components:
         - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason], x-basis: "IO_SPEC.md 2.2(REDIRECT 의 OUT_OF_SCHEMA 는 note 로 짧은 요약을 넣는다), labels.py a_target 의 note" }
           then: { required: [note], x-basis: "IO_SPEC.md 2.2" }
           else: { not: { required: [note] }, x-basis: "labels.py a_target: note 는 OUT_OF_SCHEMA 일 때만 있다" }
+        - if: { properties: { reason: { const: LIMIT_REACHED } }, required: [reason], x-basis: "LIMIT_REACHED 는 서비스가 되묻기 한도로 넘길 때 LoRA-B 요청에만 쓴다(dataset1118 의 LIMIT_REACHED 행은 B 에만 있다)" }
+          then: false
+        - if: { properties: { reason: { const: UNCLEAR_TARGET } }, required: [reason], x-basis: "dataset1118 fixaug_rules.reask_all, 실측 7,491행 모두 같은 모양" }
+          then: { properties: { action: { const: REASK }, values: { items: { properties: { status: { const: MISSING }, save: { const: false } } } } }, x-basis: "대상이 모호하면 지금 문항의 칸을 모두 저장 없이 다시 묻는다. targets 가 지금 문항의 모든 칸인지는 칸 규격이 있어야 보므로 model-runtime 의 출력 검증이 본다(OUTPUT_SCHEMA)" }
+        - if: { properties: { reason: { enum: [ASK_MEANING, ASK_HOW] } }, required: [reason], x-basis: "dataset1118 fixaug_rules.redirect, 실측 ASK_MEANING 3,036·ASK_HOW 1,571행 모두 같은 모양, 규칙 V4(되묻는 말에 저장 값 없음)" }
+          then: { properties: { action: { const: REDIRECT }, values: { maxItems: 0 } }, x-basis: "설명 요청은 저장 없이 같은 질문으로 돌아온다. 설명해 달라는 말로 답이 저장되지 않는다(독립 검토 2026-11-23 4번)" }
     ExtractionRequest:
       type: object
       additionalProperties: false
@@ -1165,6 +1186,7 @@ components:
         current_question: { $ref: "#/components/schemas/ResponseSentence", description: "상담원이 방금 환자에게 한 말(화면에 보인 직전 질문, 모델 입력의 current_question). 서비스가 화면에 보인 글이라 서비스가 보낸다. 환자의 말은 이 질문에 대한 답으로 읽는다" }
         user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말" }
         slots: { $ref: "#/components/schemas/StoredSlots", description: "이번 턴을 반영하기 전에 저장된 칸 값들. model-runtime 이 지금 문항·직전에 물은 문항·참조 원천 문항의 것만 골라 모델 입력 state 로 쓴다" }
+        previous_screen_action: { $ref: "#/components/schemas/ResponseAction", description: "환자가 이번에 답한 화면을 만든 절차(직전 턴 LoRA-B 요청의 action, 첫 턴이면 START). CONFIRM 이면 model-runtime 은 state 를 지금 문항(확인하는 문항)의 저장 값으로만 고른다(모델 입출력 v3). 없으면 v2 의 규칙대로 고른다", x-basis: "dataset1118 fixaug.py confirm_state(확인 질문 다음 턴의 state 는 확인하는 문항의 저장 값만), 실측 P17 4,050/4,050행, 독립 검토 2026-11-23(codex) 7번" }
         flow: { $ref: "#/components/schemas/QuestionFlowTable", description: "출력의 다음 문항을 보증하는 순서표" }
         fields: { $ref: "#/components/schemas/QuestionFieldSpecs", description: "출력 값을 보증하는 칸 규격들" }
     ExtractionResult:
@@ -1177,6 +1199,7 @@ components:
       properties:
         package_digest: { $ref: "#/components/schemas/OciDigest", description: "이 출력을 만든 모델 패키지(OCI 매니페스트 digest)" }
         output: { $ref: "#/components/schemas/ActionExtraction", description: "보증을 마친 LoRA-A 출력" }
+        model_io_version: { $ref: "#/components/schemas/ModelIoVersion", description: "이 출력을 만든 모델 패키지의 모델 입출력 버전. 서비스가 v3 의존 기능(ModelIoFeature)을 켤지 이 값으로 정한다(9.4.0 에서 더함, 없으면 model-io-v2 로 본다)" }
     ResponseAction:
       type: string
       enum: [START, NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT]
@@ -1218,21 +1241,29 @@ components:
         reason: { $ref: "#/components/schemas/ActionReason", description: "그 절차의 사유(A 출력의 reason)" }
         question_id: { $ref: "#/components/schemas/QuestionItemId", description: "A 를 부를 때 지금 묻고 있던 문항(START 에는 없다). 값이 없는 보류·거절에서 비우는 부분을 가리킬 때 쓴다" }
         previous_question_id: { $ref: "#/components/schemas/QuestionItemId", description: "대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다" }
+        previous_screen_action: { $ref: "#/components/schemas/ResponseAction", description: "환자가 이번에 답한 화면을 만든 절차(A 를 부를 때 보낸 값과 같다). CONFIRM 이면 state 를 지금 문항의 저장 값으로만 고른다" }
         user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "환자의 이번 말(START 에는 없다)" }
         slots: { $ref: "#/components/schemas/StoredSlots", description: "이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다)" }
         values: { $ref: "#/components/schemas/ExtractedValues", description: "A 출력의 values 그대로(START 에는 없다). 이번 턴에 정해진 값과 충돌한 값의 원재료다" }
         targets: { $ref: "#/components/schemas/SlotRefStrings", description: "A 출력의 targets 그대로(REASK, CONFIRM, HOLD, SKIP)" }
         note: { $ref: "#/components/schemas/OutOfSchemaNote", description: "A 출력의 note 그대로(REDIRECT 의 OUT_OF_SCHEMA)" }
         next: { $ref: "#/components/schemas/ResponseNext", description: "응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항)" }
+        ask_back_source: { $ref: "#/components/schemas/AskBackSource", description: "설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)일 때 직전 화면이 되묻기·확인이었으면 그 턴의 응답 생성 요청. model-runtime 이 그 요청으로 만든 B 입력의 ask(·previous·current)를 이번 B 입력에 그대로 넣는다(모델 입출력 v3)" }
       allOf:
+        - if: { required: [ask_back_source], x-basis: "fix3.md 1장(직전 화면 내용을 이어 받는 것은 설명 요청 REDIRECT 뿐이다)" }
+          then: { properties: { action: { const: REDIRECT }, reason: { enum: [ASK_MEANING, ASK_HOW] } }, required: [reason], x-basis: "fix3.md 1장(1): reason 이 OFF_TOPIC·ASK_PURPOSE 인 REDIRECT 는 넣지 않는다" }
+        - if: { properties: { reason: { const: LIMIT_REACHED } }, required: [reason], x-basis: "dataset1118 fixaug.py P22(되묻기 한도로 넘길 때의 B 입력은 A 출력 없이 서비스가 만든다)" }
+          then: { properties: { action: { const: SKIP }, values: { maxItems: 0 }, next: { properties: { type: { const: NEXT } } } }, x-basis: "P22: action SKIP, A 출력이 없어 values 가 비고 hold 는 묻던 문항에서 model-runtime 이 만든다. 다음 자리가 END 인 행은 만들지 않았다(fixaug.py P22 의 END 건너뜀) — 끝이면 서비스의 고정 문장을 쓴다" }
         - if: { properties: { action: { const: START } }, required: [action], x-basis: "labels.py start_b_input 와 IO_SPEC.md 5.1(문진 시작은 환자 말 없이 LoRA-A 를 부르지 않는다)" }
           then: { not: { anyOf: [ { required: [reason] }, { required: [question_id] }, { required: [previous_question_id] }, { required: [user_utterance] }, { required: [slots] }, { required: [values] }, { required: [targets] }, { required: [note] } ] }, properties: { next: { properties: { type: { const: NEXT } } } }, x-basis: "start_b_input 은 action, topic, next 만 만들고 next.type 은 NEXT 다. topic 은 next 의 문항에서 model-runtime 이 만든다" }
           else: { required: [question_id, user_utterance, slots, values], x-basis: "labels.py b_input(질문 문항·발화·저장 값·A 출력의 값은 START 밖의 모든 action 의 원재료다)" }
         - if: { properties: { action: { enum: [NEXT, CORRECT] } }, required: [action], x-basis: "labels.py a_target(NEXT 와 CORRECT 에는 reason 이 없고 targets·note 도 붙지 않는다)" }
           then: { not: { anyOf: [ { required: [reason] }, { required: [targets] }, { required: [note] } ] }, x-basis: "labels.py a_target: reason 은 NEXT·CORRECT 가 아닐 때, targets 는 REASK·CONFIRM·HOLD·SKIP 에서만, note 는 OUT_OF_SCHEMA 에서만 붙는다" }
         - if: { properties: { action: { enum: [REASK, CONFIRM, HOLD, SKIP] } }, required: [action], x-basis: "labels.py a_target(이 action 들은 reason 과 targets 를 가진다), IO_SPEC.md 1장" }
-          then: { required: [reason, targets], x-basis: "IO_SPEC.md 1장의 reason 표와 2.2(targets 는 해당 칸들)" }
-        - if: { properties: { action: { const: REDIRECT } }, required: [action], x-basis: "IO_SPEC.md 1장(REDIRECT 의 reason: ASK_PURPOSE, OFF_TOPIC, OUT_OF_SCHEMA), labels.py a_target" }
+          then: { required: [reason], x-basis: "IO_SPEC.md 1장의 reason 표" }
+        - if: { properties: { action: { enum: [REASK, CONFIRM, HOLD, SKIP] } }, required: [action], not: { properties: { reason: { const: LIMIT_REACHED } }, required: [reason] }, x-basis: "LIMIT_REACHED 의 SKIP 은 A 출력이 없어 targets 가 없다(P22)" }
+          then: { required: [targets], x-basis: "IO_SPEC.md 2.2(targets 는 해당 칸들)" }
+        - if: { properties: { action: { const: REDIRECT } }, required: [action], x-basis: "IO_SPEC.md 1장(REDIRECT 의 reason: ASK_PURPOSE, OFF_TOPIC, OUT_OF_SCHEMA, v3 에서 ASK_MEANING, ASK_HOW), labels.py a_target" }
           then: { required: [reason], not: { required: [targets] }, x-basis: "labels.py a_target: targets 는 REDIRECT 에 붙지 않는다" }
         - if: { properties: { action: { enum: [REASK, CONFIRM, REDIRECT] } }, required: [action], x-basis: "labels.py b_input(SAME_ITEM_ACTIONS = REASK, CONFIRM, REDIRECT 는 next.type 이 SAME)" }
           then: { properties: { next: { properties: { type: { const: SAME } } } }, x-basis: "labels.py b_input: SAME_ITEM_ACTIONS 의 next.type 은 SAME 이다. 다음 문항이 END 이면 END 다(IO_SPEC.md 5.9)" }
@@ -1241,12 +1272,31 @@ components:
         - if: { properties: { reason: { const: OUT_OF_SCHEMA } }, required: [reason], x-basis: "IO_SPEC.md 2.2(REDIRECT 의 OUT_OF_SCHEMA 는 note 를 넣는다)" }
           then: { required: [note], x-basis: "labels.py b_input(a_out 에 note 가 있으면 note 를 넣는다)" }
           else: { not: { required: [note] }, x-basis: "labels.py b_input(a_out 에 note 가 있으면 note 를 넣는다)" }
+    AskBackSource:
+      type: object
+      additionalProperties: false
+      description: "설명 요청 REDIRECT 가 이어 받는 직전 턴의 응답 생성 요청(되묻기 REASK 나 확인 CONFIRM). 직전 화면도 설명 요청이었으면 그 요청이 이어 받은 것을 그대로 싣는다(연달아 되물은 경우). 필드의 뜻은 ResponseGenerationRequest 의 같은 이름 필드와 같다"
+      x-owner: head
+      x-basis: "fix3.md 1장(2)(직전 턴 B 입력이 REASK 면 ask, CONFIRM 이면 ask·previous·current, 이 조건의 REDIRECT 면 그 턴에 넣은 것), dataset1118 fixaug_rules.b_input(prior_b), 실측 v3 B 입력 ASK_MEANING 1,499행(ask 만 492, ask·previous·current 1,007), contracts/model-io-v3-proposal.md(dataset1118 실측 2026-11-23). 모델 입력의 글은 model-runtime 이 만든다는 원칙(8.0.0)에 따라 글이 아니라 그 원재료를 싣는다"
+      required: [action, reason, question_id, user_utterance, slots, values, targets, next]
+      allOf:
+        - { properties: { action: { enum: [REASK, CONFIRM] } }, x-basis: "fix3.md 1장(2): 이어 받는 것은 직전 턴이 되묻기나 확인일 때뿐이다" }
+      properties:
+        action: { $ref: "#/components/schemas/ResponseAction", description: "직전 턴의 절차(되묻기 REASK 나 확인 CONFIRM 만)" }
+        reason: { $ref: "#/components/schemas/ActionReason", description: "직전 턴의 사유" }
+        question_id: { $ref: "#/components/schemas/QuestionItemId", description: "직전 턴에 묻던 문항" }
+        previous_question_id: { $ref: "#/components/schemas/QuestionItemId", description: "직전 턴의 직전에 물은 문항(첫 문항이면 없다)" }
+        user_utterance: { $ref: "#/components/schemas/UtteranceText", description: "직전 턴의 환자 말" }
+        slots: { $ref: "#/components/schemas/StoredSlots", description: "직전 턴을 반영하기 전에 저장된 칸 값들" }
+        values: { $ref: "#/components/schemas/ExtractedValues", description: "직전 턴 A 출력의 values" }
+        targets: { $ref: "#/components/schemas/SlotRefStrings", description: "직전 턴 A 출력의 targets" }
+        next: { $ref: "#/components/schemas/ResponseNext", description: "직전 턴의 다음 자리(같은 문항)" }
     ResponseResult:
       type: object
       additionalProperties: false
       description: "LoRA-B 가 만든 응답 문장과 처리한 모델 패키지"
       x-owner: head
-      x-basis: "D74, D46(처리한 모델을 기록한다), IO_SPEC.md 4.2(B 출력은 JSON 으로 감싸지 않은 응답 문장 텍스트), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 출력 최대 134자"
+      x-basis: "D74, D46(처리한 모델을 기록한다), IO_SPEC.md 4.2(B 출력은 JSON 으로 감싸지 않은 응답 문장 텍스트), 학습 서버 final·finaltest 93,429행 실측(2026-11-10): B 출력 최대 134자, dataset1118 실측(2026-11-23): 최대 139자"
       required: [package_digest, text]
       properties:
         package_digest: { $ref: "#/components/schemas/OciDigest", description: "이 문장을 만든 모델 패키지(OCI 매니페스트 digest)" }
@@ -2021,9 +2071,9 @@ components:
     OffsiteBackupUrl: { type: string, format: uri, maxLength: 8000, examples: [ "https://backup.example.org/openit" ], description: "서버 밖 백업 대상의 주소. 설치처가 정하는 설정이다", x-owner: deploy, x-basis: "docs/v7-flow-resolutions.md C09(서버 밖 대상이 필수이고 대상 주소는 설정), D88 U6, 사용자 결정 2026-11-10(UD-19: 주소류 최대 8000)" }
     VapidSubject: { type: string, format: uri, maxLength: 8000, examples: [ "mailto:ops@example.org" ], description: "웹 푸시 서버가 푸시 서비스에 밝히는 연락처(mailto 또는 https 주소)", x-owner: survey-service, x-basis: "RFC 8292 2.1(VAPID sub 클레임은 연락처 URI), 사용자 결정 2026-11-10(UD-19: 최대 8000), 참고: RFC 9110 4.1 이 모든 구현에 최소 지원을 권고하는 URI 길이" }
     StartCodeTtlSeconds: { type: integer, minimum: 1, maximum: 600, default: 300, examples: [ 300 ], description: "시작 코드의 유효 시간(초)", x-owner: survey-service, x-basis: "NIST SP 800-63B-3 5.1.3.2(대역 외 일회용 비밀의 유효 시간은 최대 10분). 사용자 결정 2026-11-10(UD-04)" }
-    ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(되묻기 한도는 처음 질문 1회에 되묻기 2회), D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
+    ReaskLimit: { type: integer, minimum: 2, maximum: 2, examples: [ 2 ], description: "한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게 보이는 문장은 모델 입출력 v2 에서는 서비스의 고정 안내 문장이고(LoRA-B 에 학습되지 않은 사유를 보내지 않는다), v3 에서는 LoRA-B 에 SKIP/LIMIT_REACHED 를 보내 만든다(ModelIoFeature LIMIT_REACHED_SENTENCE). 설명 요청(ASK_MEANING, ASK_HOW)은 v3 에서 이 횟수에 세지 않는다", x-owner: survey-service, x-basis: "docs/v7-flow-resolutions.md 사용자 결정 2026-11-10(되묻기 한도는 처음 질문 1회에 되묻기 2회), D95(직원 호출 3회)를 대체, U100, G12(A 가 REASK 와 CONFIRM 을 계속 내는 상태를 센다)" }
     TurnFailureLimit: { type: integer, const: 3, minimum: 3, maximum: 3, examples: [ 3 ], description: "환자 턴이 이어서 실패(failure_signal: EXTRACTION_UNAVAILABLE, RESPONSE_UNAVAILABLE, DEADLINE_EXCEEDED)할 수 있는 횟수의 한도. (1) 세는 단위: 세션마다 연속 실패 수를 두고, 실패한 서로 다른 turn_id 마다 1 을 더한다. 같은 turn_id 의 재전송은 다시 세지 않는다. (2) 0 으로 되돌리는 때: 턴이 기록될 때(성공한 턴, 되묻기 한도나 이 한도로 건너뛴 턴)와 직원이 멈춘 세션을 다시 이을 때(RESUME). 같은 세션의 재시작 재생(startSession 200)은 바꾸지 않는다. (3) 원자성: 수를 더하고 한도를 판정하는 일은 한 번에 일어나, 한 번의 더함이 한도에 닿은 턴 하나만 건너뛴다(같은 세션에서 여러 턴이 겹쳐도 문항을 두 번 건너뛰지 않는다). (4) 한도에 닿는 실패 턴은 failure_signal 대신 그 문항을 건너뛴 결과를 준다. 되묻기 한도로 건너뛸 때와 같다: 그 턴의 값은 LoRA-A 가 냈더라도 저장하지 않고(실패 턴의 값은 저장하지 않는다는 D86 을 따른다), 묻던 문항에서 저장되지 않은 칸에 빈칸 원인 FAILURE_LIMIT 를 남기고, 다음 자리는 묻던 문항을 기준으로 이번 턴 저장 값 없이 정하고(next_after), 그 자리가 END 면 세션은 ENDED_COMPLETE 로 끝난다. 환자에게는 서비스의 고정 안내 문장과 다음 질문(끝이면 마침 문장)을 보이고 LoRA-B 를 부르지 않는다. 그 턴은 기록되어 같은 turn_id 의 재전송은 같은 결과를 받는다. 한 턴에서 되묻기 한도와 이 한도가 함께 걸리지는 않는다(실패한 턴에는 추출 행동이 없다). 설치마다 바꾸지 않는다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-11(연속 실패는 따로 세고 성공하면 초기화, 한도 3, 닿으면 그 문항을 건너뛴다. 3 은 사용자가 예로 든 값을 그대로 썼고 측정하지 않았다), D86(실패 턴은 답과 문항을 바꾸지 않는다)을 좁힘, 독립 검토 2026-11-11(세는 단위·초기화·원자성·다음 자리)" }
-    ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
+    ExplainStreakLimit: { type: integer, minimum: 3, maximum: 3, examples: [ 3 ], description: "한 문항에서 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다", x-owner: survey-service, x-basis: "사용자 결정 2026-11-10(설명 요청 3번 이어지면 직원 도움 안내, 한도에 세지 않음), contracts/model-io-v3-proposal.md" }
     RiskDetectionEnabled: { type: boolean, default: false, description: "위험 감지를 켤지(참이면 켠다). 기본은 꺼짐이다", x-owner: survey-service, x-basis: "L11(사용자 결정: 위험 감지는 기본 꺼짐), C04" }
     RawUtteranceRetentionDays: { type: integer, minimum: 180, maximum: 180, examples: [ 180 ], description: "검토용 환자 발화 원문을 보존하는 일수", x-owner: survey-service, x-basis: "L12(사용자 결정: 180일 유지), C03" }
     ModelProfileName: { type: string, maxLength: 63, examples: [ "rtx4090-24g" ], description: "추론 서버의 GPU 크기별 프로파일 이름. 이름이 가리키는 표(기반 모델, 서빙 크기)는 model-runtime 영역 안의 값이라 영역이 소유하고 이 계약에 싣지 않는다", x-owner: model-runtime, x-basis: "D74(3), D81(프로파일별 기반 모델), 사용자 결정 2026-11-10(UD-14), 헤드 결정 2026-11-10(model-runtime-003 6: 프로파일 표는 영역 안의 값이고 구조 규칙 5 에 따라 영역이 책임진다)" }

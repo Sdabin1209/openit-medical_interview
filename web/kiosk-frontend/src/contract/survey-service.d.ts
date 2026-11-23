@@ -1280,10 +1280,10 @@ export interface components {
         /** @description 뽑은 칸 값들 */
         ExtractedValues: components["schemas"]["ExtractedValue"][];
         /**
-         * @description 절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다
+         * @description 절차의 사유. NEXT 와 CORRECT 에는 붙지 않는다. UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED 는 모델 입출력 v3 에서 더해졌다. 활성 패키지가 v2 인데 LoRA-A 가 v3 의 사유를 내면 model-runtime 의 출력 검증이 출력 불가(OUTPUT_SCHEMA)로 다룬다(그 어댑터는 그 사유를 학습하지 않았다)
          * @enum {string}
          */
-        ActionReason: "CONFLICT_WITH_PREVIOUS" | "CONFLICT_MAX_BELOW_USUAL" | "CONFLICT_DOES_NOT_DRINK" | "REQUEST_SKIP" | "REFUSED" | "OUT_OF_SCHEMA" | "ASK_PURPOSE" | "OFF_TOPIC" | "UNCERTAIN" | "MISSING" | "OUT_OF_RANGE" | "UNKNOWN_UNIT" | "VAGUE_QUANTITY" | "OTHER_BEVERAGE" | "BEVERAGE_MISSING" | "MISSING_NUMBER" | "RANGE_SPANS_OPTIONS" | "INVALID_OPTION" | "COUNT_EXCEEDS_DAYS" | "UNPARSED_VALUE";
+        ActionReason: "CONFLICT_WITH_PREVIOUS" | "CONFLICT_MAX_BELOW_USUAL" | "CONFLICT_DOES_NOT_DRINK" | "REQUEST_SKIP" | "REFUSED" | "OUT_OF_SCHEMA" | "ASK_PURPOSE" | "OFF_TOPIC" | "UNCERTAIN" | "MISSING" | "OUT_OF_RANGE" | "UNKNOWN_UNIT" | "VAGUE_QUANTITY" | "OTHER_BEVERAGE" | "BEVERAGE_MISSING" | "MISSING_NUMBER" | "RANGE_SPANS_OPTIONS" | "INVALID_OPTION" | "COUNT_EXCEEDS_DAYS" | "UNPARSED_VALUE" | "UNCLEAR_TARGET" | "ASK_MEANING" | "ASK_HOW" | "LIMIT_REACHED";
         /** @description 칸들의 목록 */
         SlotRefStrings: components["schemas"]["SlotRefString"][];
         /**
@@ -1305,7 +1305,7 @@ export interface components {
             targets?: components["schemas"]["SlotRefStrings"];
             /** @description OUT_OF_SCHEMA 일 때 환자가 말한 문진표 밖 건강 이야기 */
             note?: components["schemas"]["OutOfSchemaNote"];
-        } & (unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /**
          * @description 검토자가 개인정보를 빼고 고쳐 쓴 환자 발화
          * @example 중풍 진단 받았고 약도 먹어요

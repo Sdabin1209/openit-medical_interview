@@ -119,7 +119,8 @@ async def test_manifest_bytes_must_match_the_requested_digest(tmp_path: Path) ->
 
 async def test_config_that_is_not_the_contract_manifest_is_invalid(tmp_path: Path) -> None:
     source = MemorySource()
-    digest = publish_memory(source, tmp_path / "src", mutate_config=lambda c: c.update(model_io_version="model-io-v3"))
+    # 계약 9.4.0 부터 v3 도 계약 값이라, 계약에 없는 버전으로 '계약 모양이 아닌 목록표'를 만든다
+    digest = publish_memory(source, tmp_path / "src", mutate_config=lambda c: c.update(model_io_version="model-io-v9"))
     with pytest.raises(PackageInvalidError, match="ModelPackageManifest"):
         await inspect_package(source, digest, tmp_path / "work", "0.1.0", BASE_MODEL)
 

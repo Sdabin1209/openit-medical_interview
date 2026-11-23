@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: openit v7 문진 서비스(survey-service) API
-  version: 9.3.1
+  version: 9.4.0
   description: >-
     문진 세션과 턴, 직원 알림과 개입, 시작 코드, 결과(의사 화면·설치처의 의료 정보 시스템 당겨 가기·FHIR), 문항 세트 올리기와 활성화, 실패 사례 검토와 비식별 내보내기(model-lab 이 당겨 감)를 낸다. 턴 기록과 업무 로그는 이 영역 안의 컴포넌트가 저장하므로 영역 사이 작업이 없다. 값은 모두 ../components.yaml 의 정의를 참조한다.
   contact: { name: head }

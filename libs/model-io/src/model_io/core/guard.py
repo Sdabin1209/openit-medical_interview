@@ -39,6 +39,41 @@ def _parse(raw: str) -> Mapping[str, object] | None:
         return None
 
 
+_V3_REASONS = frozenset({"UNCLEAR_TARGET", "ASK_MEANING", "ASK_HOW", "LIMIT_REACHED"})  # 계약 ActionReason(9.4.0)
+
+
+def _v3_found(out: Mapping[str, object], ctx: GuardContext) -> list[_Found]:
+    """v3 사유의 모양(계약 ActionExtraction 9.4.0). 생성 모델이 if/then 을 싣지 않아 여기서 본다.
+
+    v2 패키지가 v3 사유를 내면 출력 불가, UNCLEAR_TARGET 은 REASK 이고 지금 문항의 모든 칸을 MISSING·저장 안 함으로 다시
+    묻는다(dataset1118 fixaug_rules.reask_all), ASK_MEANING·ASK_HOW 는 값 없는 REDIRECT 다(fixaug_rules.redirect).
+    """
+    reason = out.get("reason")
+    if reason not in _V3_REASONS:
+        return []
+    found: list[_Found] = []
+
+    def bad(path: str) -> None:
+        found.append(_Found(Violation(ViolationCode.OUTPUT_SCHEMA, path)))
+
+    values = [m for raw in (as_list(out.get("values")) or []) if (m := as_map(raw)) is not None]
+    if ctx.model_io_version != "model-io-v3":
+        bad("reason")
+        return found
+    if reason == "UNCLEAR_TARGET":
+        if out.get("action") != "REASK":
+            bad("action")
+        if any(v.get("status") != "MISSING" or v.get("save") is not False for v in values):
+            bad("values")
+        wanted = {f"{ctx.asked_item}.{name}" for name in ctx.fields.fields_of(ctx.asked_item)}
+        targets = {t for t in (as_list(out.get("targets")) or []) if isinstance(t, str)}
+        if wanted and (targets != wanted or {as_str(v.get("key")) for v in values} != wanted):
+            bad("targets")
+    if reason in ("ASK_MEANING", "ASK_HOW") and (out.get("action") != "REDIRECT" or values):
+        bad("values")
+    return found
+
+
 def _schema_found(raw: str, out: Mapping[str, object]) -> list[_Found]:
     """OUTPUT_SCHEMA: 계약 ActionExtraction. 칸·형식은 생성 모델(strict), if/then 조건은 아래에서 본다."""
     found: list[_Found] = []
@@ -60,6 +95,8 @@ def _schema_found(raw: str, out: Mapping[str, object]) -> list[_Found]:
         bad("reason,targets")
     if action == "REDIRECT" and (not has["reason"] or has["targets"]):
         bad("reason|targets")
+    if out.get("reason") == "LIMIT_REACHED":
+        bad("reason")  # 계약 9.4.0: LIMIT_REACHED 는 서비스가 LoRA-B 요청에만 쓰고 LoRA-A 출력에는 없다
     if "reason" in out:
         if out.get("reason") == "OUT_OF_SCHEMA" and not has["note"]:
             bad("note")
@@ -144,6 +181,15 @@ def expected_next_item(action: str, out: Mapping[str, object], ctx: GuardContext
     # 학습 서버 final·finaltest 정답 46655건에서 불일치 0건(계약의 '가장 뒤 저장 문항' 식은 168건 불일치, 변경 요청
     # model-runtime-001)
     base = (value_items or target_items or [ctx.asked_item])[0]
+    if action == "NEXT" and not values:
+        # 계약 9.4.0 NextItemRuleKind (c): 값 없는 NEXT(확인에 '아까 값이 맞다')는 state 에 저장된
+        # 그 문항 값으로 건너뛴다
+        # (dataset1118 fixaug_rules.keep_and_next. v2 데이터에는 이 모양이 없다)
+        for key, raw in ctx.state.items():
+            entry = as_map(raw) or {}
+            slot = try_parse_slot(key)
+            if slot is not None and slot[0] == base and entry.get("status") == "ANSWERED":
+                saved[(slot[0], slot[2])] = entry.get("value")
     return next_after(ctx.flow, ctx.fields, base, saved)
 
 
@@ -230,7 +276,7 @@ def _all_found(raw: str, ctx: GuardContext) -> tuple[Mapping[str, object] | None
     out = _parse(raw)
     if out is None:
         return None, [_Found(Violation(ViolationCode.OUTPUT_SCHEMA, "$"))]
-    return out, _schema_found(raw, out) + _semantic_found(out, ctx)
+    return out, _schema_found(raw, out) + _v3_found(out, ctx) + _semantic_found(out, ctx)
 
 
 # 왜 이 값: 횟수가 기간의 날수를 넘으면 한 번도 거르지 않고 마셔도 불가능하다(COUNT_EXCEEDS_DAYS, D115 R2).

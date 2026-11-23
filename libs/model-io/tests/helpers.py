@@ -14,9 +14,12 @@ def bank() -> dict[str, Any]:
     return cast("dict[str, Any]", json.loads((FIXTURES / "question_bank_v1.json").read_text(encoding="utf-8")))
 
 
-def context(asked_item: str, state: Mapping[str, object] | None = None) -> GuardContext:
+def context(
+    asked_item: str, state: Mapping[str, object] | None = None, model_io_version: str = "model-io-v2"
+) -> GuardContext:
     data = bank()
-    return GuardContext(asked_item, build_flow_index(data["flow"]), build_field_index(data["fields"]), state or {})
+    flow, fields = build_flow_index(data["flow"]), build_field_index(data["fields"])
+    return GuardContext(asked_item, flow, fields, state or {}, model_io_version=model_io_version)
 
 
 def value(

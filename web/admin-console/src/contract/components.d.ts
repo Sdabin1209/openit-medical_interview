@@ -1045,7 +1045,7 @@ export interface components {
          * @description 모델 입출력 v3 에 의존해 v3 가 활성이기 전까지 꺼져 있는 기능
          * @enum {string}
          */
-        ModelIoFeature: "CONFIRMING_STATE" | "MEANING_ASKED_EXEMPTION" | "STAFF_HELP_AFTER_EXPLAIN";
+        ModelIoFeature: "LIMIT_REACHED_SENTENCE" | "MEANING_ASKED_EXEMPTION" | "STAFF_HELP_AFTER_EXPLAIN";
         /**
          * @description 기능이 켜지는 모델 입출력의 최소 버전(model-io-v3)
          * @constant
@@ -1061,10 +1061,10 @@ export interface components {
         /** @description v3 의존 기능 셋과 켜지는 조건의 표(ModelIoFeature 값마다 정확히 하나) */
         ModelIoFeatureRequirements: components["schemas"]["ModelIoFeatureRequirement"][] & (unknown & unknown & unknown);
         /**
-         * @description 모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. 다음 버전의 후보는 contracts/model-io-v3-proposal.md 에 있고 활성이 아니다
+         * @description 모델 패키지의 어댑터가 학습한 입출력 형식의 버전. 서비스의 모델 통신 컴포넌트는 활성 모델 패키지의 이 버전에 맞는 것만 모델과 이야기한다. v2 와 v3 의 차이는 contracts/model-io-v3-proposal.md 에 행 수 근거와 함께 있다
          * @enum {string}
          */
-        ModelIoVersion: "model-io-v2";
+        ModelIoVersion: "model-io-v2" | "model-io-v3";
         /**
          * @description 행동마다 next_item 을 정하는 규칙의 종류. 행동과의 짝은 REASK·CONFIRM 이 TARGET_ITEM, REDIRECT 가 ASKED_ITEM, 그 밖(NEXT·CORRECT·HOLD·SKIP)이 SEQUENCE_AFTER_SAVED 다
          * @enum {string}
@@ -1140,16 +1140,25 @@ export interface components {
             /** @description LoRA-B 입력의 모든 수준의 키 순서 */
             b_key_order: components["schemas"]["AlphabeticalOrder"];
         };
+        /** @description 모델 입출력 v3 의 모델 입력 글자 직렬화 규칙(데이터). LoRA-A·LoRA-B 입력 모두 json.dumps(obj, ensure_ascii=False, sort_keys=True) 와 같은 글자다(모든 수준의 키를 문자 순으로). 그래서 v2 의 state 칸 순서(요청 slots 순서)와 항목 안 키 순서(value, status) 규칙은 v3 에 없다. model-io-v2 는 ModelInputSerialization 을 쓴다 */
+        ModelInputSerializationV3: {
+            /** @description 비 ASCII 글자를 이스케이프할지(항상 거짓) */
+            ensure_ascii: components["schemas"]["EnsureAscii"];
+            /** @description LoRA-A 입력의 모든 수준의 키 순서(state 의 칸 키와 항목 안 키 포함) */
+            a_key_order: components["schemas"]["AlphabeticalOrder"];
+            /** @description LoRA-B 입력의 모든 수준의 키 순서 */
+            b_key_order: components["schemas"]["AlphabeticalOrder"];
+        };
         /**
          * @description LoRA-A 가 이번 말에 대해 고른 절차(action)
          * @enum {string}
          */
         ExtractionAction: "NEXT" | "CORRECT" | "REASK" | "CONFIRM" | "HOLD" | "SKIP" | "REDIRECT";
         /**
-         * @description 절차의 사유(모델 입출력 v2). NEXT 와 CORRECT 에는 붙지 않는다
+         * @description 절차의 사유. NEXT 와 CORRECT 에는 붙지 않는다. UNCLEAR_TARGET, ASK_MEANING, ASK_HOW, LIMIT_REACHED 는 모델 입출력 v3 에서 더해졌다. 활성 패키지가 v2 인데 LoRA-A 가 v3 의 사유를 내면 model-runtime 의 출력 검증이 출력 불가(OUTPUT_SCHEMA)로 다룬다(그 어댑터는 그 사유를 학습하지 않았다)
          * @enum {string}
          */
-        ActionReason: "CONFLICT_WITH_PREVIOUS" | "CONFLICT_MAX_BELOW_USUAL" | "CONFLICT_DOES_NOT_DRINK" | "REQUEST_SKIP" | "REFUSED" | "OUT_OF_SCHEMA" | "ASK_PURPOSE" | "OFF_TOPIC" | "UNCERTAIN" | "MISSING" | "OUT_OF_RANGE" | "UNKNOWN_UNIT" | "VAGUE_QUANTITY" | "OTHER_BEVERAGE" | "BEVERAGE_MISSING" | "MISSING_NUMBER" | "RANGE_SPANS_OPTIONS" | "INVALID_OPTION" | "COUNT_EXCEEDS_DAYS" | "UNPARSED_VALUE";
+        ActionReason: "CONFLICT_WITH_PREVIOUS" | "CONFLICT_MAX_BELOW_USUAL" | "CONFLICT_DOES_NOT_DRINK" | "REQUEST_SKIP" | "REFUSED" | "OUT_OF_SCHEMA" | "ASK_PURPOSE" | "OFF_TOPIC" | "UNCERTAIN" | "MISSING" | "OUT_OF_RANGE" | "UNKNOWN_UNIT" | "VAGUE_QUANTITY" | "OTHER_BEVERAGE" | "BEVERAGE_MISSING" | "MISSING_NUMBER" | "RANGE_SPANS_OPTIONS" | "INVALID_OPTION" | "COUNT_EXCEEDS_DAYS" | "UNPARSED_VALUE" | "UNCLEAR_TARGET" | "ASK_MEANING" | "ASK_HOW" | "LIMIT_REACHED";
         /**
          * @description 추출한 값 하나의 상태
          * @enum {string}
@@ -1198,7 +1207,7 @@ export interface components {
             targets?: components["schemas"]["SlotRefStrings"];
             /** @description OUT_OF_SCHEMA 일 때 환자가 말한 문진표 밖 건강 이야기 */
             note?: components["schemas"]["OutOfSchemaNote"];
-        } & (unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** @description 추론 서버에 LoRA-A 추출을 요청하는 본문. 지금 묻는 문항, 상담원이 방금 한 말, 환자의 말, 저장된 칸 값, 순서표, 칸 규격의 구조화된 값만 싣는다. 모델 입력의 글자와 state 에 넣을 문항의 선택은 model-runtime 이 데이터셋 정본(labels.py, IO_SPEC.md 2.1)으로 만든다 */
         ExtractionRequest: {
             /** @description 요청하는 쪽이 쓰는 문항 은행 버전(활성 문항 세트의 값). 적재한 모델 패키지가 학습한 값과 다르면 QUESTION_BANK_VERSION_MISMATCH 로 거절한다 */
@@ -1213,6 +1222,8 @@ export interface components {
             user_utterance: components["schemas"]["UtteranceText"];
             /** @description 이번 턴을 반영하기 전에 저장된 칸 값들. model-runtime 이 지금 문항·직전에 물은 문항·참조 원천 문항의 것만 골라 모델 입력 state 로 쓴다 */
             slots: components["schemas"]["StoredSlots"];
+            /** @description 환자가 이번에 답한 화면을 만든 절차(직전 턴 LoRA-B 요청의 action, 첫 턴이면 START). CONFIRM 이면 model-runtime 은 state 를 지금 문항(확인하는 문항)의 저장 값으로만 고른다(모델 입출력 v3). 없으면 v2 의 규칙대로 고른다 */
+            previous_screen_action?: components["schemas"]["ResponseAction"];
             /** @description 출력의 다음 문항을 보증하는 순서표 */
             flow: components["schemas"]["QuestionFlowTable"];
             /** @description 출력 값을 보증하는 칸 규격들 */
@@ -1224,6 +1235,8 @@ export interface components {
             package_digest: components["schemas"]["OciDigest"];
             /** @description 보증을 마친 LoRA-A 출력 */
             output: components["schemas"]["ActionExtraction"];
+            /** @description 이 출력을 만든 모델 패키지의 모델 입출력 버전. 서비스가 v3 의존 기능(ModelIoFeature)을 켤지 이 값으로 정한다(9.4.0 에서 더함, 없으면 model-io-v2 로 본다) */
+            model_io_version?: components["schemas"]["ModelIoVersion"];
         };
         /**
          * @description LoRA-B 가 문장을 만들 때의 절차
@@ -1256,6 +1269,8 @@ export interface components {
             question_id?: components["schemas"]["QuestionItemId"];
             /** @description 대화에서 직전에 물은 문항(A 를 부를 때 보낸 값과 같다). 첫 문항이면 없다 */
             previous_question_id?: components["schemas"]["QuestionItemId"];
+            /** @description 환자가 이번에 답한 화면을 만든 절차(A 를 부를 때 보낸 값과 같다). CONFIRM 이면 state 를 지금 문항의 저장 값으로만 고른다 */
+            previous_screen_action?: components["schemas"]["ResponseAction"];
             /** @description 환자의 이번 말(START 에는 없다) */
             user_utterance?: components["schemas"]["UtteranceText"];
             /** @description 이번 턴을 반영하기 전에 저장된 칸 값들(A 를 부를 때 보낸 목록과 같다). 이전 값(CONFIRM)과 되묻는 문장에 쓰는 이미 받은 값의 원재료다(START 에는 없다) */
@@ -1268,7 +1283,33 @@ export interface components {
             note?: components["schemas"]["OutOfSchemaNote"];
             /** @description 응답 뒤에 가는 자리(서비스가 정한다. 시작이면 순서표의 첫 문항) */
             next: components["schemas"]["ResponseNext"];
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+            /** @description 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)일 때 직전 화면이 되묻기·확인이었으면 그 턴의 응답 생성 요청. model-runtime 이 그 요청으로 만든 B 입력의 ask(·previous·current)를 이번 B 입력에 그대로 넣는다(모델 입출력 v3) */
+            ask_back_source?: components["schemas"]["AskBackSource"];
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        /** @description 설명 요청 REDIRECT 가 이어 받는 직전 턴의 응답 생성 요청(되묻기 REASK 나 확인 CONFIRM). 직전 화면도 설명 요청이었으면 그 요청이 이어 받은 것을 그대로 싣는다(연달아 되물은 경우). 필드의 뜻은 ResponseGenerationRequest 의 같은 이름 필드와 같다 */
+        AskBackSource: {
+            /** @description 직전 턴의 절차(되묻기 REASK 나 확인 CONFIRM 만) */
+            action: components["schemas"]["ResponseAction"];
+            /** @description 직전 턴의 사유 */
+            reason: components["schemas"]["ActionReason"];
+            /** @description 직전 턴에 묻던 문항 */
+            question_id: components["schemas"]["QuestionItemId"];
+            /** @description 직전 턴의 직전에 물은 문항(첫 문항이면 없다) */
+            previous_question_id?: components["schemas"]["QuestionItemId"];
+            /** @description 직전 턴의 환자 말 */
+            user_utterance: components["schemas"]["UtteranceText"];
+            /** @description 직전 턴을 반영하기 전에 저장된 칸 값들 */
+            slots: components["schemas"]["StoredSlots"];
+            /** @description 직전 턴 A 출력의 values */
+            values: components["schemas"]["ExtractedValues"];
+            /** @description 직전 턴 A 출력의 targets */
+            targets: components["schemas"]["SlotRefStrings"];
+            /** @description 직전 턴의 다음 자리(같은 문항) */
+            next: components["schemas"]["ResponseNext"];
+        } & {
+            /** @enum {unknown} */
+            action: "REASK" | "CONFIRM";
+        };
         /** @description LoRA-B 가 만든 응답 문장과 처리한 모델 패키지 */
         ResponseResult: {
             /** @description 이 문장을 만든 모델 패키지(OCI 매니페스트 digest) */
@@ -2092,7 +2133,7 @@ export interface components {
          */
         StartCodeTtlSeconds: number;
         /**
-         * @description 한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게는 서비스의 고정 안내 문장을 보이고 LoRA-B 에 거짓 사유를 보내지 않는다
+         * @description 한 문항에서 REASK 와 CONFIRM 이 이어질 수 있는 되묻기 횟수의 한도(처음 질문 1회에 되묻기 2회). 그 뒤에도 정해지지 않으면 서비스가 문항을 건너뛰고(SKIP) 결과에 빈칸 원인 REASK_LIMIT 를 남긴다. 환자에게 보이는 문장은 모델 입출력 v2 에서는 서비스의 고정 안내 문장이고(LoRA-B 에 학습되지 않은 사유를 보내지 않는다), v3 에서는 LoRA-B 에 SKIP/LIMIT_REACHED 를 보내 만든다(ModelIoFeature LIMIT_REACHED_SENTENCE). 설명 요청(ASK_MEANING, ASK_HOW)은 v3 에서 이 횟수에 세지 않는다
          * @example 2
          */
         ReaskLimit: number;
@@ -2103,7 +2144,7 @@ export interface components {
          */
         TurnFailureLimit: 3;
         /**
-         * @description 한 문항에서 질문의 뜻·대상을 묻는 말만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
+         * @description 한 문항에서 설명 요청(REDIRECT 의 ASK_MEANING·ASK_HOW)만 이어질 수 있는 횟수. 닿으면 서비스가 고정 문장으로 직원 도움을 안내한다. 모델 입출력 v2 에는 이 분류가 없어 모델 입출력 v3 부터 동작한다
          * @example 3
          */
         ExplainStreakLimit: number;
