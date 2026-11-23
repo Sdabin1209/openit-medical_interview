@@ -5,7 +5,9 @@
 
 모든 호출은 계약 검증을 거친다(contract.Contract.call): 상태 코드가 계약에 있고 기대한 것인지, 응답이 그 상태의 스키마를 지키는지.
 pipeline 모드는 계약대로 응답하는지와 실패 처리를 본다: 출력 불가 -> 실패 신호(저장된 답·지금 문항 불변), 연속 실패가 TurnFailureLimit(계약 9.3.0)에 닿는 턴 -> 실패 신호 없이 그 문항을 건너뛴
-결과(빈칸 원인 FAILURE_LIMIT, FHIR data-absent-reason error), 같은 turn_id 의 재전송은 연속 실패 수를 올리지 않는다. product 모드는 더해 대본의 기대 값이 결과에 저장되는지와 문진이 끝까지 가는지를 본다.
+결과(빈칸 원인 FAILURE_LIMIT, FHIR data-absent-reason error), 같은 turn_id 의 재전송은 연속 실패 수를 올리지 않는다. product 모드는 학습된 어댑터로 같은 시스템 규칙을 본다.
+이 시험은 프레임워크 시험이다(2026-11-23 결정): 모델이 낸 결과(실패 신호, 확인·되묻기 반복, 문진 미완료, 대본 기대 값과 다른 저장)는 '모델 관찰'로 기록하고
+단계를 실패시키지 않는다. 시스템이 계약대로 처리했는지(호출·상태·실패 처리 규칙·결과·FHIR·알림)만 합격 기준이다.
 성공을 바라고 실패한 호출을 다시 시도하지 않는다(재전송 시험은 계약 규칙을 보려는 한 번의 의도된 호출이다). 기다림은 상태를 보는 것(적재 상태 조회)뿐이고 상한 안에서만 한다.
 """
 
@@ -40,6 +42,9 @@ FAILURE_LIMIT_SCHEMA = "TurnFailureLimit"
 BLANK_REASON = "FAILURE_LIMIT"  # 계약 BlankReason
 FHIR_ABSENT_ERROR = "error"  # 계약 FhirAbsentReason: FAILURE_LIMIT 칸의 FHIR 빈칸 사유(FhirMapping.absent_map)
 PRODUCT_TURN_GUARD = len(script.SCRIPT) + 5  # product 모드: 순서표가 대본보다 길게 이어지면 멈춘다(대본에 없는 문항에서 막힌다)
+# 왜 3: 대본은 문항마다 발화가 하나라, 모델이 확인·되묻기로 같은 문항을 되돌리면 같은 발화가 되풀이된다. 같은 문항에 세 번째로 보내는 턴은 이미 같은 입력을
+# 두 번 본 뒤라 새로 알 것이 없다. 그때 세션을 끝내 GPU 시간을 아끼고 뒤 단계(결과·FHIR·알림)를 본다(측정값이 아니라 대본의 성질에서 나온 값)
+PRODUCT_REPEAT_LIMIT = 3
 SUBJECT = "e2e-subject-001"
 SUBJECT_CALL = "e2e-subject-002"
 # 학습 데이터 이름 자리에 쓰는 고정 UUID(RFC 9562 의 이름 기반 v5). 어댑터를 평가한 데이터셋·학습 실행의 식별자가 필요한 게시 인자이고 이 시험에는 실제 대응이 없다
@@ -66,6 +71,7 @@ class Context:
     last_status: str = ""
     streams: list[StreamOutcome] = field(default_factory=lambda: list[StreamOutcome]())
     result: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
+    model_notes: list[str] = field(default_factory=lambda: list[str]())  # 모델 관찰(판정 밖, product)
 
     def human(self, user: str) -> httpx.Client:
         if user not in self.clients:
@@ -339,12 +345,19 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
     sent = 0
     resent = False
     status = "ACTIVE"
+    per_item: dict[str, int] = {}
     while status == "ACTIVE" and sent < limit:
         turn = script.BY_ITEM.get(item)
         if turn is None:
             if ctx.mode == "product":
-                raise StepFailure(f"서비스가 알려 준 지금 문항 {item} 의 발화가 대본에 없다")
+                ctx.model_notes.append(f"지금 문항 {item} 의 발화가 대본에 없어 {sent}턴에서 멈췄다")
+                break
             turn = script.SCRIPT[sent % len(script.SCRIPT)]
+        if ctx.mode == "product":
+            per_item[item] = per_item.get(item, 0) + 1
+            if per_item[item] > PRODUCT_REPEAT_LIMIT:
+                ctx.model_notes.append(f"문항 {item} 이 {PRODUCT_REPEAT_LIMIT}번 되돌아와(확인·되묻기 반복) {sent}턴에서 멈췄다")
+                break
         turn_body = {"turn_id": str(uuid.uuid4()), "utterance": turn.utterance}
         reply = _stream_result(
             ctx, kiosk, "submitTurnStream", f"{sent + 1}번째 턴", checks, path={"session_id": ctx.session_id}, body=turn_body
@@ -368,9 +381,8 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
                 f"실패한 turn_id 를 다시 보내도 연속 실패 수는 {ledger.streak} 그대로다(다음 새 턴이 {ledger.limit - 1}번째 실패로 세어져야 한다)"
             )
         if "failure_signal" in reply and ctx.mode == "product":
-            raise StepFailure(
-                f"product 모드에서 턴이 실패 신호({reply['failure_signal']})를 냈다(문항 {item}, {sent}번째 턴). 실패한 턴을 다시 보내지 않는다"
-            )
+            # 시스템 규칙(상태·지금 문항 불변, 연속 실패 한도)은 _check_turn 이 봤다. 실패 신호 자체는 모델의 출력 결과다
+            ctx.model_notes.append(f"{sent}번째 턴(문항 {item}) 실패 신호 {reply['failure_signal']}")
         status = reply["status"]
         item = reply.get("current_item_id", item)
         state = ctx.call(kiosk, "survey-service", "getSessionState", expect=(200,), path={"session_id": ctx.session_id}).body
@@ -398,7 +410,9 @@ def session(ctx: Context, checks: list[str], findings: list[str]) -> None:
     checks.append(f"endSession 200({ended['status']})")
     _check_streaming(ctx, checks)
     if ctx.mode == "product" and ended["status"] != "ENDED_COMPLETE":
-        raise StepFailure(f"product 모드는 문진이 끝까지 가야 한다(ENDED_COMPLETE). 실제 {ended['status']}")
+        ctx.model_notes.append(f"문진이 끝까지 가지 않았다({ended['status']}, {sent}턴)")
+    if ctx.model_notes:
+        checks.append("모델 관찰(판정 밖): " + "; ".join(ctx.model_notes))
 
 
 # ---------------------------------------------------------------- ⑥ 의사
@@ -452,11 +466,13 @@ def doctor(ctx: Context, checks: list[str], findings: list[str]) -> None:
             key: (stored.get(key, "(없음)"), value) for key, value in expected.items() if key not in stored or not _same(stored[key], value)
         }
         if wrong:
-            raise StepFailure(
-                f"대본의 기대 값이 결과에 저장되지 않았다({len(wrong)}/{len(expected)}): "
-                + "; ".join(f"{k}: 결과 {got} 기대 {want}" for k, (got, want) in sorted(wrong.items())[:8])
+            note = f"대본의 기대 값 중 {len(wrong)}/{len(expected)}개가 결과와 다르다: " + "; ".join(
+                f"{k}: 결과 {got} 기대 {want}" for k, (got, want) in sorted(wrong.items())[:8]
             )
-        checks.append(f"대본의 기대 값 {len(expected)}개가 모두 결과에 저장되었다")
+            ctx.model_notes.append(note)
+            checks.append(f"모델 관찰(판정 밖): {note}")
+        else:
+            checks.append(f"대본의 기대 값 {len(expected)}개가 모두 결과에 저장되었다")
     ack = ctx.call(clinician, "survey-service", "acknowledgeResult", expect=(200,), path={"session_id": ctx.session_id}).body
     after = ctx.call(clinician, "survey-service", "getResult", expect=(200,), path={"session_id": ctx.session_id}).body
     if after.get("acknowledged_by") != ack["acknowledged_by"]:

@@ -95,6 +95,7 @@ def make_ctx(service: FakeService, monkeypatch: pytest.MonkeyPatch, mode: str = 
         skipped=[],
         streams=[StreamOutcome(deltas=1)],
         last_status="",
+        model_notes=[],
     )
 
 
@@ -203,3 +204,47 @@ def test_fhir_check_is_silent_without_failure_limit_blanks() -> None:
 def test_item_level_blank_uses_item_id_as_link_id() -> None:
     result = {"blanks": [{"item_id": "Q1.D01", "reason": "FAILURE_LIMIT"}]}
     assert scenario.check_fhir_blanks(result, fhir_with("error", "Q1.D01")) is not None  # 같은 linkId 가 바깥 item 에도 있다
+
+
+class LoopService:
+    """모델이 확인을 되풀이하는 모양: 두 문항을 번갈아 지금 문항으로 준다(실패 신호 없음). 2026-11-23 product 실행(a_8b_1029)에서 본 Q1.D01↔Q1.D02 반복."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    @property
+    def item(self) -> str:
+        return ITEMS[0]
+
+    def turn(self, turn_id: str) -> dict[str, Any]:
+        self.count += 1
+        return {"turn_id": turn_id, "status": "ACTIVE", "current_item_id": ITEMS[self.count % 2], "response_text": "확인할게요."}
+
+
+def test_product_model_failure_signals_are_recorded_not_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """프레임워크 시험: product 에서 모델의 실패 신호는 모델 관찰로 남고 단계는 실패하지 않는다. 시스템 규칙(한도에서 건너뜀)은 그대로 본다."""
+    service = FakeService()
+    monkeypatch.setattr(scenario, "PRODUCT_TURN_GUARD", 12)  # 가짜 서비스의 문항 8개 안에서 끝낸다
+    ctx = make_ctx(service, monkeypatch, mode="product")
+    checks: list[str] = []
+    scenario.session(ctx, checks, [])  # type: ignore[arg-type]
+    assert ctx.turn_failures > 0 and ctx.skipped
+    assert any("실패 신호 EXTRACTION_UNAVAILABLE" in note for note in ctx.model_notes)
+    assert any(line.startswith("모델 관찰(판정 밖)") for line in checks)
+
+
+def test_product_system_rule_violation_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """모델 관찰로 넘기는 것은 모델의 결과뿐이다: 한도에서도 실패 신호를 내는 서비스(계약 위반)는 product 에서도 실패다."""
+    ctx = make_ctx(FakeService(never_skip=True), monkeypatch, mode="product")
+    with pytest.raises(StepFailure, match="건너뛴 결과여야 한다"):
+        scenario.session(ctx, [], [])  # type: ignore[arg-type]
+
+
+def test_product_repeat_guard_stops_and_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 문항이 PRODUCT_REPEAT_LIMIT 번을 넘어 돌아오면 세션을 끝내고 반복을 기록한다(상한 30턴까지 쓰지 않는다)."""
+    service = LoopService()
+    ctx = make_ctx(service, monkeypatch, mode="product")  # type: ignore[arg-type]
+    scenario.session(ctx, [], [])  # type: ignore[arg-type]
+    assert service.count == 2 * scenario.PRODUCT_REPEAT_LIMIT
+    assert any("되돌아와" in note for note in ctx.model_notes)
+    assert any("끝까지 가지 않았다" in note for note in ctx.model_notes)
