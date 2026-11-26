@@ -35,7 +35,7 @@ link: `src/link/http.ts`(openapi-fetch, [ADR 0003](docs/adr/0003-계약-호출�
 ## 4. 실행·시험 명령
 ```
 npm ci
-npm run dev                 # 개발 서버(서버 API 는 없다. 시험의 가짜로 보려면 tests/e2e 참고)
+npm run dev                 # 개발 서버(가짜 백엔드가 붙는다, 역할은 ?roles=staff,clinician. 끄기: VITE_DEV_MOCK=off, ADR 0011)
 npm run build               # 타입 검사 후 정적 파일 빌드
 npm run generate:contract   # 계약에서 타입 다시 만들기
 npm run check:contract      # 생성물이 계약과 같은지
@@ -82,3 +82,4 @@ tools/smoke web admin-console
 - [0008 모델 패키지는 목록에서 고르고 활성 여부를 보인다](docs/adr/0008-모델-패키지는-목록에서-고르고-활성-여부를-보인다.md)
 - [0009 노출 선언과 이미지 라벨 원본 파일](docs/adr/0009-노출-선언과-이미지-라벨-원본-파일.md)
 - [0010 화면은 /console/ 접두어 아래에서 서비스한다](docs/adr/0010-화면은-console-접두어-아래에서-서비스한다.md)
+- [0011 개발 서버는 MSW 브라우저 모드로 가짜를 붙인다](docs/adr/0011-개발-서버는-MSW-브라우저-모드로-가짜를-붙인다.md)
