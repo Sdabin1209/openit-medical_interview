@@ -26,7 +26,7 @@
 ## 4. 실행·시험 명령
 ```
 npm ci                      # 잠금 파일대로 설치(의존을 더할 때만 npm install)
-npm run dev                 # 개발 서버
+npm run dev                 # 개발 서버(가짜 survey-service 가 붙는다, 시작 코드 123456. 끄기: VITE_DEV_MOCK=off, ADR 0009)
 npm run build               # 타입 검사 후 정적 파일 빌드
 npm run generate:contract   # 계약에서 타입 다시 만들기
 npm run check:contract      # 생성물이 계약과 같은지
@@ -37,7 +37,7 @@ tools/web-e2e kiosk-frontend          # Playwright(공식 이미지 안), 리포
 deploy/deploy build web-kiosk-frontend    # 이미지 빌드(exposure.json·inputs.json 을 라벨 인자로 넘기는 일은 deploy build)
 tools/smoke web kiosk-frontend        # 이미지 스모크
 ```
-가짜 survey-service 는 `tests/fakes/survey-service.ts` 하나이고 단위 시험(MSW)과 브라우저 시험(`page.route`)이 함께 쓴다.
+가짜 survey-service 는 `tests/fakes/survey-service.ts` 하나이고 단위 시험(MSW)과 브라우저 시험(`page.route`), 개발 서버(MSW 브라우저 모드, `dev/main.tsx`)가 함께 쓴다.
 
 ## 5. 시험 상태
 이 절은 이 영역의 시험 상태만 쓴다. 2026-11-11 기준(계약 9.2.0, 응답 문장 스트림 [ADR 0008](docs/adr/0008-응답-문장-스트림-파서와-그리기-규칙.md)).
@@ -55,3 +55,4 @@ tools/smoke web kiosk-frontend        # 이미지 스모크
 - [0006 이미지 선언(exposure.json, inputs.json)과 라벨](docs/adr/0006-이미지-선언과-라벨.md)
 - [0007 화면은 /kiosk/ 접두어 아래에서 서비스한다](docs/adr/0007-화면은-kiosk-접두어-아래에서-서비스한다.md)
 - [0008 응답 문장 스트림: 파서 선택과 그리기 규칙](docs/adr/0008-응답-문장-스트림-파서와-그리기-규칙.md)
+- [0009 개발 서버는 MSW 브라우저 모드로 가짜를 붙인다](docs/adr/0009-개발-서버는-MSW-브라우저-모드로-가짜를-붙인다.md)

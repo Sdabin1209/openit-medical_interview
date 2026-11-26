@@ -10,7 +10,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules", "playwright-report", "test-results", "src/contract/**", "tests/boundaries/fixtures/**"] },
+  { ignores: ["dist", "node_modules", "playwright-report", "test-results", "src/contract/**", "tests/boundaries/fixtures/**", "dev/public/**"] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   reactHooks.configs.flat.recommended,
